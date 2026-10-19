@@ -1,0 +1,5 @@
+export const TEAM_CONFIG = {
+  DEFAULT_TEAM_ID: '6ab9495000191542af6e',
+  FORCE_DEFAULT_TEAM: true,
+  DEBUG: true,
+};

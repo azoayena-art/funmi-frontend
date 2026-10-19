@@ -1,0 +1,27 @@
+// Script de création (à exécuter une fois)
+await databases.createCollection(
+  DATABASE_ID,
+  'account_mappings',
+  'account_mappings',
+  [
+    Permission.read(Role.team('{teamId}')),
+    Permission.create(Role.team('{teamId}')),
+    Permission.update(Role.team('{teamId}')),
+    Permission.delete(Role.team('{teamId}')),
+  ]
+);
+
+// Attributs
+await databases.createStringAttribute(DATABASE_ID, 'account_mappings', 'teamId', 100, true);
+await databases.createStringAttribute(DATABASE_ID, 'account_mappings', 'category', 50, true);
+await databases.createStringAttribute(DATABASE_ID, 'account_mappings', 'accountNumber', 20, true);
+await databases.createStringAttribute(DATABASE_ID, 'account_mappings', 'accountLabel', 200, false);
+await databases.createBooleanAttribute(DATABASE_ID, 'account_mappings', 'isDefault', true, true);
+await databases.createDatetimeAttribute(DATABASE_ID, 'account_mappings', 'updatedAt');
+
+// Index pour performance
+await databases.createIndex(
+  DATABASE_ID, 'account_mappings',
+  'idx_teamId_category', 'unique',
+  ['teamId', 'category']
+);

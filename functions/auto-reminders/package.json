@@ -1,0 +1,7 @@
+{
+  "name": "auto-reminders",
+  "version": "2.1.0",
+  "main": "src/main.js",
+  "type": "module",
+  "dependencies": {}
+}
