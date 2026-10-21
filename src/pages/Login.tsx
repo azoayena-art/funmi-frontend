@@ -211,11 +211,18 @@ export default function Login() {
         duration: 3000,
       });
 
-      // ✅ Petit délai pour laisser le toast s'afficher
-      setTimeout(() => {
-        navigate(safeRedirect, { replace: true });
-      }, 300);
-    } catch (err: unknown) {
+
+
+   // ✅ Petit délai pour laisser le toast s'afficher
+
+      // 🚀 RECHARGEMENT COMPLET (Hard Redirect)
+   // C'est la méthode la plus fiable pour s'assurer que le AuthContext 
+   // lise la nouvelle session sans conflit de state React.
+   setTimeout(() => {
+     window.location.href = safeRedirect;
+   }, 500);
+
+       } catch (err: unknown) {
       if (err instanceof AppwriteException) {
         switch (err.code) {
           case 401:
