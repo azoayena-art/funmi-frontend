@@ -31,7 +31,7 @@ import {
   validateVatNumber as validateVatMultiCountry 
 } from '../utils/eInvoicing';
 
-// 🔐 CORRECTION RLS : Import centralisé (supprime la duplication)
+// 🔐 CORRECTION RLS : Import centralisé
 import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 // ============================================================
@@ -248,10 +248,8 @@ export default function QuoteModal({
 }: QuoteModalProps) {
 
   const { user } = useAuth();
-  // 🔒 RLS : Récupération des DEUX IDs depuis le hook
   const { appwriteTeamId } = useTeam();
   
-  // ✅ Pays de l'entreprise émettrice (fallback sur 'FR')
   const { 
     fm: hookFm, 
     currency, 
@@ -259,10 +257,10 @@ export default function QuoteModal({
     companyCountry: hookCompanyCountry 
   } = useCompanySettings();
   
-  const companyCountry = hookCompanyCountry || companySettings?.country || 'FR';
-
-  // ✅ CORRECTION RLS : Définition locale SUPPRIMÉE
-  // Utilisation directe de getTeamPermissions(appwriteTeamId, { isPublic }) depuis utils/rowLevelPermissions
+  // ✅ CORRECTION CRITIQUE : Le pays de l'entreprise émettrice doit réagir aux modifications manuelles dans le modal
+  const effectiveCompanyCountry = companyInfoCustomized 
+    ? formData.companyCountry 
+    : (hookCompanyCountry || companySettings?.country || 'FR');
 
   const [saving, setSaving] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
@@ -285,7 +283,7 @@ export default function QuoteModal({
   const wasOpenRef = useRef(false);
 
   // ============================================================
-  // ✅ CALCULS
+  // ✅ CALCULS & RÈGLES DYNAMIQUES
   // ============================================================
 
   const tvaSelectOptions = useMemo(() => {
@@ -315,26 +313,15 @@ export default function QuoteModal({
   const paginatedCatalogProducts = filteredCatalogProducts.slice(catalogStartIndex, catalogEndIndex);
 
   const filteredClients = useMemo(() => {
-    if (!clients || !Array.isArray(clients) || clients.length === 0) {
-      return [];
-    }
-    
+    if (!clients || !Array.isArray(clients) || clients.length === 0) return [];
     const active = clients.filter((c: any) => c && c.status !== 'archived');
-    
-    if (clientSearch === '') {
-      return active;
-    }
+    if (clientSearch === '') return active;
     
     const search = clientSearch.toLowerCase();
     return active.filter((c: any) => {
       const searchStr = [
-        c.firstName || '',
-        c.lastName || '',
-        c.companyName || '',
-        c.email || '',
-        c.phone || '',
-        c.city || '',
-        c.postalCode || ''
+        c.firstName || '', c.lastName || '', c.companyName || '',
+        c.email || '', c.phone || '', c.city || '', c.postalCode || ''
       ].join(' ').toLowerCase();
       return searchStr.includes(search);
     });
@@ -347,11 +334,11 @@ export default function QuoteModal({
         clientsActifs: filteredClients.length,
         currentTeamId,
         companySettingsProps: companySettings?.name || '(null)',
-        companyCountry,
+        effectiveCompanyCountry,
         appwriteTeamId,
       });
     }
-  }, [isOpen, clients, filteredClients, currentTeamId, companySettings, companyCountry, appwriteTeamId]);
+  }, [isOpen, clients, filteredClients, currentTeamId, companySettings, effectiveCompanyCountry, appwriteTeamId]);
 
   const subtotalRaw = formData.items.reduce((s, i) => s + (i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100)), 0);
   const discountAmountRaw = subtotalRaw * (formData.discount / 100);
@@ -379,21 +366,21 @@ export default function QuoteModal({
     return Array.from(map.values()).sort((a, b) => b.rate - a.rate);
   }, [formData.items, formData.discount, isTvaApplicable]);
 
-  // ✅ Calcul dynamique de la visibilité e-facturation
+  // ✅ RÈGLES E-FACTURATION DYNAMIQUES (réagissent aux changements dans le formulaire)
   const isClientEntreprise = formData.clientType === 'entreprise';
+  
   const visible = useMemo(() => 
-    getVisibleFields(companyCountry, formData.clientCountry, isClientEntreprise),
-    [companyCountry, formData.clientCountry, isClientEntreprise]
+    getVisibleFields(effectiveCompanyCountry, formData.clientCountry, isClientEntreprise),
+    [effectiveCompanyCountry, formData.clientCountry, isClientEntreprise]
   );
   
-  // ✅ Vérification croisée : e-facturation obligatoire ?
   const eInvoiceRequired = useMemo(() => 
-    isEInvoiceRequired(companyCountry, {
+    isEInvoiceRequired(effectiveCompanyCountry, {
       country: formData.clientCountry,
       type: formData.clientType,
       companyName: formData.clientName,
     }),
-    [companyCountry, formData.clientCountry, formData.clientType, formData.clientName]
+    [effectiveCompanyCountry, formData.clientCountry, formData.clientType, formData.clientName]
   );
 
   // ============================================================
@@ -429,29 +416,19 @@ export default function QuoteModal({
       if (!freshSettings && currentTeamId) {
         try {
           const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-            Query.equal('teamId', currentTeamId),
-            Query.limit(1)
+            Query.equal('teamId', currentTeamId), Query.limit(1)
           ]);
-          if (res.documents.length > 0) {
-            freshSettings = res.documents[0] as unknown as CompanySettings;
-          }
-        } catch (e) {
-          console.warn('⚠️ [QuoteModal] Erreur rechargement settings teamId:', e);
-        }
+          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+        } catch (e) { console.warn('⚠️ [QuoteModal] Erreur rechargement settings teamId:', e); }
       }
       
       if (!freshSettings && user?.$id) {
         try {
           const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-            Query.equal('userId', user.$id),
-            Query.limit(1)
+            Query.equal('userId', user.$id), Query.limit(1)
           ]);
-          if (res.documents.length > 0) {
-            freshSettings = res.documents[0] as unknown as CompanySettings;
-          }
-        } catch (e) {
-          console.warn('⚠️ [QuoteModal] Erreur rechargement settings userId:', e);
-        }
+          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+        } catch (e) { console.warn('⚠️ [QuoteModal] Erreur rechargement settings userId:', e); }
       }
       
       if (!freshSettings) {
@@ -515,30 +492,17 @@ export default function QuoteModal({
     setCompanyInfoCustomized(false);
     
     let freshSettings = companySettings;
-    
     if (!freshSettings) {
       try {
         if (currentTeamId) {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-            Query.equal('teamId', currentTeamId),
-            Query.limit(1)
-          ]);
-          if (res.documents.length > 0) {
-            freshSettings = res.documents[0] as unknown as CompanySettings;
-          }
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('teamId', currentTeamId), Query.limit(1)]);
+          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
         }
         if (!freshSettings && user?.$id) {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-            Query.equal('userId', user.$id),
-            Query.limit(1)
-          ]);
-          if (res.documents.length > 0) {
-            freshSettings = res.documents[0] as unknown as CompanySettings;
-          }
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('userId', user.$id), Query.limit(1)]);
+          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
         }
-      } catch (e) {
-        console.warn('⚠️ [initForm] Erreur rechargement settings:', e);
-      }
+      } catch (e) { console.warn('⚠️ [initForm] Erreur rechargement settings:', e); }
     }
 
     if (editingQuote) {
@@ -548,18 +512,8 @@ export default function QuoteModal({
         parsedItems = parsedItems.map(item => ({ ...item, discount: item.discount || 0 }));
       } catch(e){ parsedItems = emptyFormData().items; }
       
-      const editCompanyAddr = parseAddressRetroactive(
-        editingQuote.companyAddress,
-        editingQuote.companyPostalCode,
-        editingQuote.companyCity,
-        editingQuote.companyCountry
-      );
-      const editClientAddr = parseAddressRetroactive(
-        editingQuote.clientAddress,
-        editingQuote.clientPostalCode,
-        editingQuote.clientCity,
-        editingQuote.clientCountry
-      );
+      const editCompanyAddr = parseAddressRetroactive(editingQuote.companyAddress, editingQuote.companyPostalCode, editingQuote.companyCity, editingQuote.companyCountry);
+      const editClientAddr = parseAddressRetroactive(editingQuote.clientAddress, editingQuote.clientPostalCode, editingQuote.clientCity, editingQuote.clientCountry);
       
       setFormData({
         prospectId: editingQuote.prospectId || '',
@@ -640,7 +594,6 @@ export default function QuoteModal({
         const c = clients.find((x: any) => x.$id === preselectedClientId);
         if (c) {
           const clientAddr = parseAddressRetroactive(c.address, c.postalCode, c.city, c.country);
-          
           def.clientId = c.$id;
           def.clientName = `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || '';
           def.clientAddress = clientAddr.address;
@@ -668,13 +621,7 @@ export default function QuoteModal({
   // ============================================================
 
   const handleClientSelect = (client: any) => {
-    const clientAddr = parseAddressRetroactive(
-      client.address,
-      client.postalCode,
-      client.city,
-      client.country
-    );
-    
+    const clientAddr = parseAddressRetroactive(client.address, client.postalCode, client.city, client.country);
     setFormData(prev => ({
       ...prev,
       clientId: client.$id,
@@ -698,66 +645,34 @@ export default function QuoteModal({
 
   const handleClearClient = () => {
     setFormData(prev => ({
-      ...prev,
-      clientId: '',
-      prospectId: '',
-      clientName: '',
-      clientAddress: '',
-      clientPostalCode: '',
-      clientCity: '',
-      clientCountry: 'FR',
-      clientBillingAddress: '',
-      clientEmail: '',
-      clientPhone: '',
-      clientType: 'particulier',
-      clientSiret: '',
-      clientSiren: '',
-      clientVatNumber: '',
+      ...prev, clientId: '', prospectId: '', clientName: '', clientAddress: '',
+      clientPostalCode: '', clientCity: '', clientCountry: 'FR', clientBillingAddress: '',
+      clientEmail: '', clientPhone: '', clientType: 'particulier',
+      clientSiret: '', clientSiren: '', clientVatNumber: '',
     }));
     setClientSearch('');
   };
 
   const handleReloadCompanySettings = async () => {
     let freshSettings: CompanySettings | null = companySettings;
-    
     try {
       if (currentTeamId) {
-        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-          Query.equal('teamId', currentTeamId),
-          Query.limit(1)
-        ]);
-        if (res.documents.length > 0) {
-          freshSettings = res.documents[0] as unknown as CompanySettings;
-        }
+        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('teamId', currentTeamId), Query.limit(1)]);
+        if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
       }
-    } catch (e) { 
-      console.log('Erreur rechargement settings'); 
-    }
+    } catch (e) { console.log('Erreur rechargement settings'); }
     
     if (!freshSettings && user?.$id) {
       try {
-        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
-          Query.equal('userId', user.$id),
-          Query.limit(1)
-        ]);
-        if (res.documents.length > 0) {
-          freshSettings = res.documents[0] as unknown as CompanySettings;
-        }
+        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('userId', user.$id), Query.limit(1)]);
+        if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
       } catch (e) { /* ignore */ }
     }
     
-    if (!freshSettings) {
-      console.warn('⚠️ Aucun paramètre entreprise trouvé');
-      return;
-    }
+    if (!freshSettings) return;
     
     const settings = freshSettings;
-    const companyAddr = parseAddressRetroactive(
-      settings.address,
-      (settings as any)?.postalCode,
-      (settings as any)?.city,
-      (settings as any)?.country
-    );
+    const companyAddr = parseAddressRetroactive(settings.address, (settings as any)?.postalCode, (settings as any)?.city, (settings as any)?.country);
     
     let companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
     if (settings.tvaNumber) {
@@ -781,7 +696,6 @@ export default function QuoteModal({
       companyEmail: settings.email || '',
       logoFileId: settings.logoFileId || '',
     }));
-    
     setCompanyInfoCustomized(false);
   };
 
@@ -857,20 +771,11 @@ export default function QuoteModal({
       if (!formData.clientId) return 'Étape 1 : veuillez sélectionner un client.';
       if (!formData.subject.trim()) return 'Étape 1 : veuillez indiquer l\'objet du devis.';
       
-      // ✅ Validation conditionnelle selon la règle e-facturation
       if (eInvoiceRequired) {
-        if (!formData.clientSiret.trim()) {
-          return 'Étape 1 : le SIRET est obligatoire pour l\'e-facturation B2B France (Réforme 2026).';
-        }
-        if (!validateSIRET(formData.clientSiret)) {
-          return 'Étape 1 : le SIRET du client est invalide (14 chiffres attendus, checksum Luhn).';
-        }
-        if (formData.clientSiren && !validateSIREN(formData.clientSiren)) {
-          return 'Étape 1 : le SIREN du client est invalide (9 chiffres attendus).';
-        }
-        if (formData.clientVatNumber && !validateVatNumber(formData.clientVatNumber)) {
-          return 'Étape 1 : le numéro de TVA du client est invalide (format FR + 11 caractères).';
-        }
+        if (!formData.clientSiret.trim()) return 'Étape 1 : le SIRET est obligatoire pour l\'e-facturation B2B France (Réforme 2026).';
+        if (!validateSIRET(formData.clientSiret)) return 'Étape 1 : le SIRET du client est invalide (14 chiffres attendus, checksum Luhn).';
+        if (formData.clientSiren && !validateSIREN(formData.clientSiren)) return 'Étape 1 : le SIREN du client est invalide (9 chiffres attendus).';
+        if (formData.clientVatNumber && !validateVatNumber(formData.clientVatNumber)) return 'Étape 1 : le numéro de TVA du client est invalide (format FR + 11 caractères).';
       } else if (isClientEntreprise && formData.clientVatNumber) {
         if (!validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry)) {
           return `Étape 1 : le numéro de TVA n'est pas valide pour le pays ${formData.clientCountry}.`;
@@ -894,7 +799,7 @@ export default function QuoteModal({
   const firstInvalidStep = (): number | null => {
     for (let s = 1; s <= 4; s++) {
       const err = validateStep(s);
-      if (err) { return s; }
+      if (err) return s;
     }
     return null;
   };
@@ -931,15 +836,10 @@ export default function QuoteModal({
         if (rateCounts.size > 0) {
             let maxCount = 0;
             rateCounts.forEach((count, rate) => {
-                if (count > maxCount) {
-                    maxCount = count;
-                    mainVatRate = rate;
-                }
+                if (count > maxCount) { maxCount = count; mainVatRate = rate; }
             });
         }
-    } catch {
-        mainVatRate = 20;
-    }
+    } catch { mainVatRate = 20; }
     
     return {
         ...formData, 
@@ -950,16 +850,11 @@ export default function QuoteModal({
         currencyCode: currency,
         vatRate: mainVatRate,
         items: JSON.stringify(formData.items), 
-        subtotal, 
-        discount: formData.discount, 
-        tax: tax, 
-        total: total,
-        deposit: formData.deposit, 
-        balance: balance, 
-        tvaMention: formData.companyTva, 
+        subtotal, discount: formData.discount, tax, total,
+        deposit: formData.deposit, balance, tvaMention: formData.companyTva, 
         createdAt: new Date().toISOString(),
         clientType: formData.clientType,
-        // ✅ CORRECTION : Nettoyer les champs selon la règle e-facturation
+        // ✅ CORRECTION : Nettoyer les champs selon la règle e-facturation effective
         clientSiret: visible.showSirenSiret ? formData.clientSiret : '',
         clientSiren: visible.showSirenSiret ? formData.clientSiren : '',
         clientVatNumber: isClientEntreprise ? formData.clientVatNumber : '',
@@ -967,13 +862,10 @@ export default function QuoteModal({
   };
 
   const saveDocument = async (payload: any) => {
-    // ✅ CORRECTION RLS : Utilisation du helper centralisé
-    // ✅ FIX CRITIQUE : isPublic doit être true si clientToken présent (accès via /v/:token)
     const isPublic = !!payload.clientToken;
     const permissions = getTeamPermissions(appwriteTeamId, { isPublic });
 
     if (editingQuote) {
-      // ✅ Vérification cross-tenant
       if (editingQuote.teamId && editingQuote.teamId !== currentTeamId) {
         throw new Error('Accès refusé : Ce devis n\'appartient pas à votre équipe');
       }
@@ -986,23 +878,17 @@ export default function QuoteModal({
   const handleSubmit = async () => {
     const bad = firstInvalidStep();
     if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
-    
     setSaving(true);
     try {
       await saveDocument(buildPayload('Brouillon'));
       onSave();
-    } catch (e: any) { 
-      console.error('Erreur handleSubmit:', e);
-      alert(`Erreur: ${e.message}`); 
-    } finally { 
-      setSaving(false); 
-    }
+    } catch (e: any) { console.error('Erreur handleSubmit:', e); alert(`Erreur: ${e.message}`); } 
+    finally { setSaving(false); }
   };
 
   const handleSendToClient = async () => {
     const bad = firstInvalidStep();
     if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
-    
     setSendingToClient(true);
     try {
       const token = formData.clientToken || Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -1013,12 +899,8 @@ export default function QuoteModal({
         alert(`Devis envoyé !\n\nLien copié :\n${link}`);
       } catch { alert(`Devis envoyé !\n\nLien :\n${link}`); }
       onSave();
-    } catch (e: any) { 
-      console.error('Erreur handleSendToClient:', e);
-      alert(`Erreur: ${e.message}`); 
-    } finally { 
-      setSendingToClient(false); 
-    }
+    } catch (e: any) { console.error('Erreur handleSendToClient:', e); alert(`Erreur: ${e.message}`); } 
+    finally { setSendingToClient(false); }
   };
 
   // ============================================================
@@ -1045,45 +927,27 @@ export default function QuoteModal({
       maxWidth="sm:max-w-5xl"
       footer={
         <div className="flex flex-col sm:flex-row gap-3 w-full">
-          <button 
-            onClick={onClose} 
-            className="order-3 sm:order-1 w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95"
-          >
+          <button onClick={onClose} className="order-3 sm:order-1 w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95">
             Annuler
           </button>
-          
           <div className="flex flex-col sm:flex-row gap-3 order-1 sm:order-2 flex-1">
             {step > 1 && (
-              <button 
-                onClick={goPrev} 
-                className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95"
-              >
+              <button onClick={goPrev} className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95">
                 <ChevronLeft size={16} /> Précédent
               </button>
             )}
             {step < 4 && (
-              <button 
-                onClick={goNext} 
-                className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 active:scale-95"
-              >
+              <button onClick={goNext} className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 active:scale-95">
                 Suivant <ChevronRight size={16} />
               </button>
             )}
             {step === 4 && (
               <>
-                <button 
-                  onClick={handleSubmit} 
-                  disabled={saving || sendingToClient}
-                  className="w-full sm:w-auto px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-                >
+                <button onClick={handleSubmit} disabled={saving || sendingToClient} className="w-full sm:w-auto px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
                   {(saving || sendingToClient) && <span className="animate-spin h-4 w-4 border-2 border-slate-700 dark:border-slate-300 border-t-transparent rounded-full" />}
                   Enregistrer (Brouillon)
                 </button>
-                <button 
-                  onClick={handleSendToClient} 
-                  disabled={saving || sendingToClient}
-                  className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-                >
+                <button onClick={handleSendToClient} disabled={saving || sendingToClient} className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
                   {sendingToClient ? 'Envoi...' : <><Send size={16}/> Envoyer au client</>}
                 </button>
               </>
@@ -1101,17 +965,7 @@ export default function QuoteModal({
             const isDone = step > s.n;
             return (
               <div key={s.n} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => goToStep(s.n)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'bg-purple-600 text-white shadow-sm'
-                      : isDone
-                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-                  }`}
-                >
+                <button type="button" onClick={() => goToStep(s.n)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${isActive ? 'bg-purple-600 text-white shadow-sm' : isDone ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
                   <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive ? 'bg-white/20' : isDone ? 'bg-purple-600 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300'}`}>
                     {isDone ? <Check size={12} /> : s.n}
                   </span>
@@ -1124,7 +978,6 @@ export default function QuoteModal({
           })}
         </div>
 
-        {/* Alerte refus */}
         {formData.clientComment && formData.status === 'Refusé' && (
           <Alert tone="error" icon={X} title="Motif du refus du client">
             <p className="text-sm mt-1 whitespace-pre-wrap">{formData.clientComment}</p>
@@ -1151,16 +1004,8 @@ export default function QuoteModal({
                           {selectedClient.companyName || `${selectedClient.firstName} ${selectedClient.lastName}`}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          {selectedClient.email && (
-                            <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                              ✉️ {selectedClient.email}
-                            </span>
-                          )}
-                          {(selectedClient.city || selectedClient.postalCode) && (
-                            <span className="text-xs text-slate-500 dark:text-slate-500">
-                              📍 {selectedClient.postalCode} {selectedClient.city}
-                            </span>
-                          )}
+                          {selectedClient.email && <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">✉️ {selectedClient.email}</span>}
+                          {(selectedClient.city || selectedClient.postalCode) && <span className="text-xs text-slate-500 dark:text-slate-500">📍 {selectedClient.postalCode} {selectedClient.city}</span>}
                           <Badge tone={selectedClient.type === 'entreprise' ? 'blue' : 'slate'}>
                             {selectedClient.type === 'entreprise' ? 'Entreprise' : 'Particulier'}
                           </Badge>
@@ -1171,12 +1016,7 @@ export default function QuoteModal({
                       <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full">
                         <Check size={11} /> SÉLECTIONNÉ
                       </span>
-                      <button
-                        type="button"
-                        onClick={handleClearClient}
-                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                        title="Changer de client"
-                      >
+                      <button type="button" onClick={handleClearClient} className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Changer de client">
                         <X size={16} />
                       </button>
                     </div>
@@ -1187,20 +1027,9 @@ export default function QuoteModal({
               <div className="relative">
                 <div className="relative group">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={18} />
-                  <Input
-                    type="text"
-                    placeholder={selectedClient ? "Changer de client..." : "Rechercher un client par nom, entreprise, email, ville..."}
-                    value={clientSearch}
-                    onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }}
-                    onFocus={() => setShowClientDropdown(true)}
-                    className="pl-11"
-                  />
+                  <Input type="text" placeholder={selectedClient ? "Changer de client..." : "Rechercher un client par nom, entreprise, email, ville..."} value={clientSearch} onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }} onFocus={() => setShowClientDropdown(true)} className="pl-11" />
                   {clientSearch && (
-                    <button
-                      type="button"
-                      onClick={() => { setClientSearch(''); setShowClientDropdown(false); }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    >
+                    <button type="button" onClick={() => { setClientSearch(''); setShowClientDropdown(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
                       <X size={16} />
                     </button>
                   )}
@@ -1211,16 +1040,7 @@ export default function QuoteModal({
                     {filteredClients.length === 0 ? (
                       <div className="p-6 text-center">
                         <User size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          {clientSearch 
-                            ? 'Aucun client trouvé pour cette recherche' 
-                            : 'Aucun client disponible'}
-                        </p>
-                        {!clientSearch && (
-                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                            Vérifiez que vos clients sont bien créés dans la page "Clients"
-                          </p>
-                        )}
+                        <p className="text-sm text-slate-500 dark:text-slate-400">{clientSearch ? 'Aucun client trouvé pour cette recherche' : 'Aucun client disponible'}</p>
                       </div>
                     ) : (
                       <>
@@ -1233,20 +1053,8 @@ export default function QuoteModal({
                           const isSelected = formData.clientId === client.$id;
                           const clientAddr = parseAddressRetroactive(client.address, client.postalCode, client.city, client.country);
                           return (
-                            <button
-                              key={client.$id}
-                              onClick={() => handleClientSelect(client)}
-                              className={`w-full text-left px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-700 last:border-0 flex items-center gap-3 ${
-                                isSelected 
-                                  ? 'bg-purple-50 dark:bg-purple-900/20' 
-                                  : 'hover:bg-purple-50/50 dark:hover:bg-slate-700/50'
-                              }`}
-                            >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-                                isSelected 
-                                  ? 'bg-purple-600 text-white' 
-                                  : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
-                              }`}>
+                            <button key={client.$id} onClick={() => handleClientSelect(client)} className={`w-full text-left px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-700 last:border-0 flex items-center gap-3 ${isSelected ? 'bg-purple-50 dark:bg-purple-900/20' : 'hover:bg-purple-50/50 dark:hover:bg-slate-700/50'}`}>
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>
                                 {(client.firstName?.[0] || '') + (client.lastName?.[0] || client.companyName?.[0] || '?')}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -1254,31 +1062,15 @@ export default function QuoteModal({
                                   {client.companyName || `${client.firstName} ${client.lastName}`}
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                  {client.companyName && (client.firstName || client.lastName) && (
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                      👤 {client.firstName} {client.lastName}
-                                    </span>
-                                  )}
-                                  {client.email && (
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">
-                                      ✉️ {client.email}
-                                    </span>
-                                  )}
-                                  {clientAddr.city && (
-                                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                                      📍 {clientAddr.city}
-                                    </span>
-                                  )}
+                                  {client.companyName && (client.firstName || client.lastName) && <span className="text-xs text-slate-500 dark:text-slate-400 truncate">👤 {client.firstName} {client.lastName}</span>}
+                                  {client.email && <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">✉️ {client.email}</span>}
+                                  {clientAddr.city && <span className="text-xs text-slate-400 dark:text-slate-500">📍 {clientAddr.city}</span>}
                                   <Badge tone={client.type === 'entreprise' ? 'blue' : 'slate'}>
                                     {client.type === 'entreprise' ? 'Entreprise' : 'Particulier'}
                                   </Badge>
                                 </div>
                               </div>
-                              {isSelected && (
-                                <div className="shrink-0">
-                                  <Check size={18} className="text-purple-600 dark:text-purple-400" />
-                                </div>
-                              )}
+                              {isSelected && <div className="shrink-0"><Check size={18} className="text-purple-600 dark:text-purple-400" /></div>}
                             </button>
                           );
                         })}
@@ -1290,142 +1082,71 @@ export default function QuoteModal({
 
               {formData.clientId && (
                 <div className="space-y-4">
-                  {/* SECTION TYPE DE CLIENT */}
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                      <User size={12} className="text-purple-600 dark:text-purple-400" />
-                      Type de client
+                      <User size={12} className="text-purple-600 dark:text-purple-400" /> Type de client
                     </h4>
                     <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({...formData, clientType: 'particulier', clientSiret: '', clientSiren: ''})}
-                        className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                          formData.clientType === 'particulier'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
-                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        <User size={16} />
-                        Particulier (B2C)
+                      <button type="button" onClick={() => setFormData({...formData, clientType: 'particulier', clientSiret: '', clientSiren: ''})} className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${formData.clientType === 'particulier' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <User size={16} /> Particulier (B2C)
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({...formData, clientType: 'entreprise'})}
-                        className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                          formData.clientType === 'entreprise'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
-                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        <Building2 size={16} />
-                        Entreprise (B2B)
+                      <button type="button" onClick={() => setFormData({...formData, clientType: 'entreprise'})} className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${formData.clientType === 'entreprise' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <Building2 size={16} /> Entreprise (B2B)
                       </button>
                     </div>
                   </div>
 
-                  {/* Section Identification fiscale CONDITIONNELLE */}
                   {isClientEntreprise && (
-                    <div className={`rounded-xl p-4 space-y-4 border ${
-                      eInvoiceRequired 
-                        ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' 
-                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                    }`}>
-                      <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-2 ${
-                        eInvoiceRequired 
-                          ? 'text-purple-900 dark:text-purple-200' 
-                          : 'text-blue-900 dark:text-blue-200'
-                      }`}>
+                    <div className={`rounded-xl p-4 space-y-4 border ${eInvoiceRequired ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
+                      <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-2 ${eInvoiceRequired ? 'text-purple-900 dark:text-purple-200' : 'text-blue-900 dark:text-blue-200'}`}>
                         <Landmark size={12} className={eInvoiceRequired ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'} />
                         Identification fiscale
-                        {eInvoiceRequired && (
-                          <span className="ml-auto text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">
-                            OBLIGATOIRE
-                          </span>
-                        )}
+                        {eInvoiceRequired && <span className="ml-auto text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">OBLIGATOIRE</span>}
                       </h4>
 
-                      {/* Alerte contextuelle selon la règle */}
+                      {/* ✅ CORRECTION : Les alertes utilisent maintenant effectiveCompanyCountry */}
                       {eInvoiceRequired ? (
                         <Alert tone="info" icon={Shield}>
                           <p className="text-xs">
-                            <strong>E-facturation B2B obligatoire (Réforme 2026) :</strong> Votre entreprise ({companyCountry}) et le client ({formData.clientCountry}) 
+                            <strong>E-facturation B2B obligatoire (Réforme 2026) :</strong> Votre entreprise ({effectiveCompanyCountry}) et le client ({formData.clientCountry}) 
                             sont tous deux en France. Les identifiants <strong>SIREN</strong> et <strong>SIRET</strong> sont requis pour la transmission électronique.
                           </p>
                         </Alert>
-                      ) : companyCountry === 'FR' && formData.clientCountry !== 'FR' ? (
+                      ) : effectiveCompanyCountry === 'FR' && formData.clientCountry !== 'FR' ? (
                         <Alert tone="info" icon={Info}>
                           <p className="text-xs">
                             <strong>Client étranger (export) :</strong> Le client est basé en {formData.clientCountry}. L'e-facturation française ne s'applique pas. 
                             Le numéro de TVA intracommunautaire est recommandé pour les échanges intra-UE.
                           </p>
                         </Alert>
-                      ) : companyCountry !== 'FR' ? (
+                      ) : effectiveCompanyCountry !== 'FR' ? (
                         <Alert tone="info" icon={Info}>
                           <p className="text-xs">
-                            <strong>Entreprise non-française :</strong> Votre entreprise est basée en {companyCountry}. La réglementation française sur l'e-facturation ne s'applique pas.
+                            <strong>Entreprise non-française :</strong> Votre entreprise est basée en {effectiveCompanyCountry}. La réglementation française sur l'e-facturation ne s'applique pas.
                           </p>
                         </Alert>
                       ) : null}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {/* SIREN/SIRET : uniquement si règle croisée remplie */}
                         {visible.showSirenSiret && (
                           <>
                             <FormField label="SIRET (14 chiffres)" required hint="Identifie l'établissement">
-                              <Input
-                                type="text"
-                                value={formData.clientSiret}
-                                onChange={e => setFormData({...formData, clientSiret: e.target.value.replace(/\D/g, '').slice(0, 14)})}
-                                className="font-mono"
-                                placeholder="12345678901234"
-                                maxLength={14}
-                              />
-                              {formData.clientSiret && !validateSIRET(formData.clientSiret) && (
-                                <p className="text-xs text-red-500 mt-1">SIRET invalide (14 chiffres attendus)</p>
-                              )}
-                              {formData.clientSiret && validateSIRET(formData.clientSiret) && (
-                                <p className="text-xs text-emerald-600 mt-1">✓ SIRET valide</p>
-                              )}
+                              <Input type="text" value={formData.clientSiret} onChange={e => setFormData({...formData, clientSiret: e.target.value.replace(/\D/g, '').slice(0, 14)})} className="font-mono" placeholder="12345678901234" maxLength={14} />
+                              {formData.clientSiret && !validateSIRET(formData.clientSiret) && <p className="text-xs text-red-500 mt-1">SIRET invalide (14 chiffres attendus)</p>}
+                              {formData.clientSiret && validateSIRET(formData.clientSiret) && <p className="text-xs text-emerald-600 mt-1">✓ SIRET valide</p>}
                             </FormField>
                             <FormField label="SIREN (9 chiffres)" hint="Identifie l'entreprise">
-                              <Input
-                                type="text"
-                                value={formData.clientSiren}
-                                onChange={e => setFormData({...formData, clientSiren: e.target.value.replace(/\D/g, '').slice(0, 9)})}
-                                className="font-mono"
-                                placeholder="123456789"
-                                maxLength={9}
-                              />
-                              {formData.clientSiren && !validateSIREN(formData.clientSiren) && (
-                                <p className="text-xs text-red-500 mt-1">SIREN invalide (9 chiffres attendus)</p>
-                              )}
-                              {formData.clientSiren && validateSIREN(formData.clientSiren) && (
-                                <p className="text-xs text-emerald-600 mt-1">✓ SIREN valide</p>
-                              )}
+                              <Input type="text" value={formData.clientSiren} onChange={e => setFormData({...formData, clientSiren: e.target.value.replace(/\D/g, '').slice(0, 9)})} className="font-mono" placeholder="123456789" maxLength={9} />
+                              {formData.clientSiren && !validateSIREN(formData.clientSiren) && <p className="text-xs text-red-500 mt-1">SIREN invalide (9 chiffres attendus)</p>}
+                              {formData.clientSiren && validateSIREN(formData.clientSiren) && <p className="text-xs text-emerald-600 mt-1">✓ SIREN valide</p>}
                             </FormField>
                           </>
                         )}
                         
-                        {/* TVA : affichée pour tout B2B */}
-                        <FormField 
-                          label={visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale"} 
-                          className={visible.showSirenSiret ? "sm:col-span-2" : ""}
-                          hint={visible.showSirenSiret ? "Format: FR + clé + 9 chiffres" : `Selon le pays (${formData.clientCountry})`}
-                        >
-                          <Input
-                            type="text"
-                            value={formData.clientVatNumber}
-                            onChange={e => setFormData({...formData, clientVatNumber: e.target.value.toUpperCase()})}
-                            className="font-mono"
-                            placeholder={visible.showSirenSiret ? "FR12345678901" : "Ex: BE0123456789, CHE-123.456.789..."}
-                          />
-                          {formData.clientVatNumber && !validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && (
-                            <p className="text-xs text-red-500 mt-1">Format invalide pour {formData.clientCountry}</p>
-                          )}
-                          {formData.clientVatNumber && validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && (
-                            <p className="text-xs text-emerald-600 mt-1">✓ TVA valide</p>
-                          )}
+                        <FormField label={visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale"} className={visible.showSirenSiret ? "sm:col-span-2" : ""} hint={visible.showSirenSiret ? "Format: FR + clé + 9 chiffres" : `Selon le pays (${formData.clientCountry})`}>
+                          <Input type="text" value={formData.clientVatNumber} onChange={e => setFormData({...formData, clientVatNumber: e.target.value.toUpperCase()})} className="font-mono" placeholder={visible.showSirenSiret ? "FR12345678901" : "Ex: BE0123456789, CHE-123.456.789..."} />
+                          {formData.clientVatNumber && !validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && <p className="text-xs text-red-500 mt-1">Format invalide pour {formData.clientCountry}</p>}
+                          {formData.clientVatNumber && validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && <p className="text-xs text-emerald-600 mt-1">✓ TVA valide</p>}
                         </FormField>
                       </div>
                     </div>
@@ -1433,54 +1154,28 @@ export default function QuoteModal({
 
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                      <Home size={12} className="text-purple-600 dark:text-purple-400" />
-                      Adresse du client
+                      <Home size={12} className="text-purple-600 dark:text-purple-400" /> Adresse du client
                     </h4>
-
                     <FormField label="Adresse (n° et rue)">
                       <div className="relative">
                         <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        <Input
-                          value={formData.clientAddress}
-                          onChange={e => setFormData({...formData, clientAddress: e.target.value})}
-                          className="pl-9"
-                          placeholder="123 rue de la Paix"
-                        />
+                        <Input value={formData.clientAddress} onChange={e => setFormData({...formData, clientAddress: e.target.value})} className="pl-9" placeholder="123 rue de la Paix" />
                       </div>
                     </FormField>
-
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField label="Code postal">
                         <div className="relative">
                           <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <Input
-                            value={formData.clientPostalCode}
-                            onChange={e => setFormData({
-                              ...formData,
-                              clientPostalCode: formData.clientCountry === 'FR'
-                                ? e.target.value.replace(/\D/g, '').slice(0, 5)
-                                : e.target.value.slice(0, 10)
-                            })}
-                            className="pl-9 font-mono"
-                            placeholder={formData.clientCountry === 'FR' ? '75000' : 'Code postal'}
-                          />
+                          <Input value={formData.clientPostalCode} onChange={e => setFormData({...formData, clientPostalCode: formData.clientCountry === 'FR' ? e.target.value.replace(/\D/g, '').slice(0, 5) : e.target.value.slice(0, 10)})} className="pl-9 font-mono" placeholder={formData.clientCountry === 'FR' ? '75000' : 'Code postal'} />
                         </div>
                       </FormField>
                       <FormField label="Ville">
-                        <Input
-                          value={formData.clientCity}
-                          onChange={e => setFormData({...formData, clientCity: e.target.value})}
-                          placeholder="Paris"
-                        />
+                        <Input value={formData.clientCity} onChange={e => setFormData({...formData, clientCity: e.target.value})} placeholder="Paris" />
                       </FormField>
                       <FormField label="Pays">
                         <div className="relative">
                           <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <Select
-                            value={formData.clientCountry}
-                            onChange={e => setFormData({...formData, clientCountry: e.target.value})}
-                            className="pl-9"
-                          >
+                          <Select value={formData.clientCountry} onChange={e => setFormData({...formData, clientCountry: e.target.value})} className="pl-9">
                             <option value="FR">🇫🇷 France</option>
                             <option value="BE">🇧🇪 Belgique</option>
                             <option value="CH">🇨🇭 Suisse</option>
@@ -1496,23 +1191,14 @@ export default function QuoteModal({
                         </div>
                       </FormField>
                     </div>
-
                     <FormField label="Adresse de facturation" hint="Si différente de l'adresse principale">
-                      <Input
-                        value={formData.clientBillingAddress}
-                        onChange={e => setFormData({...formData, clientBillingAddress: e.target.value})}
-                        placeholder="Adresse de facturation"
-                      />
+                      <Input value={formData.clientBillingAddress} onChange={e => setFormData({...formData, clientBillingAddress: e.target.value})} placeholder="Adresse de facturation" />
                     </FormField>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <FormField label="Email">
-                      <Input type="email" value={formData.clientEmail} onChange={e => setFormData({...formData, clientEmail: e.target.value})} />
-                    </FormField>
-                    <FormField label="Téléphone">
-                      <Input type="tel" value={formData.clientPhone} onChange={e => setFormData({...formData, clientPhone: e.target.value})} />
-                    </FormField>
+                    <FormField label="Email"><Input type="email" value={formData.clientEmail} onChange={e => setFormData({...formData, clientEmail: e.target.value})} /></FormField>
+                    <FormField label="Téléphone"><Input type="tel" value={formData.clientPhone} onChange={e => setFormData({...formData, clientPhone: e.target.value})} /></FormField>
                   </div>
                 </div>
               )}
@@ -1523,18 +1209,10 @@ export default function QuoteModal({
                 <FileText size={14} className="text-purple-600" /> Informations du devis
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="N° Devis">
-                  <Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-purple-700 dark:text-purple-400" />
-                </FormField>
-                <FormField label="Objet" required>
-                  <Input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Ex: Rénovation salle de bain..." />
-                </FormField>
-                <FormField label="Date d'émission">
-                  <Input type="date" value={formData.issueDate} onChange={e => setFormData({...formData, issueDate: e.target.value})} />
-                </FormField>
-                <FormField label="Date de validité">
-                  <Input type="date" value={formData.validityDate} onChange={e => setFormData({...formData, validityDate: e.target.value})} />
-                </FormField>
+                <FormField label="N° Devis"><Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-purple-700 dark:text-purple-400" /></FormField>
+                <FormField label="Objet" required><Input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Ex: Rénovation salle de bain..." /></FormField>
+                <FormField label="Date d'émission"><Input type="date" value={formData.issueDate} onChange={e => setFormData({...formData, issueDate: e.target.value})} /></FormField>
+                <FormField label="Date de validité"><Input type="date" value={formData.validityDate} onChange={e => setFormData({...formData, validityDate: e.target.value})} /></FormField>
                 <FormField label="Adresse du chantier" hint="Si différent de l'adresse du client" className="sm:col-span-2">
                   <div className="relative">
                     <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1553,113 +1231,47 @@ export default function QuoteModal({
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
                 <Building2 size={14} className="text-purple-600" /> Mon Entreprise
               </h3>
-              <button
-                type="button"
-                onClick={handleReloadCompanySettings}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors active:scale-95"
-                title="Recharger depuis les paramètres entreprise"
-              >
-                <RefreshCw size={13} />
-                Utiliser mes infos
+              <button type="button" onClick={handleReloadCompanySettings} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors active:scale-95" title="Recharger depuis les paramètres entreprise">
+                <RefreshCw size={13} /> Utiliser mes infos
               </button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Nom de l'entreprise" required className="sm:col-span-2">
-                <Input 
-                  placeholder="Nom entreprise" 
-                  value={formData.companyName} 
-                  onChange={e => {
-                    setFormData({...formData, companyName: e.target.value});
-                    setCompanyInfoCustomized(true);
-                  }} 
-                />
+                <Input placeholder="Nom entreprise" value={formData.companyName} onChange={e => { setFormData({...formData, companyName: e.target.value}); setCompanyInfoCustomized(true); }} />
               </FormField>
               <FormField label="SIRET">
-                <Input 
-                  placeholder="SIRET" 
-                  value={formData.companySiret} 
-                  onChange={e => {
-                    setFormData({...formData, companySiret: e.target.value});
-                    setCompanyInfoCustomized(true);
-                  }} 
-                />
+                <Input placeholder="SIRET" value={formData.companySiret} onChange={e => { setFormData({...formData, companySiret: e.target.value}); setCompanyInfoCustomized(true); }} />
               </FormField>
               <FormField label="Téléphone">
-                <Input 
-                  type="tel" 
-                  placeholder="Téléphone" 
-                  value={formData.companyPhone} 
-                  onChange={e => {
-                    setFormData({...formData, companyPhone: e.target.value});
-                    setCompanyInfoCustomized(true);
-                  }} 
-                />
+                <Input type="tel" placeholder="Téléphone" value={formData.companyPhone} onChange={e => { setFormData({...formData, companyPhone: e.target.value}); setCompanyInfoCustomized(true); }} />
               </FormField>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
               <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Home size={12} className="text-purple-600 dark:text-purple-400" />
-                Adresse de l'entreprise
+                <Home size={12} className="text-purple-600 dark:text-purple-400" /> Adresse de l'entreprise
               </h4>
-
               <FormField label="Adresse (n° et rue)">
                 <div className="relative">
                   <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <Input
-                    value={formData.companyAddress}
-                    onChange={e => {
-                      setFormData({...formData, companyAddress: e.target.value});
-                      setCompanyInfoCustomized(true);
-                    }}
-                    className="pl-9"
-                    placeholder="123 rue de la Paix"
-                  />
+                  <Input value={formData.companyAddress} onChange={e => { setFormData({...formData, companyAddress: e.target.value}); setCompanyInfoCustomized(true); }} className="pl-9" placeholder="123 rue de la Paix" />
                 </div>
               </FormField>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <FormField label="Code postal">
                   <div className="relative">
                     <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <Input
-                      value={formData.companyPostalCode}
-                      onChange={e => {
-                        setFormData({
-                          ...formData,
-                          companyPostalCode: formData.companyCountry === 'FR'
-                            ? e.target.value.replace(/\D/g, '').slice(0, 5)
-                            : e.target.value.slice(0, 10)
-                        });
-                        setCompanyInfoCustomized(true);
-                      }}
-                      className="pl-9 font-mono"
-                      placeholder={formData.companyCountry === 'FR' ? '75000' : 'Code postal'}
-                    />
+                    <Input value={formData.companyPostalCode} onChange={e => { setFormData({...formData, companyPostalCode: formData.companyCountry === 'FR' ? e.target.value.replace(/\D/g, '').slice(0, 5) : e.target.value.slice(0, 10)}); setCompanyInfoCustomized(true); }} className="pl-9 font-mono" placeholder={formData.companyCountry === 'FR' ? '75000' : 'Code postal'} />
                   </div>
                 </FormField>
                 <FormField label="Ville">
-                  <Input
-                    value={formData.companyCity}
-                    onChange={e => {
-                      setFormData({...formData, companyCity: e.target.value});
-                      setCompanyInfoCustomized(true);
-                    }}
-                    placeholder="Paris"
-                  />
+                  <Input value={formData.companyCity} onChange={e => { setFormData({...formData, companyCity: e.target.value}); setCompanyInfoCustomized(true); }} placeholder="Paris" />
                 </FormField>
                 <FormField label="Pays">
                   <div className="relative">
                     <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <Select
-                      value={formData.companyCountry}
-                      onChange={e => {
-                        setFormData({...formData, companyCountry: e.target.value});
-                        setCompanyInfoCustomized(true);
-                      }}
-                      className="pl-9"
-                    >
+                    <Select value={formData.companyCountry} onChange={e => { setFormData({...formData, companyCountry: e.target.value}); setCompanyInfoCustomized(true); }} className="pl-9">
                       <option value="FR">🇫🇷 France</option>
                       <option value="BE">🇧🇪 Belgique</option>
                       <option value="CH">🇨🇭 Suisse</option>
@@ -1679,67 +1291,28 @@ export default function QuoteModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Email">
-                <Input 
-                  type="email" 
-                  placeholder="Email" 
-                  value={formData.companyEmail} 
-                  onChange={e => {
-                    setFormData({...formData, companyEmail: e.target.value});
-                    setCompanyInfoCustomized(true);
-                  }} 
-                />
+                <Input type="email" placeholder="Email" value={formData.companyEmail} onChange={e => { setFormData({...formData, companyEmail: e.target.value}); setCompanyInfoCustomized(true); }} />
               </FormField>
               <FormField label="Régime TVA" className="sm:col-span-2">
-                <Select 
-                  value={
-                    formData.companyTva.includes('non applicable') 
-                      ? 'TVA non applicable, art. 293 B du CGI' 
-                      : 'assujetti'
-                  } 
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === 'TVA non applicable, art. 293 B du CGI') {
-                      setFormData({...formData, companyTva: 'TVA non applicable, art. 293 B du CGI'});
-                    } else {
-                      const tvaFromSettings = companySettings?.tvaNumber || '';
-                      const hasRealNumber = tvaFromSettings && !tvaFromSettings.includes('non applicable');
-                      setFormData({
-                        ...formData, 
-                        companyTva: hasRealNumber ? tvaFromSettings : 'FR00000000000'
-                      });
-                    }
-                    setCompanyInfoCustomized(true);
-                  }}
-                >
-                  <option value="TVA non applicable, art. 293 B du CGI">
-                    TVA non applicable, art. 293 B du CGI
-                  </option>
-                  <option value="assujetti">
-                    Assujetti à la TVA ({
-                      formData.companyTva.includes('non applicable') 
-                        ? 'numéro à saisir' 
-                        : formData.companyTva || 'FR...'
-                    })
-                  </option>
+                <Select value={formData.companyTva.includes('non applicable') ? 'TVA non applicable, art. 293 B du CGI' : 'assujetti'} onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'TVA non applicable, art. 293 B du CGI') {
+                    setFormData({...formData, companyTva: 'TVA non applicable, art. 293 B du CGI'});
+                  } else {
+                    const tvaFromSettings = companySettings?.tvaNumber || '';
+                    const hasRealNumber = tvaFromSettings && !tvaFromSettings.includes('non applicable');
+                    setFormData({...formData, companyTva: hasRealNumber ? tvaFromSettings : 'FR00000000000'});
+                  }
+                  setCompanyInfoCustomized(true);
+                }}>
+                  <option value="TVA non applicable, art. 293 B du CGI">TVA non applicable, art. 293 B du CGI</option>
+                  <option value="assujetti">Assujetti à la TVA ({formData.companyTva.includes('non applicable') ? 'numéro à saisir' : formData.companyTva || 'FR...'})</option>
                 </Select>
-                
                 {!formData.companyTva.includes('non applicable') && (
-                  <Input 
-                    type="text" 
-                    placeholder="Ex: FR12345678901" 
-                    value={formData.companyTva} 
-                    onChange={(e) => {
-                      setFormData({...formData, companyTva: e.target.value});
-                      setCompanyInfoCustomized(true);
-                    }}
-                    className="mt-2"
-                  />
+                  <Input type="text" placeholder="Ex: FR12345678901" value={formData.companyTva} onChange={(e) => { setFormData({...formData, companyTva: e.target.value}); setCompanyInfoCustomized(true); }} className="mt-2" />
                 )}
-                
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  {isTvaApplicable 
-                    ? '✅ TVA appliquée sur les lignes selon leurs taux.' 
-                    : 'ℹ️ Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}
+                  {isTvaApplicable ? '✅ TVA appliquée sur les lignes selon leurs taux.' : 'ℹ️ Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}
                 </p>
               </FormField>
             </div>
@@ -1754,18 +1327,10 @@ export default function QuoteModal({
                 <Wrench size={14} className="text-purple-600" /> Prestations & Produits
               </h3>
               <div className="flex gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => setShowCatalogModal(true)} 
-                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors"
-                >
+                <button type="button" onClick={() => setShowCatalogModal(true)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors">
                   <Package size={14}/> Catalogue
                 </button>
-                <button 
-                  type="button" 
-                  onClick={addItem} 
-                  className="text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 px-3 py-2 rounded-lg transition-colors"
-                >
+                <button type="button" onClick={addItem} className="text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 px-3 py-2 rounded-lg transition-colors">
                   <Plus size={14}/> Ligne libre
                 </button>
               </div>
@@ -1789,49 +1354,31 @@ export default function QuoteModal({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
                   {formData.items.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
-                      <td className="px-4 py-2">
-                        <input type="text" value={item.reference} onChange={e => handleItemChange(idx, 'reference', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400" placeholder="REF" />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input type="text" value={item.description} onChange={e => handleItemChange(idx, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400" placeholder="Description" />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input type="number" min="0" step="0.01" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
-                      </td>
+                      <td className="px-4 py-2"><input type="text" value={item.reference} onChange={e => handleItemChange(idx, 'reference', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400" placeholder="REF" /></td>
+                      <td className="px-4 py-2"><input type="text" value={item.description} onChange={e => handleItemChange(idx, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400" placeholder="Description" /></td>
+                      <td className="px-4 py-2"><input type="number" min="0" step="0.01" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" /></td>
                       <td className="px-4 py-2">
                         <select value={item.unit} onChange={e => handleItemChange(idx, 'unit', e.target.value)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
                           {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
                       </td>
-                      <td className="px-4 py-2">
-                        <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)} className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input type="number" min="0" max="100" step="0.01" value={item.discount || 0} onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" title="Remise en %" />
-                      </td>
+                      <td className="px-4 py-2"><input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)} className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" /></td>
+                      <td className="px-4 py-2"><input type="number" min="0" max="100" step="0.01" value={item.discount || 0} onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" title="Remise en %" /></td>
                       <td className="px-4 py-2">
                         <select value={item.tvaRate} onChange={e => handleItemChange(idx, 'tvaRate', parseFloat(e.target.value))} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
-                          {!tvaSelectOptions.some(o => parseFloat(o.value) === item.tvaRate) && (
-                            <option value={item.tvaRate}>{item.tvaRate}%</option>
-                          )}
+                          {!tvaSelectOptions.some(o => parseFloat(o.value) === item.tvaRate) && <option value={item.tvaRate}>{item.tvaRate}%</option>}
                           {tvaSelectOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-slate-900 dark:text-white text-xs">
-                        {round2(item.total).toFixed(2)} {currencyConfig?.symbol || '€'}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"><Minus size={14} /></button>
-                      </td>
+                      <td className="px-4 py-2 text-right font-semibold text-slate-900 dark:text-white text-xs">{round2(item.total).toFixed(2)} {currencyConfig?.symbol || '€'}</td>
+                      <td className="px-4 py-2 text-center"><button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"><Minus size={14} /></button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <Alert tone="info" icon={Package}>
-              <p className="text-xs">
-                💡 Les taux disponibles proviennent de vos paramètres entreprise (TVA multi-pays). Devise actuelle : <strong className="text-purple-600 dark:text-purple-400">{currencyConfig?.symbol || '€'} {currency}</strong>.
-              </p>
+              <p className="text-xs">💡 Les taux disponibles proviennent de vos paramètres entreprise (TVA multi-pays). Devise actuelle : <strong className="text-purple-600 dark:text-purple-400">{currencyConfig?.symbol || '€'} {currency}</strong>.</p>
             </Alert>
           </div>
         )}
@@ -1845,85 +1392,49 @@ export default function QuoteModal({
                   <DollarSign size={14} className="text-purple-600" /> Conditions & Modalités
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField label="Remise globale (%)">
-                    <Input type="number" min="0" max="100" value={formData.discount} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value) || 0})} />
-                  </FormField>
-                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `⚠️ Maximum : ${hookFm(total)}` : undefined}>
-                    <Input type="number" min="0" max={total} step="0.01" value={formData.deposit} onChange={e => setFormData({...formData, deposit: parseFloat(e.target.value) || 0})} />
-                  </FormField>
+                  <FormField label="Remise globale (%)"><Input type="number" min="0" max="100" value={formData.discount} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value) || 0})} /></FormField>
+                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `⚠️ Maximum : ${hookFm(total)}` : undefined}><Input type="number" min="0" max={total} step="0.01" value={formData.deposit} onChange={e => setFormData({...formData, deposit: parseFloat(e.target.value) || 0})} /></FormField>
                 </div>
                 <FormField label="Modalités de paiement">
                   <Input list="dl-pm" value={formData.paymentMethods} onChange={e => setFormData({...formData, paymentMethods: e.target.value})} placeholder="Ex: Virement..." />
                   <datalist id="dl-pm">{PAYMENT_METHODS.map(m => <option key={m} value={m}/>)}</datalist>
                 </FormField>
-                <FormField label="Conditions de règlement">
-                  <Input value={formData.paymentConditions} onChange={e => setFormData({...formData, paymentConditions: e.target.value})} placeholder="Ex: Paiement à 30 jours" />
-                </FormField>
+                <FormField label="Conditions de règlement"><Input value={formData.paymentConditions} onChange={e => setFormData({...formData, paymentConditions: e.target.value})} placeholder="Ex: Paiement à 30 jours" /></FormField>
                 <FormField label="Délai d'exécution">
                   <Input list="dl-ed" value={formData.executionDelay} onChange={e => setFormData({...formData, executionDelay: e.target.value})} />
                   <datalist id="dl-ed">{EXECUTION_DELAYS.map(d => <option key={d} value={d}/>)}</datalist>
                 </FormField>
-                <FormField label="Conditions particulières">
-                  <Textarea rows={2} value={formData.specialConditions} onChange={e => setFormData({...formData, specialConditions: e.target.value})} placeholder="Ex: Accès chantier, horaires..." />
-                </FormField>
+                <FormField label="Conditions particulières"><Textarea rows={2} value={formData.specialConditions} onChange={e => setFormData({...formData, specialConditions: e.target.value})} placeholder="Ex: Accès chantier, horaires..." /></FormField>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 border border-slate-200 dark:border-slate-600 space-y-3 h-fit">
-                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">
-                  Récapitulatif financier ({currencyConfig?.symbol || '€'} {currency})
-                </h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Total HT</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(subtotal)}</span>
-                </div>
-                {formData.discount > 0 && (
-                  <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
-                    <span>Remise globale ({formData.discount}%)</span>
-                    <span className="font-semibold">- {hookFm(discountAmount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">HT après remise</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(taxableAmount)}</span>
-                </div>
+                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Récapitulatif financier ({currencyConfig?.symbol || '€'} {currency})</h3>
+                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">Total HT</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(subtotal)}</span></div>
+                {formData.discount > 0 && <div className="flex justify-between text-sm text-red-600 dark:text-red-400"><span>Remise globale ({formData.discount}%)</span><span className="font-semibold">- {hookFm(discountAmount)}</span></div>}
+                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">HT après remise</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(taxableAmount)}</span></div>
                 
                 {isTvaApplicable && taxBreakdown.length > 0 && (
                   <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg p-3 space-y-1">
                     <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Ventilation TVA</p>
                     {taxBreakdown.map(b => (
                       <div key={b.rate} className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
-                        <span>TVA {b.rate}% (base {hookFm(b.baseHT)})</span>
-                        <span className="font-semibold">{hookFm(b.taxAmount)}</span>
+                        <span>TVA {b.rate}% (base {hookFm(b.baseHT)})</span><span className="font-semibold">{hookFm(b.taxAmount)}</span>
                       </div>
                     ))}
                   </div>
                 )}
                 
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Total TVA</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(tax)}</span>
-                </div>
+                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">Total TVA</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(tax)}</span></div>
                 <div className="border-t border-slate-200 dark:border-slate-600 my-3"></div>
-                <div className="flex justify-between text-base">
-                  <span className="font-bold text-slate-900 dark:text-white">Total TTC</span>
-                  <span className="font-bold text-purple-600 dark:text-purple-400">{hookFm(total)}</span>
-                </div>
+                <div className="flex justify-between text-base"><span className="font-bold text-slate-900 dark:text-white">Total TTC</span><span className="font-bold text-purple-600 dark:text-purple-400">{hookFm(total)}</span></div>
                 {formData.deposit > 0 && (
                   <>
-                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
-                      <span>Acompte à verser</span>
-                      <span className="font-semibold">- {hookFm(formData.deposit)}</span>
-                    </div>
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400"><span>Acompte à verser</span><span className="font-semibold">- {hookFm(formData.deposit)}</span></div>
                     <div className="border-t border-slate-300 dark:border-slate-500 my-3"></div>
-                    <div className="flex justify-between text-lg">
-                      <span className="font-bold text-slate-900 dark:text-white">Net à payer</span>
-                      <span className="font-bold text-slate-900 dark:text-white">{hookFm(balance)}</span>
-                    </div>
+                    <div className="flex justify-between text-lg"><span className="font-bold text-slate-900 dark:text-white">Net à payer</span><span className="font-bold text-slate-900 dark:text-white">{hookFm(balance)}</span></div>
                   </>
                 )}
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
-                  ✅ Contrôle : HT ({hookFm(taxableAmount)}) + TVA ({hookFm(tax)}) = TTC ({hookFm(taxableAmount + tax)})
-                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">✅ Contrôle : HT ({hookFm(taxableAmount)}) + TVA ({hookFm(tax)}) = TTC ({hookFm(taxableAmount + tax)})</p>
               </div>
             </div>
 
@@ -1961,51 +1472,25 @@ export default function QuoteModal({
       </div>
 
       {/* MODAL CATALOGUE */}
-      <Modal
-        open={showCatalogModal}
-        onClose={() => { setShowCatalogModal(false); setCatalogSearch(''); }}
-        title="Ajouter depuis le catalogue"
-        icon={<Package size={20} className="text-indigo-600" />}
-        maxWidth="sm:max-w-2xl"
-      >
+      <Modal open={showCatalogModal} onClose={() => { setShowCatalogModal(false); setCatalogSearch(''); }} title="Ajouter depuis le catalogue" icon={<Package size={20} className="text-indigo-600" />} maxWidth="sm:max-w-2xl">
         <div className="space-y-4">
-          <SearchFilter
-            value={catalogSearch}
-            onChange={setCatalogSearch}
-            placeholder="Rechercher un produit par nom ou référence..."
-          />
-
+          <SearchFilter value={catalogSearch} onChange={setCatalogSearch} placeholder="Rechercher un produit par nom ou référence..." />
           <div className="max-h-96 overflow-y-auto">
             {filteredCatalogProducts.length === 0 ? (
-              <EmptyState
-                icon={Package}
-                title="Aucun produit trouvé"
-                description="Modifiez votre recherche ou ajoutez des produits au catalogue."
-                tone="indigo"
-              />
+              <EmptyState icon={Package} title="Aucun produit trouvé" description="Modifiez votre recherche ou ajoutez des produits au catalogue." tone="indigo" />
             ) : (
               <div className="space-y-2">
                 {paginatedCatalogProducts.map(product => (
-                  <button
-                    key={product.$id}
-                    onClick={() => addCatalogItem(product)}
-                    className="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-all flex justify-between items-center group"
-                  >
+                  <button key={product.$id} onClick={() => addCatalogItem(product)} className="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-all flex justify-between items-center group">
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 truncate">
                         {product.name}
-                        {product.reference && (
-                          <Badge tone="slate">{product.reference}</Badge>
-                        )}
+                        {product.reference && <Badge tone="slate">{product.reference}</Badge>}
                       </div>
-                      {product.description && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{product.description}</div>
-                      )}
+                      {product.description && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{product.description}</div>}
                     </div>
                     <div className="text-right ml-4 shrink-0">
-                      <div className="font-bold text-indigo-700 dark:text-indigo-400">
-                        {parseFloat(product.unitPrice).toFixed(2)} {currencyConfig?.symbol || '€'}
-                      </div>
+                      <div className="font-bold text-indigo-700 dark:text-indigo-400">{parseFloat(product.unitPrice).toFixed(2)} {currencyConfig?.symbol || '€'}</div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">{product.unit} • TVA {product.tvaRate}%</div>
                     </div>
                   </button>
@@ -2013,17 +1498,8 @@ export default function QuoteModal({
               </div>
             )}
           </div>
-
           {catalogTotalPages > 1 && (
-            <Pagination
-              currentPage={catalogPage}
-              totalPages={catalogTotalPages}
-              onPageChange={setCatalogPage}
-              startItem={catalogStartIndex + 1}
-              endItem={Math.min(catalogEndIndex, filteredCatalogProducts.length)}
-              totalItems={filteredCatalogProducts.length}
-              itemName="produit"
-            />
+            <Pagination currentPage={catalogPage} totalPages={catalogTotalPages} onPageChange={setCatalogPage} startItem={catalogStartIndex + 1} endItem={Math.min(catalogEndIndex, filteredCatalogProducts.length)} totalItems={filteredCatalogProducts.length} itemName="produit" />
           )}
         </div>
       </Modal>
