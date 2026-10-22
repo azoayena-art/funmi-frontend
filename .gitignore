@@ -4,3 +4,24 @@ dist
 .env.local
 .DS_Store
 *.log
+
+# Dossiers de migration (contiennent des clés API)
+migration-appwrite/
+migration-local/
+migration.zip
+
+# Variables d'environnement
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dépendances
+node_modules/
+
+# Build
+dist/
+build/

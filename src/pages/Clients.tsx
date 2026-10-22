@@ -1,3 +1,4 @@
+// src/pages/Clients.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
@@ -31,6 +32,8 @@ import {
   SelectFilter,
   MobileCard,
   DataTable,
+  Checkbox,
+  BulkActionBar,
   type Entity,
 } from '../components/ui/SharedUI';
 import {
@@ -136,6 +139,9 @@ export default function Clients() {
   const [clientToArchive, setClientToArchive] = useState<Client | null>(null);
   const [activeStat, setActiveStat] = useState(0);
   
+  // ✅ NOUVEAU : État pour la sélection multiple
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   
@@ -186,6 +192,11 @@ export default function Clients() {
     if (!customTeamId) return;
     loadClients();
   }, [user, viewMode, customTeamId]);
+
+  // ✅ Réinitialiser la sélection quand les filtres ou la page changent
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [search, filterStatus, filterType, viewMode, currentPage]);
 
   useEffect(() => {
     const editId = searchParams.get('edit');
@@ -605,6 +616,129 @@ export default function Clients() {
     }
   };
 
+  // ✅ NOUVEAU : Handlers pour la sélection multiple
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(paginatedClients.map(c => c.$id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    const newSet = new Set(selectedIds);
+    if (checked) {
+      newSet.add(id);
+    } else {
+      newSet.delete(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  // ✅ OPTIMISÉ : Action en masse adaptative avec traitement par lots
+  const handleBulkStatusChange = async () => {
+    if (selectedIds.size === 0) return;
+
+    const count = selectedIds.size;
+    const isArchiveAction = viewMode === 'active';
+    const actionLabel = isArchiveAction ? 'archiver' : 'désarchiver';
+    const newStatus = isArchiveAction ? 'archived' : 'active';
+
+    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} client(s) ?`)) {
+      return;
+    }
+
+    // ✅ Filtrer immédiatement les IDs valides (appartenance à l'équipe)
+    const idsToUpdate = Array.from(selectedIds).filter(id => {
+      const c = clients.find(cli => cli.$id === id);
+      return c && c.teamId === currentTeamId;
+    });
+
+    if (idsToUpdate.length === 0) {
+      toast.error(`Aucun client sélectionné n'appartient à votre équipe.`, {
+        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
+      });
+      return;
+    }
+
+    // ✅ Vider la sélection AVANT de lancer les requêtes (libère le thread UI)
+    setSelectedIds(new Set());
+
+    // ✅ Toast de chargement (style clair)
+    const toastId = toast.loading(`${isArchiveAction ? 'Archivage' : 'Désarchivage'} de ${idsToUpdate.length} client(s)...`, {
+      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
+    });
+
+    // ✅ Traitement par lots de 5 pour ne pas bloquer le thread
+    const BATCH_SIZE = 5;
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
+        const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.allSettled(
+          batch.map(async (id) => {
+            try {
+              await databases.updateDocument(
+                DATABASE_ID,
+                'clients',
+                id,
+                { status: newStatus }
+              );
+              return { success: true, id };
+            } catch (err) {
+              console.error(`Erreur ${actionLabel} client ${id}:`, err);
+              return { success: false, id, error: err };
+            }
+          })
+        );
+
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.success) {
+            successCount++;
+          } else {
+            errorCount++;
+          }
+        });
+
+        // ✅ Petit délai entre les lots pour laisser le navigateur respirer
+        if (i + BATCH_SIZE < idsToUpdate.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      // ✅ Feedback utilisateur (styles clairs)
+      if (successCount > 0) {
+        const successMsg = isArchiveAction 
+          ? `${successCount} client(s) archivé(s) avec succès`
+          : `${successCount} client(s) désarchivé(s) avec succès`;
+        
+        toast.success(successMsg, { 
+          id: toastId,
+          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
+        });
+        
+        await loadClients();
+      }
+
+      if (errorCount > 0) {
+        toast.warning(`${errorCount} échec(s) (accès refusé ou erreur).`, { 
+          duration: 5000,
+          style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' }
+        });
+      }
+
+    } catch (error: any) {
+      console.error(`Erreur globale ${actionLabel} en masse:`, error);
+      toast.error(`Une erreur est survenue lors de l'${actionLabel} en masse.`, { 
+        id: toastId,
+        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
+      });
+    }
+  };
+
   const filtered = clients.filter(c => {
     const searchStr = `${c.firstName || ''} ${c.lastName || ''} ${c.companyName || ''} ${c.email || ''} ${c.phone || ''} ${c.clientId || ''} ${c.city || ''}`.toLowerCase();
     const matchSearch = search === '' || searchStr.includes(search.toLowerCase());
@@ -676,6 +810,10 @@ export default function Clients() {
 
   if (permLoading || settingsLoading) return <Sidebar><div className="flex items-center justify-center h-full w-full"><div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">Vérification des droits...</div></div></Sidebar>;
   if (!hasPermission('clients.view')) return null;
+
+  // ✅ Calculs pour la checkbox "Tout sélectionner"
+  const isAllSelected = paginatedClients.length > 0 && paginatedClients.every(c => selectedIds.has(c.$id));
+  const isIndeterminate = selectedIds.size > 0 && !isAllSelected;
 
   return (
     <Sidebar>
@@ -766,6 +904,7 @@ export default function Clients() {
           {loading ? (
             <>
               <DataTable loading={true} headers={[
+                { label: '', align: 'left', width: 'w-12' },
                 { label: 'N° Client', align: 'left' },
                 { label: 'Client', align: 'left' },
                 { label: 'Contact', align: 'left' },
@@ -811,7 +950,9 @@ export default function Clients() {
             />
           ) : (
             <>
+              {/* ✅ TABLEAU DESKTOP AVEC CHECKBOX */}
               <DataTable headers={[
+                { label: '', align: 'left', width: 'w-12' },
                 { label: 'N° Client', align: 'left' },
                 { label: 'Client', align: 'left' },
                 { label: 'Contact', align: 'left' },
@@ -820,8 +961,31 @@ export default function Clients() {
                 { label: 'Statut', align: 'left' },
                 { label: '', align: 'right', width: 'w-12' }
               ]}>
+                {/* ✅ Ligne d'en-tête avec checkbox "Tout sélectionner" */}
+                <tr className="bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700">
+                  <td colSpan={8} className="px-6 py-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Checkbox 
+                        checked={isAllSelected}
+                        indeterminate={isIndeterminate}
+                        onChange={(e) => toggleSelectAll(e.target.checked)}
+                      />
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        {selectedIds.size > 0 
+                          ? `${selectedIds.size} sélectionné(s)` 
+                          : 'Tout sélectionner'}
+                      </span>
+                    </label>
+                  </td>
+                </tr>
                 {paginatedClients.map((c) => (
-                  <tr key={c.$id} className="group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200">
+                  <tr key={c.$id} className={`group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200 ${selectedIds.has(c.$id) ? 'bg-purple-50/30 dark:bg-purple-900/10' : ''}`}>
+                    <td className="px-6 py-4">
+                      <Checkbox 
+                        checked={selectedIds.has(c.$id)}
+                        onChange={(e) => toggleSelect(c.$id, e.target.checked)}
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <span className="text-xs font-mono font-medium text-slate-500 dark:text-slate-400 tabular-nums">
                         {c.clientId || '—'}
@@ -896,11 +1060,34 @@ export default function Clients() {
                 ))}
               </DataTable>
 
+              {/* ✅ CARTES MOBILE AVEC CHECKBOX */}
               <div className="md:hidden space-y-4 mt-4">
+                {/* Barre de sélection mobile */}
+                {paginatedClients.length > 0 && (
+                  <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Checkbox 
+                        checked={isAllSelected}
+                        indeterminate={isIndeterminate}
+                        onChange={(e) => toggleSelectAll(e.target.checked)}
+                      />
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        {selectedIds.size > 0 
+                          ? `${selectedIds.size} sélectionné(s)` 
+                          : 'Tout sélectionner'}
+                      </span>
+                    </label>
+                  </div>
+                )}
                 {paginatedClients.map((c) => (
-                  <MobileCard key={c.$id}>
+                  <MobileCard key={c.$id} className={selectedIds.has(c.$id) ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''}>
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Checkbox 
+                          checked={selectedIds.has(c.$id)}
+                          onChange={(e) => toggleSelect(c.$id, e.target.checked)}
+                          className="mt-1"
+                        />
                         <Avatar client={getEntity(c)} size="lg" />
                         <div className="min-w-0">
                           <h3 className="font-bold text-slate-900 dark:text-white truncate text-base">{c.type === 'entreprise' ? c.companyName : `${c.firstName} ${c.lastName}`.trim()}</h3>
@@ -964,6 +1151,31 @@ export default function Clients() {
               )}
             </>
           )}
+
+          {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
+          <BulkActionBar
+            selectedCount={selectedIds.size}
+            onClear={() => setSelectedIds(new Set())}
+            actions={
+              viewMode === 'active' ? (
+                <button 
+                  onClick={handleBulkStatusChange}
+                  className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-rose-500/20 active:scale-95"
+                >
+                  <Archive size={16} /> 
+                  Archiver la sélection
+                </button>
+              ) : (
+                <button 
+                  onClick={handleBulkStatusChange}
+                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
+                >
+                  <RotateCcw size={16} /> 
+                  Désarchiver la sélection
+                </button>
+              )
+            }
+          />
         </main>
 
         <Modal

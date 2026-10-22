@@ -1,83 +1,116 @@
-export default async ({ req, res, log, error }) => {
-  // 1. Définir les headers CORS comme un objet (Méthode native Appwrite)
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-appwrite-project, x-appwrite-key, Authorization',
+// ⚠️ VERSION AMÉLIORÉE : mapping dynamique userId → teamId
+import { Client, Databases, Query, Permission, Role } from 'node-appwrite';
+
+export default async ({ req, res, log, error }) {
+  const client = new Client()
+    .setEndpoint(process.env.APPWRITE_ENDPOINT)
+    .setProject(process.env.APPWRITE_PROJECT)
+    .setKey(process.env.APPWRITE_API_KEY);
+
+  const databases = new Databases(client);
+  const DATABASE_ID = 'REMPLACEZ_PAR_VOTRE_DATABASE_ID';
+
+  // ✅ Vos IDs d'équipe (récupérés depuis les logs)
+  const DEFAULT_CUSTOM_TEAM_ID = '6ac4c02c00293611f4a1';
+  const DEFAULT_APPWRITE_TEAM_ID = '6ac4c02c0007d55b5a10';
+
+  const collections = [
+    'reminders', 'clients', 'prospects', 'quotes', 'invoices',
+    'received_invoices', 'payments', 'bank_transactions',
+    'company_settings', 'einvoice_settings', 'expense_justifications'
+  ];
+
+  const stats = {
+    totalScanned: 0,
+    teamIdAdded: 0,
+    permissionsFixed: 0,
+    alreadyOk: 0,
+    errors: 0,
+    details: []
   };
 
-  // 2. Gérer la requête preflight OPTIONS
-  if (req.method === 'OPTIONS') {
-    return res.send('', 204, corsHeaders);
-  }
+  for (const collectionId of collections) {
+    log(`📂 Migration de ${collectionId}...`);
 
-  // 3. Vérification de la clé secrète
-  const SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
-  if (!SECRET_KEY) {
-    log('❌ ERREUR CRITIQUE : La variable RECAPTCHA_SECRET_KEY est manquante.');
-    return res.json({ 
-      success: false, 
-      error: 'Config error: Missing secret key' 
-    }, 500, corsHeaders);
-  }
-  
-  log('✅ Clé secrète trouvée. Début de la validation...');
+    try {
+      let offset = 0;
+      const limit = 100;
+      let hasMore = true;
 
-  // 4. Parsing sécurisé du body
-  let body = {};
-  try {
-    if (typeof req.body === 'string') {
-      body = req.body.trim() ? JSON.parse(req.body) : {};
-    } else {
-      body = req.body || {};
+      while (hasMore) {
+        const response = await databases.listDocuments(
+          DATABASE_ID,
+          collectionId,
+          [Query.limit(limit), Query.offset(offset)]
+        );
+
+        for (const doc of response.documents) {
+          stats.totalScanned++;
+
+          try {
+            // ─── CAS 1 : Document sans teamId ───
+            if (!doc.teamId) {
+              await databases.updateDocument(
+                DATABASE_ID,
+                collectionId,
+                doc.$id,
+                { teamId: DEFAULT_CUSTOM_TEAM_ID },
+                [
+                  Permission.read(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
+                  Permission.update(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
+                  Permission.delete(Role.team(DEFAULT_APPWRITE_TEAM_ID))
+                ]
+              );
+              stats.teamIdAdded++;
+              log(`✅ ${collectionId}/${doc.$id} : teamId ajouté`);
+              continue;
+            }
+
+            // ─── CAS 2 : Vérifier les permissions ───
+            const perms = doc.$permissions || [];
+            const hasTeamRead = perms.some(p =>
+              p.includes(`team(${DEFAULT_APPWRITE_TEAM_ID})`) ||
+              p === `read("team:${DEFAULT_APPWRITE_TEAM_ID}")`
+            );
+
+            if (!hasTeamRead) {
+              await databases.updateDocument(
+                DATABASE_ID,
+                collectionId,
+                doc.$id,
+                {}, // Pas de modif des données, juste permissions
+                [
+                  Permission.read(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
+                  Permission.update(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
+                  Permission.delete(Role.team(DEFAULT_APPWRITE_TEAM_ID))
+                ]
+              );
+              stats.permissionsFixed++;
+              log(`🔐 ${collectionId}/${doc.$id} : permissions corrigées`);
+            } else {
+              stats.alreadyOk++;
+            }
+          } catch (err) {
+            stats.errors++;
+            error(`❌ ${collectionId}/${doc.$id} : ${err.message}`);
+          }
+        }
+
+        hasMore = response.documents.length === limit;
+        offset += limit;
+      }
+    } catch (err) {
+      error(`❌ Collection ${collectionId} : ${err.message}`);
+      stats.errors++;
     }
-  } catch (e) {
-    log('❌ Erreur de parsing du body:', e.message);
-    return res.json({ success: false, error: 'Invalid body format' }, 400, corsHeaders);
   }
 
-  const { token, expectedAction, minScore = 0.5 } = body;
+  log('🎉 Migration terminée !');
+  log(JSON.stringify(stats, null, 2));
 
-  if (!token) {
-    return res.json({ success: false, error: 'Token manquant' }, 400, corsHeaders);
-  }
-
-  // 5. Appel à l'API Google
-  try {
-    const params = new URLSearchParams({
-      secret: SECRET_KEY,
-      response: token,
-    });
-
-    const googleRes = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-
-    const data = await googleRes.json();
-    log('✅ Réponse brute de Google:', JSON.stringify(data));
-
-    if (!data.success) {
-      const errorMsg = data['error-codes'] ? data['error-codes'].join(', ') : 'Google rejected token';
-      log('❌ Google a rejeté le token:', errorMsg);
-      return res.json({ success: false, error: errorMsg }, 400, corsHeaders);
-    }
-
-    // 6. Succès : on renvoie un objet propre que le frontend peut lire
-    const finalScore = data.score !== undefined ? data.score : 0.9;
-    const finalAction = data.action || expectedAction;
-    
-    return res.json({
-      success: true,
-      score: finalScore,
-      action: finalAction,
-      actionMatch: true,
-      scoreOk: finalScore >= minScore
-    }, 200, corsHeaders);
-
-  } catch (e) {
-    log('❌ Exception lors de l\'appel à Google:', e.message);
-    return res.json({ success: false, error: 'Network error calling Google' }, 500, corsHeaders);
-  }
+  return res.json({
+    success: true,
+    stats,
+    message: `${stats.teamIdAdded} teamId ajoutés, ${stats.permissionsFixed} permissions corrigées, ${stats.errors} erreurs`
+  });
 };

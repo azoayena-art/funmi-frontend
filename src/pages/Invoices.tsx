@@ -21,6 +21,7 @@ import {
   PageHeader, Modal, ActionMenu, ActionMenuItem, StatCell, StatusIndicator,
   DotLabel, Avatar, SkeletonRow, SkeletonCard, TypeTabs, KPIGrid, Pagination,
   mapInvoiceStatusToShared, formatDate,
+  Checkbox, BulkActionBar,
   type Entity, type DotTone,
 } from '../components/ui/SharedUI';
 import { Query, ID } from 'appwrite';
@@ -32,10 +33,8 @@ import {
 } from '../services/eInvoiceTransmissionService';
 import TransmissionHistoryModal from '../components/TransmissionHistoryModal';
 import PaymentModal from '../components/PaymentModal';
-
 // 🔐 PERMISSIONS RLS CENTRALISÉES
 import { getTeamPermissions, verifyTeamAccessStrict } from '../utils/rowLevelPermissions';
-
 // 🌍 REGISTRE INTERNATIONAL DES PAYS
 import {
   getCountryConfig, getPrimaryIdentifier, FALLBACK_COUNTRY,
@@ -84,7 +83,6 @@ interface QuoteDetail {
 // ============================================================
 // 🏷️ LIBELLÉS
 // ============================================================
-// ✅ MODIF 1 : ajout du statut "invoiced" (Facturé)
 const statusLabels: Record<string, string> = {
   draft: 'Brouillon', invoiced: 'Facturé', sent: 'Envoyée', near_due: 'Bientôt échue',
   overdue: 'En retard', paid: 'Payée', partial: 'Partielle', cancelled: 'Archivée / Annulée',
@@ -156,7 +154,7 @@ const parseAddressRetroactive = (
 };
 
 // ============================================================
-// 🧾 XML FACTUR-X
+// 🧾 XML FACTUR-X (inchangé)
 // ============================================================
 const escapeXml = (str: string | undefined | null): string => {
   if (!str) return '';
@@ -183,7 +181,6 @@ const generateFacturXXml = (inv: Invoice, originalRef?: { number: string; date?:
   const sellerAddr = parseAddressRetroactive(inv.companyAddress, inv.companyPostalCode, inv.companyCity, inv.companyCountry);
   const buyerAddr = parseAddressRetroactive(inv.clientAddress, inv.clientPostalCode, inv.clientCity, inv.clientCountry);
   const sellerSchemeId = getFacturXSchemeId(sellerAddr.country);
-
   const linesXml = items.map(item => {
     const quantity = Number(item.quantity) || 0;
     const unitPrice = Number(item.unitPrice) || 0;
@@ -192,90 +189,89 @@ const generateFacturXXml = (inv: Invoice, originalRef?: { number: string; date?:
     const lineTotal = round2(quantity * unitPrice * (1 - discount / 100));
     return `
 <ram:IncludedSupplyTradeLineItem>
-  <ram:AssociatedDocumentLineDocument>
-    <ram:LineID>${escapeXml(item.reference || item.id)}</ram:LineID>
-  </ram:AssociatedDocumentLineDocument>
-  <ram:SpecifiedTradeProduct>
-    <ram:Name>${escapeXml(item.description)}</ram:Name>
-  </ram:SpecifiedTradeProduct>
-  <ram:SpecifiedLineTradeAgreement>
-    <ram:NetPriceProductTradePrice>
-      <ram:ChargeAmount>${unitPrice.toFixed(2)}</ram:ChargeAmount>
-      <ram:BasisQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BasisQuantity>
-    </ram:NetPriceProductTradePrice>
-  </ram:SpecifiedLineTradeAgreement>
-  <ram:SpecifiedLineTradeDelivery>
-    <ram:BilledQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BilledQuantity>
-  </ram:SpecifiedLineTradeDelivery>
-  <ram:SpecifiedLineTradeSettlement>
-    <ram:ApplicableTradeTax>
-      <ram:TypeCode>VAT</ram:TypeCode>
-      <ram:CategoryCode>S</ram:CategoryCode>
-      <ram:RateApplicablePercent>${tvaRate}</ram:RateApplicablePercent>
-    </ram:ApplicableTradeTax>
-    <ram:SpecifiedTradeSettlementLineMonetarySummation>
-      <ram:LineTotalAmount>${lineTotal.toFixed(2)}</ram:LineTotalAmount>
-    </ram:SpecifiedTradeSettlementLineMonetarySummation>
-  </ram:SpecifiedLineTradeSettlement>
+<ram:AssociatedDocumentLineDocument>
+<ram:LineID>${escapeXml(item.reference || item.id)}</ram:LineID>
+</ram:AssociatedDocumentLineDocument>
+<ram:SpecifiedTradeProduct>
+<ram:Name>${escapeXml(item.description)}</ram:Name>
+</ram:SpecifiedTradeProduct>
+<ram:SpecifiedLineTradeAgreement>
+<ram:NetPriceProductTradePrice>
+<ram:ChargeAmount>${unitPrice.toFixed(2)}</ram:ChargeAmount>
+<ram:BasisQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BasisQuantity>
+</ram:NetPriceProductTradePrice>
+</ram:SpecifiedLineTradeAgreement>
+<ram:SpecifiedLineTradeDelivery>
+<ram:BilledQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BilledQuantity>
+</ram:SpecifiedLineTradeDelivery>
+<ram:SpecifiedLineTradeSettlement>
+<ram:ApplicableTradeTax>
+<ram:TypeCode>VAT</ram:TypeCode>
+<ram:CategoryCode>S</ram:CategoryCode>
+<ram:RateApplicablePercent>${tvaRate}</ram:RateApplicablePercent>
+</ram:ApplicableTradeTax>
+<ram:SpecifiedTradeSettlementLineMonetarySummation>
+<ram:LineTotalAmount>${lineTotal.toFixed(2)}</ram:LineTotalAmount>
+</ram:SpecifiedTradeSettlementLineMonetarySummation>
+</ram:SpecifiedLineTradeSettlement>
 </ram:IncludedSupplyTradeLineItem>`;
   }).join('\n');
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
-  xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
-  xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
-  <rsm:ExchangedDocumentContext>
-    <ram:GuidelineSpecifiedDocumentContextParameter>
-      <ram:ID>urn:cen.eu:en16931:2017</ram:ID>
-    </ram:GuidelineSpecifiedDocumentContextParameter>
-  </rsm:ExchangedDocumentContext>
-  <rsm:ExchangedDocument>
-    <ram:ID>${escapeXml(inv.invoiceNumber)}</ram:ID>
-    <ram:TypeCode>${typeCode}</ram:TypeCode>
-    <ram:IssueDateTime>
-      <udt:DateTimeString format="102">${(inv.issueDate || '').replace(/-/g, '')}</udt:DateTimeString>
-    </ram:IssueDateTime>
-  </rsm:ExchangedDocument>
-  <rsm:SupplyChainTradeTransaction>
-    <ram:ApplicableHeaderTradeAgreement>
-      <ram:SellerTradeParty>
-        <ram:Name>${escapeXml(inv.companyName)}</ram:Name>
-        <ram:PostalTradeAddress>
-          <ram:PostcodeCode>${escapeXml(sellerAddr.postalCode)}</ram:PostcodeCode>
-          <ram:LineOne>${escapeXml(sellerAddr.address)}</ram:LineOne>
-          <ram:CityName>${escapeXml(sellerAddr.city)}</ram:CityName>
-          <ram:CountryID>${escapeXml(sellerAddr.country)}</ram:CountryID>
-        </ram:PostalTradeAddress>
-        ${inv.companySiret ? `<ram:SpecifiedTaxRegistration><ram:ID schemeID="${sellerSchemeId}">${escapeXml(inv.companySiret)}</ram:ID></ram:SpecifiedTaxRegistration>` : ''}
-      </ram:SellerTradeParty>
-      <ram:BuyerTradeParty>
-        <ram:Name>${escapeXml(inv.clientName)}</ram:Name>
-        <ram:PostalTradeAddress>
-          <ram:PostcodeCode>${escapeXml(buyerAddr.postalCode)}</ram:PostcodeCode>
-          <ram:LineOne>${escapeXml(buyerAddr.address)}</ram:LineOne>
-          <ram:CityName>${escapeXml(buyerAddr.city)}</ram:CityName>
-          <ram:CountryID>${escapeXml(buyerAddr.country)}</ram:CountryID>
-        </ram:PostalTradeAddress>
-      </ram:BuyerTradeParty>
-    </ram:ApplicableHeaderTradeAgreement>
-    <ram:ApplicableHeaderTradeDelivery/>
-    <ram:ApplicableHeaderTradeSettlement>
-      <ram:InvoiceCurrencyCode>${escapeXml(inv.currencyCode || 'EUR')}</ram:InvoiceCurrencyCode>
-      ${isCredit && originalRef ? `
-      <ram:InvoiceReferencedDocument>
-        <ram:IssuerAssignedID>${escapeXml(originalRef.number)}</ram:IssuerAssignedID>
-        ${originalRef.date ? `<ram:FormattedIssueDate format="102">${originalRef.date.replace(/-/g, '')}</ram:FormattedIssueDate>` : ''}
-      </ram:InvoiceReferencedDocument>` : ''}
-      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-        <ram:LineTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:LineTotalAmount>
-        <ram:TaxBasisTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:TaxBasisTotalAmount>
-        <ram:TaxTotalAmount currencyID="${escapeXml(inv.currencyCode || 'EUR')}">${(inv.tax || 0).toFixed(2)}</ram:TaxTotalAmount>
-        <ram:GrandTotalAmount>${(inv.total || 0).toFixed(2)}</ram:GrandTotalAmount>
-        <ram:DuePayableAmount>${(inv.balance || inv.total || 0).toFixed(2)}</ram:DuePayableAmount>
-      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-    </ram:ApplicableHeaderTradeSettlement>
-    ${linesXml}
-  </rsm:SupplyChainTradeTransaction>
+xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
+xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
+<rsm:ExchangedDocumentContext>
+<ram:GuidelineSpecifiedDocumentContextParameter>
+<ram:ID>urn:cen.eu:en16931:2017</ram:ID>
+</ram:GuidelineSpecifiedDocumentContextParameter>
+</rsm:ExchangedDocumentContext>
+<rsm:ExchangedDocument>
+<ram:ID>${escapeXml(inv.invoiceNumber)}</ram:ID>
+<ram:TypeCode>${typeCode}</ram:TypeCode>
+<ram:IssueDateTime>
+<udt:DateTimeString format="102">${(inv.issueDate || '').replace(/-/g, '')}</udt:DateTimeString>
+</ram:IssueDateTime>
+</rsm:ExchangedDocument>
+<rsm:SupplyChainTradeTransaction>
+<ram:ApplicableHeaderTradeAgreement>
+<ram:SellerTradeParty>
+<ram:Name>${escapeXml(inv.companyName)}</ram:Name>
+<ram:PostalTradeAddress>
+<ram:PostcodeCode>${escapeXml(sellerAddr.postalCode)}</ram:PostcodeCode>
+<ram:LineOne>${escapeXml(sellerAddr.address)}</ram:LineOne>
+<ram:CityName>${escapeXml(sellerAddr.city)}</ram:CityName>
+<ram:CountryID>${escapeXml(sellerAddr.country)}</ram:CountryID>
+</ram:PostalTradeAddress>
+${inv.companySiret ? `<ram:SpecifiedTaxRegistration><ram:ID schemeID="${sellerSchemeId}">${escapeXml(inv.companySiret)}</ram:ID></ram:SpecifiedTaxRegistration>` : ''}
+</ram:SellerTradeParty>
+<ram:BuyerTradeParty>
+<ram:Name>${escapeXml(inv.clientName)}</ram:Name>
+<ram:PostalTradeAddress>
+<ram:PostcodeCode>${escapeXml(buyerAddr.postalCode)}</ram:PostcodeCode>
+<ram:LineOne>${escapeXml(buyerAddr.address)}</ram:LineOne>
+<ram:CityName>${escapeXml(buyerAddr.city)}</ram:CityName>
+<ram:CountryID>${escapeXml(buyerAddr.country)}</ram:CountryID>
+</ram:PostalTradeAddress>
+</ram:BuyerTradeParty>
+</ram:ApplicableHeaderTradeAgreement>
+<ram:ApplicableHeaderTradeDelivery/>
+<ram:ApplicableHeaderTradeSettlement>
+<ram:InvoiceCurrencyCode>${escapeXml(inv.currencyCode || 'EUR')}</ram:InvoiceCurrencyCode>
+${isCredit && originalRef ? `
+<ram:InvoiceReferencedDocument>
+<ram:IssuerAssignedID>${escapeXml(originalRef.number)}</ram:IssuerAssignedID>
+${originalRef.date ? `<ram:FormattedIssueDate format="102">${originalRef.date.replace(/-/g, '')}</ram:FormattedIssueDate>` : ''}
+</ram:InvoiceReferencedDocument>` : ''}
+<ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+<ram:LineTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:LineTotalAmount>
+<ram:TaxBasisTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:TaxBasisTotalAmount>
+<ram:TaxTotalAmount currencyID="${escapeXml(inv.currencyCode || 'EUR')}">${(inv.tax || 0).toFixed(2)}</ram:TaxTotalAmount>
+<ram:GrandTotalAmount>${(inv.total || 0).toFixed(2)}</ram:GrandTotalAmount>
+<ram:DuePayableAmount>${(inv.balance || inv.total || 0).toFixed(2)}</ram:DuePayableAmount>
+</ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+</ram:ApplicableHeaderTradeSettlement>
+${linesXml}
+</rsm:SupplyChainTradeTransaction>
 </rsm:CrossIndustryInvoice>`;
 };
 
@@ -313,6 +309,9 @@ export default function Invoices() {
   const ITEMS_PER_PAGE = 10;
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ NOUVEAU : État pour la sélection multiple
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [invoiceToPay, setInvoiceToPay] = useState<Invoice | null>(null);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
@@ -347,6 +346,7 @@ export default function Invoices() {
 
   // 🌍 CONFIGURATION PAYS
   const [companySettings, setCompanySettings] = useState<any>(null);
+
   useEffect(() => {
     if (!customTeamId) return;
     (async () => {
@@ -393,11 +393,17 @@ export default function Invoices() {
 
   useEffect(() => { setCurrentPage(1); }, [search, filterStatus, filterType, viewMode, typeTab]);
 
+  // ✅ Réinitialiser la sélection quand les filtres ou la page changent
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [search, filterStatus, filterType, viewMode, typeTab, currentPage]);
+
   const readJson = (raw: unknown): any => {
     if (!raw) return {};
     if (typeof raw === 'object') return raw;
     try { return JSON.parse(raw as string); } catch { return {}; }
   };
+
   const writeJson = (obj: any): string => JSON.stringify(obj || {});
 
   const loadMetadata = async (invoiceIds: string[], teamIdOverride?: string | null): Promise<Map<string, any>> => {
@@ -640,6 +646,7 @@ export default function Invoices() {
       } catch { setEinvoicePlatform('simulation'); }
     })();
   }, [customTeamId]);
+
   const isSimulation = einvoicePlatform === 'simulation';
 
   const loadInvoices = async (isBackground = false) => {
@@ -810,7 +817,7 @@ export default function Invoices() {
     throw new Error('Impossible de créer la facture après plusieurs tentatives');
   };
 
-  // 🌍 REÇU DE PAIEMENT
+  // 🌍 REÇU DE PAIEMENT (inchangé - code très long, conservé tel quel)
   const generateReceiptPDF = async (inv: Invoice, payment?: Payment) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
@@ -884,7 +891,7 @@ export default function Invoices() {
     } catch (e: any) { console.error('Erreur stockage reçu:', e); toast.error(`Erreur : ${e.message}`); }
   };
 
-  // 🌍 REÇU DE DÉCAISSEMENT
+  // 🌍 REÇU DE DÉCAISSEMENT (inchangé)
   const generateDebitReceiptPDF = async (creditInv: Invoice, payment?: Payment) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
@@ -1079,6 +1086,143 @@ export default function Invoices() {
     } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
   };
 
+  // ✅ NOUVEAU : Handlers pour la sélection multiple
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(paginatedInvoices.filter(i => i).map(i => i!.$id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    const newSet = new Set(selectedIds);
+    if (checked) {
+      newSet.add(id);
+    } else {
+      newSet.delete(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  // ✅ OPTIMISÉ : Action en masse adaptative avec traitement par lots
+  const handleBulkStatusChange = async () => {
+    if (selectedIds.size === 0) return;
+
+    const count = selectedIds.size;
+    const isArchiveAction = viewMode === 'active';
+    const actionLabel = isArchiveAction ? 'archiver' : 'désarchiver';
+
+    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} facture(s) ?\n\n${isArchiveAction ? '⚠️ Les factures seront marquées comme annulées.' : 'Les factures seront restaurées en brouillon.'}`)) {
+      return;
+    }
+
+    // ✅ Filtrer les IDs valides (appartenance à l'équipe + pas déjà dans l'état cible)
+    const idsToUpdate = Array.from(selectedIds).filter(id => {
+      const inv = invoices.find(i => i && i.$id === id);
+      if (!inv || !inv.teamId || inv.teamId !== currentTeamId) return false;
+      if (isArchiveAction) {
+        return inv.status !== 'cancelled' && !isDocArchived(inv);
+      } else {
+        return isDocArchived(inv);
+      }
+    });
+
+    if (idsToUpdate.length === 0) {
+      toast.error(`Aucune facture sélectionnée ne peut être ${isArchiveAction ? 'archivée' : 'désarchivée'}.`, {
+        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
+      });
+      return;
+    }
+
+    // ✅ Vider la sélection AVANT de lancer les requêtes
+    setSelectedIds(new Set());
+
+    const toastId = toast.loading(`${isArchiveAction ? 'Archivage' : 'Désarchivage'} de ${idsToUpdate.length} facture(s)...`, {
+      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
+    });
+
+    const BATCH_SIZE = 5;
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
+        const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.allSettled(
+          batch.map(async (id) => {
+            try {
+              if (isArchiveAction) {
+                // Archivage : marquer comme cancelled + metadata
+                await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'cancelled' });
+                await saveMetadata(id, { 
+                  archiveData: { 
+                    archived: true, 
+                    archivedAt: new Date().toISOString(), 
+                    archivedBy: user?.$id || 'unknown', 
+                    archiveReason: 'Archivage en masse' 
+                  } 
+                });
+              } else {
+                // Désarchivage : restaurer en draft + effacer metadata archive
+                const inv = invoices.find(i => i && i.$id === id);
+                if (inv && inv.status === 'cancelled') {
+                  await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'draft' });
+                }
+                await saveMetadata(id, { archiveData: {} });
+              }
+              return { success: true, id };
+            } catch (err) {
+              console.error(`Erreur ${actionLabel} facture ${id}:`, err);
+              return { success: false, id, error: err };
+            }
+          })
+        );
+
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.success) {
+            successCount++;
+          } else {
+            errorCount++;
+          }
+        });
+
+        // ✅ Petit délai entre les lots
+        if (i + BATCH_SIZE < idsToUpdate.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      if (successCount > 0) {
+        const successMsg = isArchiveAction
+          ? `${successCount} facture(s) archivée(s) avec succès`
+          : `${successCount} facture(s) désarchivée(s) avec succès`;
+
+        toast.success(successMsg, {
+          id: toastId,
+          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
+        });
+
+        await loadInvoices(true);
+      }
+
+      if (errorCount > 0) {
+        toast.warning(`${errorCount} échec(s) (accès refusé ou erreur).`, {
+          duration: 5000,
+          style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' }
+        });
+      }
+
+    } catch (error: any) {
+      console.error(`Erreur globale ${actionLabel} en masse:`, error);
+      toast.error(`Une erreur est survenue lors de l'${actionLabel} en masse.`, {
+        id: toastId,
+        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
+      });
+    }
+  };
+
   const handleOpenAdvanceModal = (invoice: Invoice) => {
     if (invoice.deposit <= 0) { toast.warning("Cette facture n'a pas d'acompte défini."); return; }
     const percent = invoice.total > 0 ? ((invoice.deposit / invoice.total) * 100).toFixed(2) : '0.00';
@@ -1096,7 +1240,6 @@ export default function Invoices() {
       const realPercent = invoice.total > 0 ? ((advanceAmount / invoice.total) * 100).toFixed(2) : '0.00';
       const advanceNumber = await generateNextNumber('ACO', 'invoices', 'invoiceNumber');
       const ratio = invoice.total > 0 ? (advanceAmount / invoice.total) : 0;
-
       let invoiceVatRate = toInt(invoice.vatRate, 20);
       if (invoiceVatRate === 20) {
         try {
@@ -1114,10 +1257,8 @@ export default function Invoices() {
           }
         } catch { }
       }
-
       let originalItems: InvoiceItem[] = [];
       try { originalItems = JSON.parse(invoice.items || '[]'); } catch { originalItems = []; }
-
       let advanceHT = 0; let advanceTVA = 0;
       const advanceItems: InvoiceItem[] = originalItems.map((item, idx) => {
         const itemVatRate = toInt(item.tvaRate, invoiceVatRate);
@@ -1132,7 +1273,6 @@ export default function Invoices() {
           unitPrice: itemAdvanceHT, tvaRate: itemVatRate, total: itemAdvanceHT, discount: 0,
         };
       });
-
       if (advanceItems.length > 0) {
         const ecart = round2(advanceAmount - round2(advanceHT + advanceTVA));
         if (ecart !== 0) {
@@ -1146,7 +1286,6 @@ export default function Invoices() {
         advanceHT = Math.round((invoice.subtotal || 0) * ratio * 100) / 100;
         advanceTVA = Math.round((invoice.tax || 0) * ratio * 100) / 100;
       }
-
       const advanceInvoice = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: advanceNumber, type: 'advance',
         originalQuoteId: invoice.originalQuoteId || invoice.quoteId || '',
@@ -1176,7 +1315,6 @@ export default function Invoices() {
         specialConditions: `Facture d'acompte - Référence facture d'origine : ${invoice.invoiceNumber}`,
         notes: `Acompte de ${realPercent}% sur la facture ${invoice.invoiceNumber}`,
       };
-
       await createInvoiceWithRetry(advanceInvoice);
       setShowAdvanceModal(false);
       await loadInvoices(true);
@@ -1189,11 +1327,6 @@ export default function Invoices() {
     const quoteIdToFetch = advanceInvoice.originalQuoteId || advanceInvoice.quoteId;
     if (!currentTeamId || !quoteIdToFetch) {
       toast.error("Impossible de retrouver le devis d'origine. Vérifiez que le devis existe toujours.");
-      console.error('Debug handleGenerateFinalFromAdvance:', {
-        advanceInvoice: advanceInvoice.invoiceNumber,
-        originalQuoteId: advanceInvoice.originalQuoteId,
-        quoteId: advanceInvoice.quoteId,
-      });
       return;
     }
     if (!confirm(`Générer la facture finale pour ${advanceInvoice.clientName} ?`)) return;
@@ -1206,7 +1339,6 @@ export default function Invoices() {
       const totalAmount = quote.total || 0;
       const remainingAmount = Math.max(0, totalAmount - advanceAmount);
       const quoteVatRate = toInt(quote.vatRate, 20);
-
       const finalInvoice = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: finalNumber, type: 'standard',
         originalQuoteId: quoteIdToFetch,
@@ -1233,7 +1365,6 @@ export default function Invoices() {
         specialConditions: quote.specialConditions,
         notes: `Facture finale - Acompte de ${advanceAmount.toFixed(2)} ${SYM} déjà versé via ${advanceInvoice.invoiceNumber}`,
       };
-
       const createdDoc = await createInvoiceWithRetry(finalInvoice);
       await saveMetadata(createdDoc.$id, {
         reconciliationData: {
@@ -1346,7 +1477,6 @@ export default function Invoices() {
       const creditNumber = await generateNextNumber('AV', 'invoices', 'invoiceNumber');
       const creditTotal = creditForm.type === 'total' ? (creditInvoice.total || 0) : creditAmount;
       const { items: creditItems, subtotal: creditSubtotal, tax: creditTax, breakdown } = buildCreditLines(creditInvoice, creditTotal);
-
       let allocatedAmount: number; let toRefund: number; let initialCreditStatus: string;
       if (creditForm.refundChoice === 'refund') {
         allocatedAmount = 0; toRefund = creditTotal; initialCreditStatus = 'to_refund';
@@ -1356,7 +1486,6 @@ export default function Invoices() {
         toRefund = round2(creditTotal - allocatedAmount);
         initialCreditStatus = allocatedAmount >= creditTotal - 0.001 ? 'allocated' : toRefund >= creditTotal - 0.001 ? 'to_refund' : 'partial_refund';
       }
-
       const creditVatRate = toInt(creditInvoice.vatRate, 20);
       const creditPayload: any = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: creditNumber, type: 'credit',
@@ -1383,14 +1512,12 @@ export default function Invoices() {
         einvoicePlatform: creditInvoice.isElectronic ? (creditInvoice.einvoicePlatform || 'simulation') : null,
         einvoiceFormat: creditInvoice.isElectronic ? (creditInvoice.einvoiceFormat || 'factur-x') : null,
       };
-
       try {
         await databases.createDocument(DATABASE_ID, 'invoices', deterministicInvoiceId, creditPayload, getTeamPermissions(appwriteTeamId, { isPublic: !!creditPayload.clientToken }));
       } catch (invoiceError) {
         console.error('Échec création facture:', invoiceError);
         throw new Error(`Impossible de créer la facture d'avoir : ${(invoiceError as Error).message}`);
       }
-
       try {
         await saveMetadata(invoiceIdStr, {
           creditData: { creditStatus: initialCreditStatus, allocatedAmount, refundedAmount: 0, refundPayments: [], taxBreakdown: breakdown },
@@ -1398,7 +1525,6 @@ export default function Invoices() {
       } catch (metaError) {
         console.warn('⚠️ Erreur métadonnées avoir (non bloquant):', metaError);
       }
-
       if (creditInvoice.isElectronic) {
         try {
           const createdCredit = await databases.getDocument(DATABASE_ID, 'invoices', invoiceIdStr) as unknown as Invoice;
@@ -1407,7 +1533,6 @@ export default function Invoices() {
           console.warn('⚠️ XML E-Avoir non généré (non bloquant):', xmlError);
         }
       }
-
       setShowCreditModal(false);
       setCreditInvoice(null);
       await loadInvoices(true);
@@ -1556,7 +1681,7 @@ export default function Invoices() {
     }
   };
 
-  // 🌍 GÉNÉRATION PDF FACTURE
+  // 🌍 GÉNÉRATION PDF FACTURE (inchangé - très long)
   const generatePDF = async (inv: Invoice) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
@@ -1961,8 +2086,8 @@ export default function Invoices() {
   const isSubjectToVAT = useMemo(() => {
     return vatEnabled && invoices.some(inv => inv && inv.companyTva && inv.companyTva.trim() !== '' && !inv.companyTva.toLowerCase().includes('non applicable'));
   }, [invoices, vatEnabled]);
-  const vatBaseLabel = isSubjectToVAT ? 'HT' : 'TTC';
 
+  const vatBaseLabel = isSubjectToVAT ? 'HT' : 'TTC';
   const amountOf = (inv: Invoice | null | undefined): number => {
     if (!inv) return 0;
     return isSubjectToVAT ? (inv.subtotal || 0) : (inv.total || 0);
@@ -1976,8 +2101,8 @@ export default function Invoices() {
     const matchType = filterType === 'all' || inv.type === filterType;
     const matchTypeTab =
       typeTab === 'all' ? true :
-        typeTab === 'einvoice' ? inv.isElectronic === true :
-          (inv.type === typeTab && !inv.isElectronic);
+      typeTab === 'einvoice' ? inv.isElectronic === true :
+      (inv.type === typeTab && !inv.isElectronic);
     const matchView = viewMode === 'active' ? !isDocArchived(inv) : isDocArchived(inv);
     return matchSearch && matchStatus && matchType && matchTypeTab && matchView;
   });
@@ -1988,26 +2113,21 @@ export default function Invoices() {
   const endItem = Math.min(currentPage * ITEMS_PER_PAGE, filtered.length);
 
   const revenueInvoicesAll = invoices.filter(i => i && (i.type === 'standard' || i.type === 'advance' || i.type === 'balance') && !isDocArchived(i));
-
   const advancesWithFinal = new Set(
     invoices
       .filter(i => i && (i.type === 'standard' || i.type === 'balance') && i.originalInvoiceId && !isDocArchived(i))
       .filter(i => invoices.some(a => a && a.$id === i.originalInvoiceId && a.type === 'advance'))
       .map(i => i.originalInvoiceId!)
   );
-
   const originalsWithAdvance = new Set(
     invoices.filter(i => i && i.type === 'advance' && i.originalInvoiceId && !isDocArchived(i)).map(i => i.originalInvoiceId!)
   );
-
   const revenueInvoices = revenueInvoicesAll.filter(i => {
     if (i.type === 'advance' && advancesWithFinal.has(i.$id)) return false;
     if ((i.type === 'standard' || i.type === 'balance') && originalsWithAdvance.has(i.$id)) return false;
     return true;
   });
-
   const creditInvoices = invoices.filter(i => i && i.type === 'credit' && !isDocArchived(i));
-
   const caFacture = revenueInvoices.reduce((sum, i) => sum + amountOf(i), 0);
   const paidFraction = (i: Invoice | null | undefined): number => {
     if (!i) return 0;
@@ -2030,11 +2150,9 @@ export default function Invoices() {
   const caEncaisseHT = round2(caEncaisse - tvaExigible);
   const totalDecaisseHT = round2(totalDecaisse - tvaRegulariseeRemboursee);
   const caNetHT = round2(caNet - tvaNette);
-
   const overdueInvoices = revenueInvoices.filter(i => getDaysOverdue(i.dueDate, i.status) > 0 && getNetRemaining(i) > 0);
   const overdueCount = overdueInvoices.length;
   const overdueAmount = overdueInvoices.reduce((sum, i) => sum + getNetRemaining(i), 0);
-
   const advanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'advance').map(i => i.originalInvoiceId));
   const balanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.originalInvoiceId));
   const finalInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.$id));
@@ -2064,11 +2182,9 @@ export default function Invoices() {
     const hasBalance = balanceInvoiceIds.has(inv.$id);
     const isFinal = finalInvoiceIds.has(inv.$id);
     const isCredit = inv.type === 'credit';
-
     if (viewMode === 'archived') {
       return (<ActionMenuItem onClick={() => handleUnarchive(inv.$id, inv.invoiceNumber)} icon={RotateCcw} label="Désarchiver" />);
     }
-
     return (
       <>
         {inv.clientToken && (<ActionMenuItem onClick={() => handleCopyLink(inv)} icon={copiedToken === inv.clientToken ? CheckCircle2 : Link2} label={copiedToken === inv.clientToken ? 'Lien copié !' : 'Copier le lien client'} />)}
@@ -2139,8 +2255,11 @@ export default function Invoices() {
       </Sidebar>
     );
   }
-
   if (!hasPermission('invoices.view')) return null;
+
+  // ✅ Calculs pour la checkbox "Tout sélectionner"
+  const isAllSelected = paginatedInvoices.length > 0 && paginatedInvoices.every(i => i && selectedIds.has(i.$id));
+  const isIndeterminate = selectedIds.size > 0 && !isAllSelected;
 
   return (
     <Sidebar>
@@ -2237,10 +2356,18 @@ export default function Invoices() {
             </div>
           ) : (
             <>
+              {/* ✅ TABLEAU DESKTOP AVEC CHECKBOX */}
               <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible relative">
                 <table className="w-full text-left border-separate border-spacing-0">
                   <thead className="relative z-20 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
                     <tr>
+                      <th className="px-4 py-3 w-12">
+                        <Checkbox
+                          checked={isAllSelected}
+                          indeterminate={isIndeterminate}
+                          onChange={(e) => toggleSelectAll(e.target.checked)}
+                        />
+                      </th>
                       <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Facture</th>
                       <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Client</th>
                       <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Dates</th>
@@ -2261,8 +2388,15 @@ export default function Invoices() {
                       const creditStatus = getCreditData(inv).creditStatus;
                       const mappedStatus = mapInvoiceStatusToShared(inv.status, inv.type, creditStatus);
                       const alert = isRowAlert(inv);
+                      const isSelected = selectedIds.has(inv.$id);
                       return (
-                        <tr key={inv.$id} className={`transition-colors group ${alert ? 'bg-rose-50/80 hover:bg-rose-100/80 dark:bg-rose-900/15 dark:hover:bg-rose-900/25' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}>
+                        <tr key={inv.$id} className={`transition-colors group ${isSelected ? 'bg-purple-50/40 dark:bg-purple-900/10' : ''} ${alert ? 'bg-rose-50/80 hover:bg-rose-100/80 dark:bg-rose-900/15 dark:hover:bg-rose-900/25' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}>
+                          <td className="px-4 py-3">
+                            <Checkbox
+                              checked={isSelected}
+                              onChange={(e) => toggleSelect(inv.$id, e.target.checked)}
+                            />
+                          </td>
                           <td className={`px-4 py-3 ${alert ? 'border-l-4 border-l-rose-500' : ''}`}>
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2">
@@ -2331,7 +2465,25 @@ export default function Invoices() {
                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} startItem={startItem} endItem={endItem} totalItems={filtered.length} itemName="facture" />
               </div>
 
+              {/* ✅ CARTES MOBILE AVEC CHECKBOX */}
               <div className="md:hidden space-y-3">
+                {/* Barre de sélection mobile */}
+                {paginatedInvoices.length > 0 && (
+                  <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Checkbox
+                        checked={isAllSelected}
+                        indeterminate={isIndeterminate}
+                        onChange={(e) => toggleSelectAll(e.target.checked)}
+                      />
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        {selectedIds.size > 0
+                          ? `${selectedIds.size} sélectionnée(s)`
+                          : 'Tout sélectionner'}
+                      </span>
+                    </label>
+                  </div>
+                )}
                 {paginatedInvoices.map(inv => {
                   if (!inv) return null;
                   const daysOverdue = getDaysOverdue(inv.dueDate, inv.status);
@@ -2341,10 +2493,16 @@ export default function Invoices() {
                   const creditStatus = getCreditData(inv).creditStatus;
                   const mappedStatus = mapInvoiceStatusToShared(inv.status, inv.type, creditStatus);
                   const alert = isRowAlert(inv);
+                  const isSelected = selectedIds.has(inv.$id);
                   return (
-                    <div key={inv.$id} className={`rounded-2xl border p-4 shadow-sm ${alert ? 'bg-rose-50/80 dark:bg-rose-900/15 border-rose-300 dark:border-rose-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                    <div key={inv.$id} className={`rounded-2xl border p-4 shadow-sm transition-all ${isSelected ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''} ${alert ? 'bg-rose-50/80 dark:bg-rose-900/15 border-rose-300 dark:border-rose-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
                       <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <Checkbox
+                            checked={isSelected}
+                            onChange={(e) => toggleSelect(inv.$id, e.target.checked)}
+                            className="mt-1"
+                          />
                           <Avatar client={getEntity(inv)} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -2378,11 +2536,36 @@ export default function Invoices() {
                 })}
                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
               </div>
+
+              {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
+              <BulkActionBar
+                selectedCount={selectedIds.size}
+                onClear={() => setSelectedIds(new Set())}
+                actions={
+                  viewMode === 'active' ? (
+                    <button
+                      onClick={handleBulkStatusChange}
+                      className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-rose-500/20 active:scale-95"
+                    >
+                      <Archive size={16} />
+                      Archiver la sélection
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleBulkStatusChange}
+                      className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
+                    >
+                      <RotateCcw size={16} />
+                      Désarchiver la sélection
+                    </button>
+                  )
+                }
+              />
             </>
           )}
         </main>
 
-        {/* MODAL DEVIS */}
+        {/* Tous les modals restent inchangés */}
         <Modal open={showQuoteModal} onClose={() => { setShowQuoteModal(false); setQuoteDetails(null); }} title="Devis d'origine" icon={<FileText className="text-emerald-600" size={20} />}>
           {loadingQuote ? (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Chargement du devis...</div>) : quoteDetails ? (
             <div className="space-y-4">
@@ -2403,7 +2586,6 @@ export default function Invoices() {
           ) : (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Aucune donnée de devis trouvée.</div>)}
         </Modal>
 
-        {/* MODAL PAIEMENT */}
         <PaymentModal
           isOpen={showPaymentModal}
           onClose={() => { setShowPaymentModal(false); setInvoiceToPay(null); }}
@@ -2412,7 +2594,6 @@ export default function Invoices() {
           onSuccess={handlePaymentSuccess}
         />
 
-        {/* MODAL ACOMPTE */}
         <Modal open={showAdvanceModal} onClose={() => setShowAdvanceModal(false)} title="Générer une facture d'acompte" icon={<FileText className="text-violet-600" size={20} />}>
           <div className="space-y-4">
             <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Pourcentage d'acompte (%) *</label><input type="number" min="1" max="99" step="0.01" value={advanceForm.percent} onChange={e => setAdvanceForm({ ...advanceForm, percent: e.target.value })} className="w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg p-3 text-sm focus:ring-2 focus:ring-violet-500 outline-none" /><p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">Montant : {(() => { const inv = invoices.find(i => i && i.$id === advanceForm.invoiceId); return inv ? fm(inv.deposit || 0) : fm(0); })()}</p></div>
@@ -2428,7 +2609,6 @@ export default function Invoices() {
           </div>
         </Modal>
 
-        {/* MODAL AVOIR */}
         <Modal open={showCreditModal && !!creditInvoice} onClose={() => setShowCreditModal(false)} title="Créer un avoir" icon={<FileMinus className="text-rose-600" size={20} />}>
           {creditInvoice && (() => {
             const existingCreditsTotal = getTotalCreditsForInvoice(creditInvoice.$id);
@@ -2485,7 +2665,6 @@ export default function Invoices() {
           })()}
         </Modal>
 
-        {/* MODAL REMBOURSEMENT */}
         <Modal open={showRefundModal && !!refundCredit} onClose={() => setShowRefundModal(false)} title="Remboursement d'avoir" icon={<Banknote className="text-rose-600" size={20} />}>
           {refundCredit && (
             <div className="space-y-4">
@@ -2507,7 +2686,6 @@ export default function Invoices() {
           )}
         </Modal>
 
-        {/* MODAL CORRECTION */}
         <Modal open={showCorrectionModal && !!invoiceToCorrect} onClose={() => { setShowCorrectionModal(false); setInvoiceToCorrect(null); }} title={`🔧 Corriger ${invoiceToCorrect?.invoiceNumber}`} icon={<FileText className="text-amber-600" size={20} />} maxWidth="sm:max-w-5xl">
           {invoiceToCorrect && (
             <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2">
