@@ -5,6 +5,12 @@
 // ✅ NOUVEAU : Bouton "Remplacer" pour les entrées orphelines
 // ✅ NOUVEAU : Gestion robuste des erreurs 401 (orphelins)
 
+// 🔐 SÉCURITÉ MULTI-TENANT :
+// - Tous les documents créés ont Role.team(appwriteTeamId)
+// - Toutes les modifications vérifient j.teamId === customTeamId
+// - Les fichiers storage ont Role.any() pour lecture (aperçus) mais Role.team() pour modif/suppression
+// - Le chargement filtre par Query.equal('teamId', customTeamId)
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { databases, storage, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -126,6 +132,7 @@ async function checkFileAccessibility(
 
   return { accessible: false, errorCode: 404 };
 }
+
 export default function JustificationModal({ open, onClose, expense, onJustificationChanged }: Props) {
   const { user } = useAuth();
   const { customTeamId, appwriteTeamId } = useTeam();
@@ -336,6 +343,30 @@ export default function JustificationModal({ open, onClose, expense, onJustifica
     setUploading(true);
 
     try {
+      // ✅ Vérification d'appartenance avant remplacement
+      let existingDoc: any;
+      try {
+        existingDoc = await databases.getDocument(DATABASE_ID, 'expense_justifications', replaceTargetId);
+      } catch (err: any) {
+        if (err.code === 401 || err.code === 403 || err.code === 404) {
+          toast.error('Document ancien détecté', {
+            description: 'Ce justificatif n\'a pas les bonnes permissions. Contactez un administrateur.',
+            duration: 6000
+          });
+          setUploading(false);
+          return;
+        }
+        throw err;
+      }
+
+      if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
+        toast.error('Accès refusé', {
+          description: "Ce justificatif n'appartient pas à votre équipe."
+        });
+        setUploading(false);
+        return;
+      }
+
       const filePermissions = [
         Permission.read(Role.any()),
         Permission.update(Role.team(appwriteTeamId)),
@@ -623,14 +654,28 @@ export default function JustificationModal({ open, onClose, expense, onJustifica
 
   const handleCleanupOrphans = async () => {
     if (orphanIds.size === 0) return;
+    if (!customTeamId) {
+      toast.error('Équipe non identifiée');
+      return;
+    }
+    
     if (!confirm(`Supprimer ${orphanIds.size} entrée(s) orpheline(s) ?`)) return;
 
     let deleted = 0;
     for (const id of orphanIds) {
       try {
+        // ✅ Vérification d'appartenance avant suppression
+        const doc = await databases.getDocument(DATABASE_ID, 'expense_justifications', id);
+        if (doc.teamId !== customTeamId) {
+          console.warn(`⚠️ Orphelin hors équipe ignoré: ${id}`);
+          continue;
+        }
+        
         await databases.deleteDocument(DATABASE_ID, 'expense_justifications', id);
         deleted++;
-      } catch {}
+      } catch (err: any) {
+        console.warn(`⚠️ Suppression orphelin ${id}:`, err.message);
+      }
     }
 
     toast.success(`${deleted} entrée(s) orpheline(s) supprimée(s)`);

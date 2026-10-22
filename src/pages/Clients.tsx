@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +18,6 @@ import {
   Avatar,
   StatusIndicator,
   TypeLabel,
-  SkeletonRow,
   SkeletonCard,
   ConfirmDialog,
   FormField,
@@ -41,13 +40,19 @@ import {
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
 
-// ✅ CHANGEMENT : Import des helpers e-facturation
 import { 
   isEInvoiceRequired, 
   validateEInvoiceFields, 
   getVisibleFields,
   validateVatNumber 
 } from '../utils/eInvoicing';
+
+import {
+  getCountryConfig, getPrimaryIdentifier,
+  validateIdentifier, listCountryOptions,
+} from '../config/countries';
+
+import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 interface Client {
   $id: string;
@@ -107,7 +112,6 @@ export default function Clients() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // ✅ CHANGEMENT : Récupérer companySettings complet (avec country)
   const { 
     currency, 
     currencyConfig, 
@@ -115,7 +119,7 @@ export default function Clients() {
     loading: settingsLoading 
   } = useCompanySettings();
   
-  const { customTeamId } = useTeam();
+  const { customTeamId, appwriteTeamId } = useTeam();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,17 +141,30 @@ export default function Clients() {
   
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ CHANGEMENT : Pays de l'entreprise (depuis company_settings)
   const companyCountry = companySettings?.country || 'FR';
+  
+  const clientCountryConfig = useMemo(() => getCountryConfig(form.country), [form.country]);
+  const clientPrimaryIdentifier = getPrimaryIdentifier(clientCountryConfig);
+  const countryOptions = useMemo(() => listCountryOptions(), []);
 
-  // ✅ CHANGEMENT : Logique croisée (entreprise FR + client FR + B2B)
   const isCompany = form.type === 'entreprise';
   const visible = getVisibleFields(companyCountry, form.country, isCompany);
-  const eInvoiceRequired = isEInvoiceRequired(companyCountry, {
-    country: form.country,
-    type: form.type as 'entreprise' | 'particulier',
-    companyName: form.companyName,
-  });
+
+  const validateClientIdentifier = (value: string): boolean => {
+    if (!value || !value.trim()) return false;
+    if (clientCountryConfig.code === 'FR') {
+      const clean = value.replace(/\s/g, '');
+      if (!/^\d{14}$/.test(clean)) return false;
+      let sum = 0, isEven = false;
+      for (let i = clean.length - 1; i >= 0; i--) {
+        let digit = parseInt(clean.charAt(i), 10);
+        if (isEven) { digit *= 2; if (digit > 9) digit -= 9; }
+        sum += digit; isEven = !isEven;
+      }
+      return sum % 10 === 0;
+    }
+    return validateIdentifier(clientPrimaryIdentifier, value);
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -175,6 +192,15 @@ export default function Clients() {
     if (editId && clients.length > 0 && !showModal) {
       const clientToEdit = clients.find(c => c.$id === editId);
       if (clientToEdit) {
+        if (!clientToEdit.teamId) {
+          toast.error('Client ancien détecté', {
+            description: 'Ce client a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
+            duration: 6000
+          });
+          setSearchParams({}, { replace: true });
+          return;
+        }
+        
         if (clientToEdit.teamId !== currentTeamId) {
           toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
           setSearchParams({}, { replace: true });
@@ -184,7 +210,7 @@ export default function Clients() {
         setDuplicateFound(null);
         setForm({
           type: clientToEdit.type || 'particulier',
-          country: clientToEdit.country || 'FR',
+          country: clientToEdit.country || companyCountry,
           firstName: clientToEdit.firstName || '',
           lastName: clientToEdit.lastName || '',
           companyName: clientToEdit.companyName || '',
@@ -205,7 +231,7 @@ export default function Clients() {
         setSearchParams({}, { replace: true });
       }
     }
-  }, [searchParams, clients, showModal, currentTeamId]);
+  }, [searchParams, clients, showModal, currentTeamId, companyCountry]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -222,7 +248,6 @@ export default function Clients() {
       }
       
       setCurrentTeamId(customTeamId);
-      console.log('📄 Clients: Chargement avec customTeamId:', customTeamId);
       
       const response = await databases.listDocuments(
         DATABASE_ID, 'clients',
@@ -312,7 +337,7 @@ export default function Clients() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setDuplicateFound(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, country: companyCountry });
     setShowModal(true);
   };
 
@@ -321,6 +346,14 @@ export default function Clients() {
   };
 
   const handleOpenEdit = (client: Client) => {
+    if (!client.teamId) {
+      toast.error('Client ancien détecté', {
+        description: 'Ce client a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
+        duration: 6000
+      });
+      return;
+    }
+    
     if (client.teamId !== currentTeamId) {
       toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
       return;
@@ -335,7 +368,7 @@ export default function Clients() {
     setDuplicateFound(null);
     setForm({
       type: client.type || 'particulier',
-      country: client.country || 'FR',
+      country: client.country || companyCountry,
       firstName: client.firstName || '',
       lastName: client.lastName || '',
       companyName: client.companyName || '',
@@ -355,14 +388,12 @@ export default function Clients() {
     setShowModal(true);
   };
 
-  // ✅ CHANGEMENT : Validation avec logique croisée e-facturation
   const handleSave = async () => {
     if (!form.firstName && !form.lastName && !form.companyName) {
       toast.error('Champs requis', { description: 'Veuillez remplir au moins le nom, le prénom ou le nom de l\'entreprise.' });
       return;
     }
 
-    // ✅ Validation e-facturation croisée (entreprise FR + client FR + B2B)
     const eInvoiceValidation = validateEInvoiceFields(companyCountry, {
       country: form.country,
       type: form.type as 'entreprise' | 'particulier',
@@ -380,7 +411,14 @@ export default function Clients() {
       return;
     }
 
-    // Validation format TVA (si présent, même non obligatoire)
+    if (form.siret && !validateClientIdentifier(form.siret)) {
+      const errorMsg = clientCountryConfig.code === 'FR'
+        ? 'Le numéro SIRET est invalide (14 chiffres attendus, checksum Luhn).'
+        : `Le numéro ${clientPrimaryIdentifier.shortLabel} est invalide.${clientPrimaryIdentifier.example ? ` Ex: ${clientPrimaryIdentifier.example}` : ''}`;
+      toast.error('Identifiant invalide', { description: errorMsg });
+      return;
+    }
+
     if (form.vatNumber && !validateVatNumber(form.vatNumber, form.country)) {
       toast.error('TVA invalide', { 
         description: `Le format du numéro de TVA n'est pas valide pour le pays ${form.country}.` 
@@ -403,7 +441,6 @@ export default function Clients() {
     
     setSaving(true);
     try {
-      // ✅ Nettoyage conditionnel des champs selon visibilité
       const data: any = { 
         type: form.type,
         country: form.country,
@@ -416,10 +453,8 @@ export default function Clients() {
         postalCode: form.postalCode,
         city: form.city,
         billingAddress: form.billingAddress,
-        // ✅ SIREN/SIRET : conservés seulement si B2B France
         siren: visible.showSirenSiret ? form.siren : '',
         siret: visible.showSirenSiret ? form.siret : '',
-        // ✅ TVA : conservée pour tous les B2B
         vatNumber: form.type === 'entreprise' ? form.vatNumber : '',
         taxNumber: form.taxNumber,
         notes: form.notes,
@@ -431,18 +466,39 @@ export default function Clients() {
       if (!editingId) {
         data.clientId = await getNextClientNumber();
         
+        const permissions = getTeamPermissions(appwriteTeamId);
+        
         await databases.createDocument(
           DATABASE_ID, 
           'clients', 
           ID.unique(), 
-          data
+          data,
+          permissions
         );
         toast.success('Client ajouté', { description: `N° ${data.clientId}` });
       } else {
-        const existingDoc = await databases.getDocument(DATABASE_ID, 'clients', editingId);
-        
-        if (existingDoc.teamId !== currentTeamId) {
-          toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
+        let existingDoc;
+        try {
+          existingDoc = await databases.getDocument(DATABASE_ID, 'clients', editingId);
+        } catch (err: any) {
+          console.error('❌ Impossible de récupérer le client:', err);
+          
+          if (err.code === 401 || err.code === 403 || err.code === 404) {
+            toast.error('Document ancien détecté', {
+              description: 'Ce client n\'a pas les bonnes permissions. Contactez un administrateur.',
+              duration: 6000
+            });
+          } else {
+            toast.error('Erreur', { description: err.message });
+          }
+          setSaving(false);
+          return;
+        }
+
+        if (!existingDoc.teamId || existingDoc.teamId !== currentTeamId) {
+          toast.error('Accès refusé', { 
+            description: "Ce client n'appartient pas à votre équipe." 
+          });
           setSaving(false);
           return;
         }
@@ -472,24 +528,28 @@ export default function Clients() {
   const handleArchive = async () => {
     if (!clientToArchive) return;
     
+    if (!hasPermission('clients.delete')) {
+      toast.error('Permission refusée', { description: "Vous n'avez pas le droit d'archiver ce client." });
+      setClientToArchive(null);
+      return;
+    }
+    
+    if (!clientToArchive.teamId) {
+      toast.error('Client ancien détecté', {
+        description: 'Ce client a été créé avant la mise à jour. Contactez un administrateur.',
+        duration: 6000
+      });
+      setClientToArchive(null);
+      return;
+    }
+    
     if (clientToArchive.teamId !== currentTeamId) {
       toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
       setClientToArchive(null);
       return;
     }
-    
-    if (!hasPermission('clients.delete')) {
-      toast.error('Permission refusée', { description: "Vous n'avez pas le droit d'archiver ce client." });
-      return;
-    }
-    
+
     try {
-      const doc = await databases.getDocument(DATABASE_ID, 'clients', clientToArchive.$id);
-      if (doc.teamId !== currentTeamId) { 
-        toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
-        return; 
-      }
-      
       await databases.updateDocument(
         DATABASE_ID, 
         'clients', 
@@ -508,9 +568,24 @@ export default function Clients() {
   };
 
   const handleUnarchive = async (id: string, name: string) => {
+    const clientInList = clients.find(c => c.$id === id);
+    
+    if (clientInList && !clientInList.teamId) {
+      toast.error('Client ancien détecté', {
+        description: 'Ce client a été créé avant la mise à jour. Contactez un administrateur.',
+        duration: 6000
+      });
+      return;
+    }
+    
+    if (clientInList && clientInList.teamId !== currentTeamId) {
+      toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
+      return;
+    }
+
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'clients', id);
-      if (doc.teamId !== currentTeamId) { 
+      if (!doc.teamId || doc.teamId !== currentTeamId) { 
         toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
         return; 
       }
@@ -784,7 +859,7 @@ export default function Clients() {
                         )}
                         <span className="flex items-center text-xs text-slate-500 dark:text-slate-400">
                           <Globe size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
-                          {c.country || 'FR'}
+                          {c.country || companyCountry}
                         </span>
                         {!c.city && !c.postalCode && <span className="text-xs text-slate-400 italic">Non renseigné</span>}
                       </div>
@@ -956,7 +1031,6 @@ export default function Clients() {
                     setForm({ 
                       ...form, 
                       type: newType,
-                      // ✅ Réinitialiser les champs B2B si on passe en particulier
                       siren: newType === 'particulier' ? '' : form.siren,
                       siret: newType === 'particulier' ? '' : form.siret,
                       vatNumber: newType === 'particulier' ? '' : form.vatNumber,
@@ -968,6 +1042,7 @@ export default function Clients() {
                   <option value="entreprise">🏢 Professionnel (B2B)</option>
                 </Select>
               </FormField>
+              
               <FormField label="Pays" required>
                 <div className="relative">
                   <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -976,23 +1051,14 @@ export default function Clients() {
                     onChange={(e) => setForm({ ...form, country: e.target.value })}
                     className="pl-9"
                   >
-                    <option value="FR">🇫🇷 France</option>
-                    <option value="BE">🇧🇪 Belgique</option>
-                    <option value="CH">🇨🇭 Suisse</option>
-                    <option value="LU">🇱🇺 Luxembourg</option>
-                    <option value="DE">🇩🇪 Allemagne</option>
-                    <option value="ES">🇪🇸 Espagne</option>
-                    <option value="IT">🇮🇹 Italie</option>
-                    <option value="GB">🇬🇧 Royaume-Uni</option>
-                    <option value="US">🇺🇸 États-Unis</option>
-                    <option value="CA">🇨🇦 Canada</option>
-                    <option value="OTHER">🌍 Autre</option>
+                    {countryOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                   </Select>
                 </div>
               </FormField>
             </div>
 
-            {/* ✅ CHANGEMENT : Banner e-facturation conditionnel */}
             {visible.showEInvoiceBanner && (
               <Alert tone="info" icon={Shield} title="Conformité Réforme 2026">
                 <p className="text-sm">
@@ -1077,7 +1143,14 @@ export default function Clients() {
                       type="text"
                       value={form.city}
                       onChange={(e) => setForm({ ...form, city: e.target.value })}
-                      placeholder="Paris"
+                      placeholder={
+                        form.country === 'BJ' ? 'Cotonou' :
+                        form.country === 'SN' ? 'Dakar' :
+                        form.country === 'CI' ? 'Abidjan' :
+                        form.country === 'CM' ? 'Douala' :
+                        form.country === 'MA' ? 'Casablanca' :
+                        'Paris'
+                      }
                     />
                   </FormField>
                 </div>
@@ -1088,7 +1161,6 @@ export default function Clients() {
               <Input type="text" value={form.billingAddress} onChange={(e) => setForm({ ...form, billingAddress: e.target.value })} placeholder="Adresse de facturation" />
             </FormField>
 
-            {/* ✅ CHANGEMENT : Section SIREN/SIRET conditionnelle */}
             {visible.showSirenSiret && (
               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-5 space-y-4">
                 <h3 className="text-xs font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider flex items-center gap-2">
@@ -1133,14 +1205,16 @@ export default function Clients() {
               </div>
             )}
 
-            {/* ✅ CHANGEMENT : TVA pour B2B non-FR (export) */}
             {visible.showVat && !visible.showSirenSiret && (
-              <FormField label="N° TVA / Identification fiscale" hint="Selon le pays du client">
+              <FormField 
+                label={clientCountryConfig.vat?.numberLabel || "N° TVA / Identification fiscale"} 
+                hint={clientPrimaryIdentifier.example ? `Format attendu : ${clientPrimaryIdentifier.example}` : `Selon le pays (${clientCountryConfig.name})`}
+              >
                 <Input 
                   type="text" 
                   value={form.vatNumber} 
                   onChange={(e) => setForm({ ...form, vatNumber: e.target.value.toUpperCase() })} 
-                  placeholder="Ex: BE0123456789, CHE-123.456.789..." 
+                  placeholder={clientPrimaryIdentifier.example || "Ex: BE0123456789, CHE-123.456.789..."} 
                   className="font-mono"
                 />
               </FormField>

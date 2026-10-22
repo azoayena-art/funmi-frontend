@@ -313,16 +313,33 @@ export default function BankReconciliation() {
     paymentDate: string,
     paymentReference: string
   ): Promise<{ success: boolean; newStatus?: string; error?: string }> => {
-    if (!appwriteTeamId) return { success: false, error: 'Équipe non résolue' };
+    if (!appwriteTeamId || !customTeamId) return { success: false, error: 'Équipe non résolue' };
 
     // Choisir la bonne collection selon le type de candidat
     const collection = candidate.type === 'client_invoice' ? 'invoices' : 'received_invoices';
 
     try {
-      // 1. Récupérer la facture actuelle
-      const invoiceDoc = (await databases.getDocument(
-        DATABASE_ID, collection, candidate.id
-      )) as any;
+      // ✅ CORRECTION : Vérification d'accès avant update
+      let invoiceDoc: any;
+      try {
+        invoiceDoc = await databases.getDocument(DATABASE_ID, collection, candidate.id);
+      } catch (err: any) {
+        if (err.code === 401 || err.code === 403 || err.code === 404) {
+          return { 
+            success: false, 
+            error: 'Document ancien détecté : cette facture n\'a pas les bonnes permissions. Contactez un administrateur.' 
+          };
+        }
+        throw err;
+      }
+
+      // ✅ CORRECTION : Vérification d'appartenance à l'équipe
+      if (!invoiceDoc.teamId || invoiceDoc.teamId !== customTeamId) {
+        return { 
+          success: false, 
+          error: 'Accès refusé : cette facture n\'appartient pas à votre équipe.' 
+        };
+      }
 
       // 2. Parser les paiements existants (JSON string ou tableau)
       let existingPayments: Array<{ amount?: number }> = [];
@@ -371,13 +388,15 @@ export default function BankReconciliation() {
         newStatus = invoiceDoc.status; // aucun changement
       }
 
-      // 6. Mettre à jour la facture
+      // 6. Mettre à jour la facture avec permissions sécurisées
+      const permissions = getTeamPermissions(appwriteTeamId);
+      
       await databases.updateDocument(
         DATABASE_ID,
         collection,
         candidate.id,
         updatePayload,
-        getTeamPermissions(appwriteTeamId)
+        permissions
       );
 
       console.log(
@@ -406,6 +425,28 @@ export default function BankReconciliation() {
         user: !!user,
       });
       toast.error('Session requise');
+      return;
+    }
+
+    // ✅ CORRECTION : Vérification préalable de la facture
+    const collection = suggestion.candidate.type === 'client_invoice' ? 'invoices' : 'received_invoices';
+    try {
+      const invoiceDoc = await databases.getDocument(DATABASE_ID, collection, suggestion.candidate.id);
+      if (!invoiceDoc.teamId || invoiceDoc.teamId !== customTeamId) {
+        toast.error('Accès refusé', { 
+          description: `La facture ${suggestion.candidate.number} n'appartient pas à votre équipe.` 
+        });
+        return;
+      }
+    } catch (err: any) {
+      if (err.code === 401 || err.code === 403 || err.code === 404) {
+        toast.error('Document ancien détecté', {
+          description: 'Cette facture n\'a pas les bonnes permissions. Contactez un administrateur.',
+          duration: 6000
+        });
+        return;
+      }
+      toast.error('Erreur', { description: err.message });
       return;
     }
 
@@ -486,10 +527,13 @@ export default function BankReconciliation() {
         console.warn('⚠️ Mouvement créé mais facture non synchronisée:', syncResult.error);
         toast.warning("Mouvement enregistré, mais la facture n'a pas pu être mise à jour", {
           description: syncResult.error,
+          duration: 8000
         });
       }
 
       // ─── ÉTAPE 3 : Enregistrer la transaction bancaire (anti-doublon) ───
+      const permissions = getTeamPermissions(appwriteTeamId);
+      
       await databases.createDocument(
         DATABASE_ID,
         'bank_transactions',
@@ -510,7 +554,7 @@ export default function BankReconciliation() {
           importedAt: new Date().toISOString(),
           importSource: 'csv',
         },
-        getTeamPermissions(appwriteTeamId)
+        permissions
       );
 
       // ─── ÉTAPE 4 : Mettre à jour l'UI ───
@@ -563,6 +607,8 @@ export default function BankReconciliation() {
     if (!customTeamId || !appwriteTeamId) return;
     updateRow(realIdx, { status: 'processing' });
     try {
+      const permissions = getTeamPermissions(appwriteTeamId);
+      
       await databases.createDocument(
         DATABASE_ID,
         'bank_transactions',
@@ -583,7 +629,7 @@ export default function BankReconciliation() {
           importedAt: new Date().toISOString(),
           importSource: 'csv',
         },
-        getTeamPermissions(appwriteTeamId)
+        permissions
       );
       updateRow(realIdx, { status: 'ignored' });
       toast.success('Ligne ignorée');

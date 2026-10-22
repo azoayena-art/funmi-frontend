@@ -35,6 +35,7 @@ import {
   Calendar, Hash, Zap
 } from 'lucide-react';
 import { Query, ID, Permission, Role } from 'appwrite';
+import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 // ============================================================
 // 📋 INTERFACES
@@ -156,7 +157,6 @@ export default function Reminders() {
   const navigate = useNavigate();
   const { fm, loading: settingsLoading, companyName } = useCompanySettings();
   
-  // ✅ CORRECTION : importer customTeamId ET appwriteTeamId
   const { customTeamId, appwriteTeamId } = useTeam();
 
   const [loading, setLoading] = useState(true);
@@ -179,7 +179,6 @@ export default function Reminders() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historySearchInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ Debounce sur la recherche
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
@@ -187,9 +186,6 @@ export default function Reminders() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ============================================================
-  // ⌨️ RACCOURCIS CLAVIER CTRL+K
-  // ============================================================
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -281,45 +277,68 @@ export default function Reminders() {
       .replace(/{lastReminderDate}/g, new Date().toLocaleDateString('fr-FR'));
   };
 
-  // ✅ CORRECTION CRITIQUE : Utiliser appwriteTeamId pour les permissions natives
-  const getDocPerms = useCallback(() => {
-    if (!appwriteTeamId) {
-      throw new Error('Sécurité : appwriteTeamId requis');
-    }
-    return [
-      Permission.read(Role.team(appwriteTeamId)),
-      Permission.update(Role.team(appwriteTeamId)),
-      Permission.delete(Role.team(appwriteTeamId)),
-    ];
-  }, [appwriteTeamId]);
-
-  // ✅ Enregistre la relance dans followups avec permissions natives
+  // ✅ CORRECTION : Utilisation de getTeamPermissions importé
   const recordFollowup = async (
     item: ReminderItem,
     channel: string,
     message: string,
     recipientEmail: string = ''
   ): Promise<void> => {
-    if (!customTeamId || !user) return;
-    const now = new Date().toISOString();
-    const perms = getDocPerms();
+    if (!customTeamId || !user || !appwriteTeamId) {
+      console.warn('⚠️ recordFollowup: teamId, user ou appwriteTeamId manquant', {
+        customTeamId,
+        userId: user?.$id,
+        appwriteTeamId
+      });
+      return;
+    }
     
-    await databases.createDocument(DATABASE_ID, 'followups', ID.unique(), {
-      scheduledAt: now,
-      teamId: customTeamId,
-      userId: user.$id,
-      targetType: item.type,
-      targetId: item.id,
-      relatedNumber: item.number,
-      clientName: item.clientName,
-      level: String(item.level),
-      followupType: 'relance',
-      channel,
-      sentAt: now,
-      status: 'sent',
-      message,
-      recipientEmail,
-    }, perms);
+    const now = new Date().toISOString();
+    const perms = getTeamPermissions(appwriteTeamId);
+    
+    if (!perms || perms.length === 0) {
+      console.error('🚨 Impossible d\'enregistrer la relance : permissions invalides');
+      toast.error('Erreur de permissions', {
+        description: 'Impossible de créer la relance. Vérifiez votre appartenance à l\'équipe.'
+      });
+      return;
+    }
+    
+    try {
+      await databases.createDocument(
+        DATABASE_ID,
+        'followups',
+        ID.unique(),
+        {
+          scheduledAt: now,
+          teamId: customTeamId,
+          userId: user.$id,
+          targetType: item.type,
+          targetId: item.id,
+          relatedNumber: item.number,
+          clientName: item.clientName,
+          level: String(item.level),
+          followupType: 'relance',
+          channel,
+          sentAt: now,
+          status: 'sent',
+          message,
+          recipientEmail,
+        },
+        perms
+      );
+      
+      console.log('✅ Relance enregistrée avec succès');
+    } catch (err: any) {
+      console.error('❌ Erreur enregistrement relance:', err);
+      console.error('Détails:', {
+        message: err.message,
+        code: err.code,
+        appwriteTeamId,
+        permissions: perms
+      });
+      throw new Error(`Impossible d'enregistrer la relance: ${err.message}`);
+    }
   };
 
   // ============================================================
@@ -327,7 +346,14 @@ export default function Reminders() {
   // ============================================================
 
   useEffect(() => {
-    if (!permLoading && !hasPermission('invoices.view')) navigate('/dashboard');
+    if (!permLoading) {
+      const hasInvoicesAccess = hasPermission('invoices.view');
+      const hasQuotesAccess = hasPermission('quotes.view');
+      
+      if (!hasInvoicesAccess && !hasQuotesAccess) {
+        navigate('/dashboard');
+      }
+    }
   }, [permLoading, hasPermission, navigate]);
 
   useEffect(() => {
@@ -338,49 +364,142 @@ export default function Reminders() {
 
   const loadReminders = async () => {
     if (!user || !customTeamId) return;
+    
+    console.log('🔄 Chargement des relances:', {
+      userId: user.$id,
+      customTeamId,
+      appwriteTeamId
+    });
+    
     try {
       setLoading(true);
 
-      const [quotesRes, invoicesRes, historyRes, metadataRes, journalRes] = await Promise.all([
-        databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'followups', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
-databases.listDocuments(DATABASE_ID, 'invoice_metadata', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
-databases.listDocuments(DATABASE_ID, 'invoice_payments', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
-      ]);
+      // ✅ CORRECTION : Chargement séquentiel avec gestion d'erreurs individuelle
+      const results: any = {};
+      const errors: string[] = [];
 
-      // ✅ Vérification côté UI que tous les documents appartiennent au team
-      const safeHistory = historyRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Reminder[];
+      // 1. Quotes
+      try {
+        console.log('📄 Chargement quotes...');
+        const quotesRes = await databases.listDocuments(
+          DATABASE_ID,
+          'quotes',
+          [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(500)]
+        );
+        results.quotes = quotesRes;
+        console.log(`✅ Quotes: ${quotesRes.documents.length} documents`);
+      } catch (err: any) {
+        console.error('❌ Erreur chargement quotes:', err.message);
+        errors.push(`quotes: ${err.message}`);
+        results.quotes = { documents: [] };
+      }
+
+      // 2. Invoices
+      try {
+        console.log('📄 Chargement invoices...');
+        const invoicesRes = await databases.listDocuments(
+          DATABASE_ID,
+          'invoices',
+          [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(500)]
+        );
+        results.invoices = invoicesRes;
+        console.log(`✅ Invoices: ${invoicesRes.documents.length} documents`);
+      } catch (err: any) {
+        console.error('❌ Erreur chargement invoices:', err.message);
+        errors.push(`invoices: ${err.message}`);
+        results.invoices = { documents: [] };
+      }
+
+      // 3. Followups
+      try {
+        console.log('📄 Chargement followups...');
+        const followupsRes = await databases.listDocuments(
+          DATABASE_ID,
+          'followups',
+          [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(500)]
+        );
+        results.followups = followupsRes;
+        console.log(`✅ Followups: ${followupsRes.documents.length} documents`);
+      } catch (err: any) {
+        console.error('❌ Erreur chargement followups:', err.message);
+        errors.push(`followups: ${err.message}`);
+        results.followups = { documents: [] };
+      }
+
+      // 4. Invoice metadata
+      try {
+        console.log('📄 Chargement invoice_metadata...');
+        const metadataRes = await databases.listDocuments(
+          DATABASE_ID,
+          'invoice_metadata',
+          [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(500)]
+        );
+        results.metadata = metadataRes;
+        console.log(`✅ Metadata: ${metadataRes.documents.length} documents`);
+      } catch (err: any) {
+        console.error('❌ Erreur chargement invoice_metadata:', err.message);
+        errors.push(`invoice_metadata: ${err.message}`);
+        results.metadata = { documents: [] };
+      }
+
+      // 5. Invoice payments
+      try {
+        console.log('📄 Chargement invoice_payments...');
+        const journalRes = await databases.listDocuments(
+          DATABASE_ID,
+          'invoice_payments',
+          [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(500)]
+        );
+        results.journal = journalRes;
+        console.log(`✅ Payments: ${journalRes.documents.length} documents`);
+      } catch (err: any) {
+        console.error('❌ Erreur chargement invoice_payments:', err.message);
+        errors.push(`invoice_payments: ${err.message}`);
+        results.journal = { documents: [] };
+      }
+
+      // ✅ Si toutes les collections ont échoué, afficher une erreur détaillée
+      if (errors.length === 5) {
+        throw new Error(
+          `Impossible de charger les données. Vérifiez les permissions dans Appwrite Console.\n\n` +
+          `Erreurs:\n${errors.join('\n')}`
+        );
+      }
+
+      // ✅ Afficher les erreurs partielles
+      if (errors.length > 0) {
+        console.warn('⚠️ Certaines collections n\'ont pas pu être chargées:', errors);
+        toast.warning('Chargement partiel', {
+          description: `${errors.length} collection(s) inaccessible(s). Vérifiez que "Read" est activé pour "Role: users" dans Appwrite Console.`,
+          duration: 8000
+        });
+      }
+
+      // ✅ Traitement des données
+      const safeQuotes = results.quotes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Quote[];
+      const safeInvoices = results.invoices.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Invoice[];
+      const safeHistory = results.followups.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Reminder[];
+      const safeMetadata = results.metadata.documents.filter((d: any) => d.teamId === customTeamId);
+      const safeJournal = results.journal.documents.filter((d: any) => d.teamId === customTeamId);
+
       setHistory(safeHistory);
 
       const metadataMap = new Map<string, any>();
-      metadataRes.documents.forEach((doc: any) => {
-        if (doc.teamId === customTeamId) {
-          metadataMap.set(doc.invoiceId, {
-            creditData: readJson(doc.creditData),
-            archiveData: readJson(doc.archiveData),
-            reconciliationData: readJson(doc.reconciliationData),
-          });
-        }
+      safeMetadata.forEach((doc: any) => {
+        metadataMap.set(doc.invoiceId, {
+          creditData: readJson(doc.creditData),
+          archiveData: readJson(doc.archiveData),
+          reconciliationData: readJson(doc.reconciliationData),
+        });
       });
 
-      const journalPayments = journalRes.documents
-        .filter((d: any) => d.teamId === customTeamId)
-        .map((d: any) => ({ ...readJson(d.data), $id: d.$id }));
+      const journalPayments = safeJournal.map((d: any) => ({ ...readJson(d.data), $id: d.$id }));
       
       const items: ReminderItem[] = [];
       const today = new Date();
-      const allInvoices = invoicesRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Invoice[];
 
       // --- DEVIS ---
-      (quotesRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Quote[]).forEach(quote => {
+      safeQuotes.forEach(quote => {
         if (quote.status !== 'Envoyé') return;
         const issueDate = new Date(quote.issueDate || '');
         const daysSinceSent = Math.floor((today.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -401,9 +520,9 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
       });
 
       // --- FACTURES ---
-      allInvoices.forEach(invoice => {
+      safeInvoices.forEach(invoice => {
         if (invoice.status === 'paid' || invoice.status === 'cancelled' || invoice.type === 'credit') return;
-        const netRemaining = getNetRemaining(invoice, allInvoices, metadataMap, journalPayments);
+        const netRemaining = getNetRemaining(invoice, safeInvoices, metadataMap, journalPayments);
         if (netRemaining <= 0) return;
 
         if (invoice.isElectronic && invoice.transmissionStatus === 'transmitted') {
@@ -452,9 +571,19 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
       const urgencyOrder = { critical: 0, danger: 1, warning: 2, info: 3 };
       items.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
       setReminders(items);
-    } catch (error) {
-      console.error('Erreur chargement relances:', error);
-      toast.error('Erreur lors du chargement des relances');
+      
+      console.log('✅ Chargement terminé:', {
+        quotes: safeQuotes.length,
+        invoices: safeInvoices.length,
+        followups: safeHistory.length,
+        reminders: items.length
+      });
+    } catch (error: any) {
+      console.error('❌ Erreur chargement relances:', error);
+      toast.error('Erreur de permissions', {
+        description: error.message || 'Vérifiez les permissions dans Appwrite Console → Settings → Permissions',
+        duration: 10000
+      });
     } finally {
       setLoading(false);
     }
@@ -554,7 +683,6 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
         failedNames.push(item.clientName);
       }
       
-      // Petit délai pour éviter le rate limiting
       if (targets.indexOf(item) % 10 === 9) {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
@@ -879,7 +1007,6 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
           )}
         </main>
 
-        {/* MODAL ENVOI RELANCE */}
         <Modal
           open={showSendModal && !!selectedReminder}
           onClose={() => { setShowSendModal(false); setSelectedReminder(null); }}

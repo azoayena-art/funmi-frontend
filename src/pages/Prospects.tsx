@@ -1,5 +1,5 @@
 import Sidebar from '../components/Sidebar';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -10,8 +10,8 @@ import { toast } from 'sonner';
 import {
   PageHeader, Modal, ActionMenu, ActionMenuItem, StatCell, StatusIndicator,
   DotLabel, Avatar, SkeletonRow, SkeletonCard, TypeTabs, KPIGrid, Pagination,
-  mapInvoiceStatusToShared, toEntity, formatDate,
-  type Entity, type DotTone,
+  toEntity,
+  type DotTone,
 } from '../components/ui/SharedUI';
 import {
   Plus, Search, Edit2, Phone, Mail, Building, FileText,
@@ -19,6 +19,9 @@ import {
   Globe, Shield, MapPin, Hash, Home, FileSpreadsheet
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
+
+// 🔐 PERMISSIONS SÉCURISÉES
+import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 // ============================================================
 // 📋 INTERFACES
@@ -120,10 +123,6 @@ export default function Prospects() {
   const isFrenchCompany = !!form.companyName?.trim() && form.country === 'FR';
   const isCompany = !!form.companyName?.trim();
 
-  // ✅ CORRECTION : Permissions gérées au niveau collection (RLS + rôle team)
-  // Aucune permission explicite nécessaire sur les documents
-  const getDocPerms = useCallback(() => undefined, []);
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -166,7 +165,6 @@ export default function Prospects() {
     }
   };
 
-  // ✅ Recherche de doublons optimisée avec Query.or()
   const checkDuplicate = async (): Promise<Prospect | null> => {
     if (!form.email && !form.phone) return null;
     if (!customTeamId) return null;
@@ -202,9 +200,17 @@ export default function Prospects() {
   };
 
   const handleOpenEdit = (prospect: Prospect) => {
-    // ✅ Vérification de sécurité
+    // ✅ CORRECTION : Gestion des anciens documents sans teamId
+    if (!prospect.teamId) {
+      toast.error('Prospect ancien détecté', {
+        description: 'Ce prospect a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
+        duration: 6000
+      });
+      return;
+    }
+
     if (prospect.teamId !== customTeamId) {
-      toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
       return;
     }
 
@@ -232,7 +238,6 @@ export default function Prospects() {
     setShowModal(true);
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleSave = async () => {
     if (!form.firstName || !form.lastName) {
       toast.error('Champs requis', { description: 'Veuillez remplir le prénom et le nom.' });
@@ -250,7 +255,7 @@ export default function Prospects() {
       }
     }
 
-    if (!customTeamId) {
+    if (!customTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -286,17 +291,47 @@ export default function Prospects() {
       };
 
       if (editingId) {
-        // ✅ Vérification de sécurité avant update
-        const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', editingId);
-        if (existingDoc.teamId !== customTeamId) {
-          toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        // ✅ CORRECTION : Récupérer le document PUIS vérifier
+        let existingDoc;
+        try {
+          existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', editingId);
+        } catch (err: any) {
+          console.error('❌ Impossible de récupérer le prospect:', err);
+          
+          if (err.code === 401 || err.code === 403 || err.code === 404) {
+            toast.error('Document ancien détecté', {
+              description: 'Ce prospect n\'a pas les bonnes permissions. Contactez un administrateur.',
+              duration: 6000
+            });
+          } else {
+            toast.error('Erreur', { description: err.message });
+          }
+          setSaving(false);
+          return;
+        }
+
+        // Vérification d'appartenance à l'équipe
+        if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
+          toast.error('Accès refusé', { 
+            description: "Ce prospect n'appartient pas à votre équipe ou est un document ancien." 
+          });
+          setSaving(false);
           return;
         }
 
         await databases.updateDocument(DATABASE_ID, 'prospects', editingId, data);
         toast.success('Prospect mis à jour', { description: `${form.firstName} ${form.lastName}`.trim() });
       } else {
-        await databases.createDocument(DATABASE_ID, 'prospects', ID.unique(), data);
+        // ✅ CORRECTION : Permissions sécurisées pour NOUVEAU document
+        const permissions = getTeamPermissions(appwriteTeamId);
+        
+        await databases.createDocument(
+          DATABASE_ID, 
+          'prospects', 
+          ID.unique(), 
+          data,
+          permissions  // ← 4ᵉ argument : permissions d'équipe
+        );
         toast.success('Prospect ajouté', { description: `${form.firstName} ${form.lastName}`.trim() });
       }
       setShowModal(false);
@@ -313,19 +348,27 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleConvertToClient = async () => {
     const prospect = prospectToConvert;
     if (!prospect) return;
 
-    // ✅ Vérification de sécurité
-    if (prospect.teamId !== customTeamId) {
-      toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+    // ✅ CORRECTION : Gestion des anciens documents
+    if (!prospect.teamId) {
+      toast.error('Prospect ancien détecté', {
+        description: 'Ce prospect a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
+        duration: 6000
+      });
       setProspectToConvert(null);
       return;
     }
 
-    if (!customTeamId) {
+    if (prospect.teamId !== customTeamId) {
+      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+      setProspectToConvert(null);
+      return;
+    }
+
+    if (!customTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -363,8 +406,13 @@ export default function Prospects() {
 
       const newClientId = `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
 
+      // ✅ CORRECTION : Permissions sécurisées pour le nouveau client
+      const clientPermissions = getTeamPermissions(appwriteTeamId);
+
       await databases.createDocument(
-        DATABASE_ID, 'clients', ID.unique(),
+        DATABASE_ID, 
+        'clients', 
+        ID.unique(),
         {
           teamId: customTeamId,
           userId: user?.$id || '',
@@ -385,7 +433,8 @@ export default function Prospects() {
           notes: prospect.notes ? `Converti depuis le prospect.\nNotes d'origine: ${prospect.notes}` : 'Converti depuis un prospect',
           status: 'active',
           prospectId: prospect.$id
-        }
+        },
+        clientPermissions  // ← Permissions sécurisées
       );
 
       await databases.updateDocument(DATABASE_ID, 'prospects', prospect.$id, { status: 'won' });
@@ -404,7 +453,6 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleQuickStatusChange = async (prospectId: string, newStatus: string) => {
     if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée.');
@@ -412,10 +460,11 @@ export default function Prospects() {
     }
 
     try {
-      // ✅ Vérification de sécurité avant update
+      // ✅ CORRECTION : Vérification avant update
       const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', prospectId);
-      if (existingDoc.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+      
+      if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
+        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
         return;
       }
 
@@ -428,7 +477,6 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleArchive = async () => {
     if (!prospectToArchive) return;
 
@@ -438,10 +486,19 @@ export default function Prospects() {
       return;
     }
 
+    // ✅ CORRECTION : Gestion des anciens documents
+    if (!prospectToArchive.teamId) {
+      toast.error('Prospect ancien détecté', {
+        description: 'Ce prospect a été créé avant la mise à jour. Contactez un administrateur.',
+        duration: 6000
+      });
+      setProspectToArchive(null);
+      return;
+    }
+
     try {
-      // ✅ Vérification de sécurité
       if (prospectToArchive.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
         setProspectToArchive(null);
         return;
       }
@@ -456,19 +513,33 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleUnarchive = async (id: string, name: string) => {
     if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée.');
       return;
     }
 
+    // ✅ CORRECTION : Vérification côté client d'abord
+    const prospectInList = prospects.find(p => p.$id === id);
+    if (prospectInList && !prospectInList.teamId) {
+      toast.error('Prospect ancien détecté', {
+        description: 'Ce prospect a été créé avant la mise à jour. Contactez un administrateur.',
+        duration: 6000
+      });
+      return;
+    }
+    
+    if (prospectInList && prospectInList.teamId !== customTeamId) {
+      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+      return;
+    }
+
     try {
-      // ✅ Vérification de sécurité
+      // Double vérification côté serveur
       const doc = await databases.getDocument(DATABASE_ID, 'prospects', id);
-      if (doc.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
-        return;
+      if (!doc.teamId || doc.teamId !== customTeamId) { 
+        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+        return; 
       }
 
       await databases.updateDocument(DATABASE_ID, 'prospects', id, { status: 'new' });
@@ -481,7 +552,6 @@ export default function Prospects() {
     }
   };
 
-  // ✅ Navigation vers Import/Export
   const handleOpenImportExport = () => {
     navigate('/import-export?type=prospects');
   };
@@ -564,7 +634,6 @@ export default function Prospects() {
           currencySymbol={currencyConfig?.symbol || '€'}
           action={
             <div className="flex gap-2 w-full sm:w-auto">
-              {/* ✅ BOUTON IMPORT/EXPORT - NOUVEAU */}
               {hasPermission('prospects.view') && (
                 <button 
                   onClick={handleOpenImportExport} 
@@ -575,7 +644,6 @@ export default function Prospects() {
                   <span>Import / Export</span>
                 </button>
               )}
-              {/* BOUTON NOUVEAU PROSPECT */}
               {viewMode === 'active' && hasPermission('prospects.create') && (
                 <button 
                   onClick={handleOpenAdd} 
@@ -860,7 +928,6 @@ export default function Prospects() {
           )}
         </main>
 
-        {/* MODAL Création / Édition */}
         <Modal
           open={showModal}
           onClose={() => { setShowModal(false); setDuplicateFound(null); }}

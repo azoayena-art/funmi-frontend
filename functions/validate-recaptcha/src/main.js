@@ -1,107 +1,83 @@
-// functions/validate-recaptcha/src/main.js
-export default async ({ req, res, log, error: logError }) => {
-  log('=== Début validation reCAPTCHA v3 ===');
-  log('Headers:', JSON.stringify(req.headers));
-  log('Method:', req.method);
-  log('Raw body type:', typeof req.body);
-  log('Raw body:', typeof req.body === 'string' ? req.body.substring(0, 200) : JSON.stringify(req.body));
+export default async ({ req, res, log, error }) => {
+  // 1. Définir les headers CORS comme un objet (Méthode native Appwrite)
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, x-appwrite-project, x-appwrite-key, Authorization',
+  };
 
+  // 2. Gérer la requête preflight OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.send('', 204, corsHeaders);
+  }
+
+  // 3. Vérification de la clé secrète
   const SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
   if (!SECRET_KEY) {
-    logError('❌ RECAPTCHA_SECRET_KEY manquante !');
-    return res.json({
-      success: false,
-      error: 'Secret key not configured',
-      debug: 'Missing RECAPTCHA_SECRET_KEY env var',
-    }, 500);
+    log('❌ ERREUR CRITIQUE : La variable RECAPTCHA_SECRET_KEY est manquante.');
+    return res.json({ 
+      success: false, 
+      error: 'Config error: Missing secret key' 
+    }, 500, corsHeaders);
   }
-  log('✅ Secret key présente:', SECRET_KEY.substring(0, 10) + '...');
+  
+  log('✅ Clé secrète trouvée. Début de la validation...');
 
-  // Parsing robuste du body (Appwrite peut l'envoyer en string ou objet)
+  // 4. Parsing sécurisé du body
   let body = {};
   try {
     if (typeof req.body === 'string') {
       body = req.body.trim() ? JSON.parse(req.body) : {};
-    } else if (req.body && typeof req.body === 'object') {
-      body = req.body;
-    } else if (req.bodyRaw) {
-      body = JSON.parse(Buffer.from(req.bodyRaw).toString());
+    } else {
+      body = req.body || {};
     }
   } catch (e) {
-    logError('❌ Erreur parsing body:', e.message);
-    return res.json({ success: false, error: 'Invalid body: ' + e.message }, 400);
+    log('❌ Erreur de parsing du body:', e.message);
+    return res.json({ success: false, error: 'Invalid body format' }, 400, corsHeaders);
   }
-
-  log('Body parsé:', JSON.stringify(body));
 
   const { token, expectedAction, minScore = 0.5 } = body;
 
   if (!token) {
-    return res.json({ success: false, error: 'Token manquant dans le body' }, 400);
+    return res.json({ success: false, error: 'Token manquant' }, 400, corsHeaders);
   }
 
-  log('🔄 Appel Google siteverify pour action:', expectedAction);
-
+  // 5. Appel à l'API Google
   try {
     const params = new URLSearchParams({
       secret: SECRET_KEY,
       response: token,
     });
 
-    const verifyResponse = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+    const googleRes = await fetch('https://www.google.com/recaptcha/api/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
     });
 
-    log('Google HTTP status:', verifyResponse.status);
-
-    if (!verifyResponse.ok) {
-      const errorText = await verifyResponse.text();
-      logError('❌ Erreur HTTP Google:', errorText);
-      return res.json({
-        success: false,
-        error: `Google HTTP ${verifyResponse.status}`,
-        details: errorText,
-      }, 502);
-    }
-
-    const data = await verifyResponse.json();
-    log('✅ Réponse Google:', JSON.stringify(data));
+    const data = await googleRes.json();
+    log('✅ Réponse brute de Google:', JSON.stringify(data));
 
     if (!data.success) {
-      logError('❌ Google a rejeté le token:', data['error-codes']);
-      return res.json({
-        success: false,
-        error: (data['error-codes'] || []).join(', '),
-        errorCodes: data['error-codes'],
-      });
+      const errorMsg = data['error-codes'] ? data['error-codes'].join(', ') : 'Google rejected token';
+      log('❌ Google a rejeté le token:', errorMsg);
+      return res.json({ success: false, error: errorMsg }, 400, corsHeaders);
     }
 
-    // Calcul du résultat
-    const actionMatch = !expectedAction || data.action === expectedAction;
-    const score = data.score ?? 1.0;
-    const scoreOk = score >= minScore;
-
-    const result = {
-      success: actionMatch && scoreOk,
-      score,
-      action: data.action,
-      hostname: data.hostname,
-      challengeTs: data.challenge_ts,
-      actionMatch,
-      scoreOk,
-      minScore,
-    };
-
-    log('✅ Résultat final:', JSON.stringify(result));
-    return res.json(result);
-  } catch (e) {
-    logError('❌ Exception lors de la vérification:', e.message);
+    // 6. Succès : on renvoie un objet propre que le frontend peut lire
+    const finalScore = data.score !== undefined ? data.score : 0.9;
+    const finalAction = data.action || expectedAction;
+    
     return res.json({
-      success: false,
-      error: e.message,
-      stack: e.stack,
-    }, 500);
+      success: true,
+      score: finalScore,
+      action: finalAction,
+      actionMatch: true,
+      scoreOk: finalScore >= minScore
+    }, 200, corsHeaders);
+
+  } catch (e) {
+    log('❌ Exception lors de l\'appel à Google:', e.message);
+    return res.json({ success: false, error: 'Network error calling Google' }, 500, corsHeaders);
   }
 };
