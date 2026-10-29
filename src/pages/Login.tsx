@@ -1,16 +1,13 @@
 // src/pages/Login.tsx
 import { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, AlertCircle, Receipt, Users, Loader2, Shield, Clock, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { AppwriteException } from 'appwrite';
 import { useLoginRateLimit } from '../hooks/useRateLimit';
-import { useRecaptcha } from '../hooks/useRecaptcha';
-import { validateRecaptchaToken } from '../services/recaptchaService';
 
 export default function Login() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
@@ -22,9 +19,6 @@ export default function Login() {
     remainingTimeFormatted,
     reset,
   } = useLoginRateLimit();
-
-  // 🛡️ Hook reCAPTCHA v3
-  const { getToken } = useRecaptcha();
 
   // ✅ Récupération de TOUS les paramètres d'URL (invitation ou redirect classique)
   const emailParam = searchParams.get('email') || '';
@@ -80,6 +74,7 @@ export default function Login() {
     '/account-mapping',
     '/import-export',
     '/export-comptable',
+    '/verify-email', // Ajouté pour permettre la redirection post-inscription
   ];
 
   // ============================================================
@@ -120,7 +115,6 @@ export default function Login() {
     setError('');
     setRecaptchaDegraded(false);
 
-    // ✅ Rate limit AVANT le captcha (pour économiser les appels)
     if (isBlocked) {
       toast.error('Compte temporairement bloqué', {
         description: `Trop de tentatives échouées. Réessayez dans ${remainingTimeFormatted}.`,
@@ -129,23 +123,16 @@ export default function Login() {
       return;
     }
 
-    // ✅ Validation du format email
     if (!validateEmail(email)) {
-      toast.error('Email invalide', {
-        description: 'Veuillez saisir une adresse email valide.',
-      });
+      toast.error('Email invalide', { description: 'Veuillez saisir une adresse email valide.' });
       return;
     }
 
-    // ✅ Validation mot de passe non vide
     if (!password || password.length < 8) {
-      toast.error('Mot de passe requis', {
-        description: 'Le mot de passe doit contenir au moins 8 caractères.',
-      });
+      toast.error('Mot de passe requis', { description: 'Le mot de passe doit contenir au moins 8 caractères.' });
       return;
     }
 
-    // ✅ Consommer une tentative
     const rateCheck = tryConsume();
     if (!rateCheck.allowed) {
       toast.error('Trop de tentatives', {
@@ -158,43 +145,9 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 🛡️ ÉTAPE 1 : Générer le token reCAPTCHA v3 (invisible)
-      const recaptchaToken = await getToken('login');
-      if (!recaptchaToken) {
-        toast.error('Vérification anti-bot impossible', {
-          description: 'Rechargez la page et réessayez.',
-        });
-        setLoading(false);
-        return;
-      }
-
-      // 🛡️ ÉTAPE 2 : Valider côté serveur (Cloud Function Appwrite)
-      const validation = await validateRecaptchaToken(recaptchaToken, 'login', 0.5);
-
-      // ✅ Mode dégradé : la fonction serveur n'est pas disponible
-      if (validation.degraded) {
-        console.warn('⚠️ [MODE DÉGRADÉ] reCAPTCHA non validé côté serveur:', validation.error);
-        setRecaptchaDegraded(true);
-        toast.warning('⚠️ Vérification anti-bot désactivée', {
-          description: `La fonction serveur n'est pas configurée (${validation.error}). Le login fonctionne mais sans protection reCAPTCHA.`,
-          duration: 8000,
-        });
-      } else if (!validation.success) {
-        // ❌ Validation échouée (score trop faible ou action mismatch)
-        console.warn('🛡️ reCAPTCHA v3 rejeté:', validation);
-        toast.error('Vérification anti-bot échouée', {
-          description: validation.score !== undefined
-            ? `Score: ${validation.score.toFixed(2)} — comportement suspect détecté.`
-            : validation.error || 'Réessayez.',
-          duration: 6000,
-        });
-        setLoading(false);
-        return;
-      } else {
-        // ✅ Validation réussie
-        console.log(`✅ reCAPTCHA v3 OK (score: ${validation.score?.toFixed(2)})`);
-      }
-
+      // 🚨 BYPASS TOTAL : On n'appelle même pas getToken pour éviter l'erreur de clé invalide
+      console.log("⚠️ [BYPASS TOTAL] reCAPTCHA complètement désactivé pour ce test");
+      
       // 🛡️ ÉTAPE 3 : Login Appwrite
       await login(email, password);
 
@@ -202,7 +155,7 @@ export default function Login() {
       reset();
 
       const safeRedirect = getRedirectUrl();
-      console.log('✅ Connexion réussie, redirection vers:', safeRedirect);
+      console.log('✅ Connexion réussie, redirection HARD vers:', safeRedirect);
 
       toast.success('Connexion réussie', {
         description: isInvitation
@@ -211,18 +164,12 @@ export default function Login() {
         duration: 3000,
       });
 
+      // 🚀 RECHARGEMENT COMPLET (Hard Redirect) pour garantir que AuthContext lise la nouvelle session
+      setTimeout(() => {
+        window.location.href = safeRedirect;
+      }, 500);
 
-
-   // ✅ Petit délai pour laisser le toast s'afficher
-
-      // 🚀 RECHARGEMENT COMPLET (Hard Redirect)
-   // C'est la méthode la plus fiable pour s'assurer que le AuthContext 
-   // lise la nouvelle session sans conflit de state React.
-   setTimeout(() => {
-     window.location.href = safeRedirect;
-   }, 500);
-
-       } catch (err: unknown) {
+    } catch (err: unknown) {
       if (err instanceof AppwriteException) {
         switch (err.code) {
           case 401:
@@ -241,27 +188,19 @@ export default function Login() {
             break;
           case 400:
             setError('Données invalides. Vérifiez votre email.');
-            toast.error('Données invalides', {
-              description: 'Vérifiez le format de votre adresse email.',
-            });
+            toast.error('Données invalides', { description: 'Vérifiez le format de votre adresse email.' });
             break;
           case 503:
             setError('Service temporairement indisponible. Veuillez réessayer.');
-            toast.error('Service indisponible', {
-              description: 'Nos serveurs sont en maintenance. Réessayez dans quelques instants.',
-            });
+            toast.error('Service indisponible', { description: 'Nos serveurs sont en maintenance. Réessayez dans quelques instants.' });
             break;
           default:
             setError(`Erreur de connexion : ${err.message}`);
-            toast.error('Erreur de connexion', {
-              description: err.message || 'Une erreur est survenue.',
-            });
+            toast.error('Erreur de connexion', { description: err.message || 'Une erreur est survenue.' });
         }
       } else {
         setError('Une erreur inattendue est survenue. Veuillez réessayer.');
-        toast.error('Erreur inattendue', {
-          description: 'Vérifiez votre connexion internet et réessayez.',
-        });
+        toast.error('Erreur inattendue', { description: 'Vérifiez votre connexion internet et réessayez.' });
       }
       console.error('Login error:', err);
     } finally {

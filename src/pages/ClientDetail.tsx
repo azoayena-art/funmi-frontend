@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { Query } from 'appwrite';
 
-// 🔐 PERMISSIONS RLS CENTRALISÉES (correction audit sécurité)
+// 🔐 PERMISSIONS RLS CENTRALISÉES
 import { 
   getTeamPermissions, 
   verifyTeamAccessStrict 
@@ -108,8 +108,9 @@ export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
-  // ✅ CORRECTION : Récupérer les DEUX IDs depuis le hook
-  const { teamId: hookTeamId, appwriteTeamId } = useTeam();
+  
+  // ✅ CORRECTION : Utiliser customTeamId au lieu de teamId: hookTeamId
+  const { customTeamId, appwriteTeamId } = useTeam();
   const navigate = useNavigate();
   const { fm, currency, currencyConfig, loading: settingsLoading } = useCompanySettings();
 
@@ -136,9 +137,10 @@ export default function ClientDetail() {
 
   useEffect(() => {
     if (!user || !id) return;
-    if (!hookTeamId) return;
+    // ✅ CORRECTION : Vérifier customTeamId
+    if (!customTeamId) return;
     loadClientData();
-  }, [user, id, hookTeamId]);
+  }, [user, id, customTeamId]);
 
   useEffect(() => {
     setQuotesPage(1);
@@ -243,19 +245,19 @@ export default function ClientDetail() {
     try {
       setLoading(true);
       
-      const teamId = hookTeamId;
+      // ✅ CORRECTION : Utiliser customTeamId
+      const teamId = customTeamId;
       if (!teamId) {
-        console.warn('⚠️ ClientDetail: teamId non résolu, attente...');
+        console.warn('⚠️ ClientDetail: customTeamId non résolu, attente...');
         setLoading(false);
         return;
       }
       
       setCurrentTeamId(teamId);
-      console.log('👤 ClientDetail: Chargement avec teamId:', teamId);
+      console.log('👤 ClientDetail: Chargement avec customTeamId:', teamId);
 
       const clientDoc = await databases.getDocument(DATABASE_ID, 'clients', id!);
       
-      // ✅ CORRECTION : Utilisation de verifyTeamAccessStrict
       try {
         verifyTeamAccessStrict(clientDoc, teamId, 'ClientDetail.loadClientData');
       } catch (err) {
@@ -383,9 +385,6 @@ export default function ClientDetail() {
   // ⚙️ ACTIONS
   // ============================================================
 
-  // ✅ CORRECTION CRITIQUE : Utilisation de getTeamPermissions(appwriteTeamId)
-  // AVANT : Role.team(currentTeamId) → BUG (customTeamId au lieu de appwriteTeamId)
-  // APRÈS : getTeamPermissions(appwriteTeamId) → Utilise le bon ID natif Appwrite
   const handleArchiveConfirm = async () => {
     if (!clientToArchive) return;
     if (!currentTeamId || !appwriteTeamId) {
@@ -396,7 +395,6 @@ export default function ClientDetail() {
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'clients', clientToArchive.$id);
       
-      // ✅ Vérification centralisée avec log en dev
       try {
         verifyTeamAccessStrict(doc, currentTeamId, 'ClientDetail.handleArchiveConfirm');
       } catch (err) {
@@ -404,7 +402,6 @@ export default function ClientDetail() {
         return;
       }
       
-      // ✅ CORRECTION : Utilisation de getTeamPermissions avec appwriteTeamId
       const perms = getTeamPermissions(appwriteTeamId);
       
       if (import.meta.env.DEV) {
@@ -432,7 +429,6 @@ export default function ClientDetail() {
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'clients', client.$id);
       
-      // ✅ Vérification centralisée
       try {
         verifyTeamAccessStrict(doc, currentTeamId, 'ClientDetail.handleUnarchive');
       } catch (err) {
@@ -440,7 +436,6 @@ export default function ClientDetail() {
         return;
       }
       
-      // ✅ Utilisation de getTeamPermissions avec appwriteTeamId
       await databases.updateDocument(
         DATABASE_ID, 
         'clients', 

@@ -9,9 +9,6 @@ import { toast } from 'sonner';
 import { CreditCard, CheckCircle2, AlertCircle, Calendar, Receipt, AlertTriangle } from 'lucide-react';
 import { ID } from 'appwrite';
 
-// 🔐 PERMISSIONS SÉCURISÉES
-import { getTeamPermissions } from '../utils/rowLevelPermissions';
-
 interface Payment {
   id: string;
   amount: number;
@@ -74,8 +71,7 @@ export default function PaymentModal({
   isOpen, onClose, invoice, type, onSuccess,
 }: PaymentModalProps) {
   const { fm, currency } = useCompanySettings();
-  // ✅ CORRECTION : Récupérer appwriteTeamId
-  const { customTeamId, appwriteTeamId } = useTeam();
+  const { customTeamId } = useTeam();
   const { user } = useAuth();
 
   const [form, setForm] = useState<PaymentForm>({
@@ -154,16 +150,8 @@ export default function PaymentModal({
   // ============================================================
 
   const handleSubmit = async () => {
-    if (!invoice || !customTeamId || !appwriteTeamId || !user) {
+    if (!invoice || !customTeamId || !user) {
       toast.error('Session expirée ou équipe non identifiée');
-      return;
-    }
-
-    // ✅ CORRECTION : Vérification d'appartenance à l'équipe
-    if (!invoice.teamId || invoice.teamId !== customTeamId) {
-      toast.error('Accès refusé', { 
-        description: "Cette facture n'appartient pas à votre équipe." 
-      });
       return;
     }
 
@@ -223,64 +211,29 @@ export default function PaymentModal({
       const isClient = type === 'client';
       const counterpartyName = isClient ? invoice.clientName : invoice.supplierName;
 
-      // ✅ CORRECTION : Permissions sécurisées pour le mouvement de trésorerie
-      const permissions = getTeamPermissions(appwriteTeamId);
-
       // 1. Créer le mouvement de trésorerie
-      await databases.createDocument(
-        DATABASE_ID, 
-        'payments', 
-        ID.unique(), 
-        {
-          teamId: customTeamId,
-          userId: user.$id,
-          type: isClient ? 'in' : 'out',
-          category: isClient ? 'client_payment' : 'supplier_payment',
-          amount: effectiveAmount,
-          currencyCode: invoice.currencyCode || currency || 'EUR',
-          exchangeRate: 1,
-          amountEur: effectiveAmount,
-          date: form.date,
-          method: METHOD_MAP[form.method] || 'other',
-          description: `${isClient ? 'Encaissement' : 'Paiement'} facture ${invoice.invoiceNumber} - ${counterpartyName}`,
-          counterpartyName: counterpartyName || null,
-          linkedInvoiceId: isClient ? invoice.$id : null,
-          linkedReceivedInvoiceId: !isClient ? invoice.$id : null,
-          reference: form.reference || null,
-          vatAmount: 0,
-          vatRate: 0,
-          isReconciled: false,
-          isRecurring: false,
-          isArchived: false,
-        },
-        permissions  // ← 4ᵉ argument : permissions d'équipe
-      );
-
-      // ✅ CORRECTION : Vérification d'accès avant update
-      const collectionId = isClient ? 'invoices' : 'received_invoices';
-      
-      let existingDoc;
-      try {
-        existingDoc = await databases.getDocument(DATABASE_ID, collectionId, invoice.$id);
-      } catch (err: any) {
-        if (err.code === 401 || err.code === 403 || err.code === 404) {
-          toast.error('Document ancien détecté', {
-            description: 'Cette facture n\'a pas les bonnes permissions. Contactez un administrateur.',
-            duration: 6000
-          });
-          setSubmitting(false);
-          return;
-        }
-        throw err;
-      }
-
-      if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
-        toast.error('Accès refusé', { 
-          description: "Cette facture n'appartient pas à votre équipe." 
-        });
-        setSubmitting(false);
-        return;
-      }
+      await databases.createDocument(DATABASE_ID, 'payments', ID.unique(), {
+        teamId: customTeamId,
+        userId: user.$id,
+        type: isClient ? 'in' : 'out',
+        category: isClient ? 'client_payment' : 'supplier_payment',
+        amount: effectiveAmount,
+        currencyCode: invoice.currencyCode || currency || 'EUR',
+        exchangeRate: 1,
+        amountEur: effectiveAmount,
+        date: form.date,
+        method: METHOD_MAP[form.method] || 'other',
+        description: `${isClient ? 'Encaissement' : 'Paiement'} facture ${invoice.invoiceNumber} - ${counterpartyName}`,
+        counterpartyName: counterpartyName || null,
+        linkedInvoiceId: isClient ? invoice.$id : null,
+        linkedReceivedInvoiceId: !isClient ? invoice.$id : null,
+        reference: form.reference || null,
+        vatAmount: 0,
+        vatRate: 0,
+        isReconciled: false,
+        isRecurring: false,
+        isArchived: false,
+      });
 
       // 2. Mettre à jour la facture
       const updateData: any = {
@@ -293,6 +246,7 @@ export default function PaymentModal({
         updateData.paidAt = new Date().toISOString();
       }
 
+      const collectionId = isClient ? 'invoices' : 'received_invoices';
       await databases.updateDocument(DATABASE_ID, collectionId, invoice.$id, updateData);
 
       // 3. Toast adaptatif

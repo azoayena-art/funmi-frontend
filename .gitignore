@@ -1,27 +1,48 @@
-node_modules
-dist
-.env
-.env.local
-.DS_Store
-*.log
-
-# Dossiers de migration (contiennent des clés API)
-migration-appwrite/
-migration-local/
-migration.zip
-
-# Variables d'environnement
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-npm-debug.log*
-
-# Dépendances
+# ==========================================
+# DÉPENDANCES
+# ==========================================
 node_modules/
+.pnp/
+.pnp.js
 
-# Build
+# ==========================================
+# VARIABLES D'ENVIRONNEMENT (NE JAMAIS POUSSER)
+# ==========================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# FICHIERS DE BUILD / COMPILATION
+# ==========================================
 dist/
 build/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==========================================
+# ÉDITEURS DE CODE & OS
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# TESTS & COUVERTURE
+# ==========================================
+coverage/
+.nyc_output/
+
+# ==========================================
+# AUTRES
+# ==========================================
+*.local

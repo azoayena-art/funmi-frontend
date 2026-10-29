@@ -1,4 +1,3 @@
-// src/pages/Catalogue.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
@@ -44,8 +43,6 @@ import {
   SectionTitle,
   Badge,
   statusLabels,
-  Checkbox,
-  BulkActionBar,
   type Entity,
 } from '../components/ui/SharedUI';
 
@@ -218,10 +215,6 @@ export default function Catalogue() {
   const [productsPage, setProductsPage] = useState(1);
   const [categoriesPage, setCategoriesPage] = useState(1);
 
-  // ✅ SÉLECTION MULTIPLE
-  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
-
   // Units
   const [showUnitsModal, setShowUnitsModal] = useState(false);
   const [unitsList, setUnitsList] = useState<string[]>([]);
@@ -277,15 +270,6 @@ export default function Catalogue() {
     loadData();
   }, [user, customTeamId]);
 
-  // ✅ Réinitialiser la sélection quand les filtres ou la page changent
-  useEffect(() => {
-    setSelectedProductIds(new Set());
-  }, [search, filterCategory, viewMode, mainTab, productsPage]);
-
-  useEffect(() => {
-    setSelectedCategoryIds(new Set());
-  }, [search, viewMode, mainTab, categoriesPage]);
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -298,6 +282,7 @@ export default function Catalogue() {
       }
       
       setCurrentTeamId(teamId);
+      console.log('📦 Catalogue: Chargement avec customTeamId:', teamId);
 
       const [catRes, prodRes, settingsRes] = await Promise.all([
         databases.listDocuments(DATABASE_ID, 'categories', [Query.equal('teamId', teamId), Query.orderDesc('$createdAt'), Query.limit(500)]),
@@ -585,7 +570,6 @@ export default function Catalogue() {
     // 🔒 RLS : Permissions multi-tenant pour les produits
     const permissions = getTeamPermissions();
 
-    // ✅ OPTIMISATION : Traitement par lots de 10
     const batchSize = 10;
     for (let i = 0; i < validProducts.length; i += batchSize) {
       const batch = validProducts.slice(i, i + batchSize);
@@ -610,11 +594,6 @@ export default function Catalogue() {
         }
       });
       await Promise.all(promises);
-      
-      // ✅ Petite pause pour ne pas bloquer le thread navigateur
-      if (i + batchSize < validProducts.length) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
     }
 
     setImportResult({ success: successCount, failed: failCount });
@@ -815,282 +794,6 @@ export default function Catalogue() {
   };
 
   // ============================================================
-  // ✅ SÉLECTION MULTIPLE & TRAITEMENT PAR LOTS (OPTIMISÉ)
-  // ============================================================
-
-  const toggleSelectAllProducts = (checked: boolean) => {
-    if (checked) {
-      setSelectedProductIds(new Set(paginatedProducts.map(p => p.$id)));
-    } else {
-      setSelectedProductIds(new Set());
-    }
-  };
-
-  const toggleSelectProduct = (id: string, checked: boolean) => {
-    const newSet = new Set(selectedProductIds);
-    if (checked) newSet.add(id);
-    else newSet.delete(id);
-    setSelectedProductIds(newSet);
-  };
-
-  const toggleSelectAllCategories = (checked: boolean) => {
-    if (checked) {
-      setSelectedCategoryIds(new Set(paginatedCategories.map(c => c.$id)));
-    } else {
-      setSelectedCategoryIds(new Set());
-    }
-  };
-
-  const toggleSelectCategory = (id: string, checked: boolean) => {
-    const newSet = new Set(selectedCategoryIds);
-    if (checked) newSet.add(id);
-    else newSet.delete(id);
-    setSelectedCategoryIds(newSet);
-  };
-
-  const handleBulkArchiveProducts = async () => {
-    if (selectedProductIds.size === 0) return;
-    const count = selectedProductIds.size;
-    if (!window.confirm(`Êtes-vous sûr de vouloir archiver ${count} produit(s) ?`)) return;
-
-    const idsToArchive = Array.from(selectedProductIds).filter(id => {
-      const p = products.find(prod => prod.$id === id);
-      return p && p.teamId === currentTeamId && p.status !== 'archived';
-    });
-
-    if (idsToArchive.length === 0) {
-      toast.error(`Aucun produit sélectionné ne peut être archivé.`);
-      return;
-    }
-
-    setSelectedProductIds(new Set());
-    const toastId = toast.loading(`Archivage de ${idsToArchive.length} produit(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    const BATCH_SIZE = 10;
-    let successCount = 0;
-    let errorCount = 0;
-    const permissions = getTeamPermissions();
-
-    try {
-      for (let i = 0; i < idsToArchive.length; i += BATCH_SIZE) {
-        const batch = idsToArchive.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(DATABASE_ID, 'products', id, { status: 'archived' }, permissions);
-              return { success: true };
-            } catch (err) {
-              console.error(`Erreur archivage produit ${id}:`, err);
-              return { success: false };
-            }
-          })
-        );
-        results.forEach(r => r.status === 'fulfilled' && r.value.success ? successCount++ : errorCount++);
-        if (i + BATCH_SIZE < idsToArchive.length) {
-          await new Promise(resolve => setTimeout(resolve, 50)); // Pause pour ne pas bloquer le thread
-        }
-      }
-
-      if (successCount > 0) {
-        toast.success(`${successCount} produit(s) archivé(s) avec succès`, {
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        await loadData();
-      }
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s).`, { style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' } });
-      }
-    } catch (error: any) {
-      toast.error(`Erreur lors de l'archivage en masse.`, { id: toastId });
-    }
-  };
-
-  const handleBulkUnarchiveProducts = async () => {
-    if (selectedProductIds.size === 0) return;
-    const count = selectedProductIds.size;
-    if (!window.confirm(`Êtes-vous sûr de vouloir désarchiver ${count} produit(s) ?`)) return;
-
-    const idsToUnarchive = Array.from(selectedProductIds).filter(id => {
-      const p = products.find(prod => prod.$id === id);
-      return p && p.teamId === currentTeamId && p.status === 'archived';
-    });
-
-    if (idsToUnarchive.length === 0) {
-      toast.error(`Aucun produit sélectionné ne peut être désarchivé.`);
-      return;
-    }
-
-    setSelectedProductIds(new Set());
-    const toastId = toast.loading(`Désarchivage de ${idsToUnarchive.length} produit(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    const BATCH_SIZE = 10;
-    let successCount = 0;
-    let errorCount = 0;
-    const permissions = getTeamPermissions();
-
-    try {
-      for (let i = 0; i < idsToUnarchive.length; i += BATCH_SIZE) {
-        const batch = idsToUnarchive.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(DATABASE_ID, 'products', id, { status: 'active' }, permissions);
-              return { success: true };
-            } catch (err) {
-              console.error(`Erreur désarchivage produit ${id}:`, err);
-              return { success: false };
-            }
-          })
-        );
-        results.forEach(r => r.status === 'fulfilled' && r.value.success ? successCount++ : errorCount++);
-        if (i + BATCH_SIZE < idsToUnarchive.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      if (successCount > 0) {
-        toast.success(`${successCount} produit(s) désarchivé(s) avec succès`, {
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        await loadData();
-        setViewMode('active');
-      }
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s).`, { style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' } });
-      }
-    } catch (error: any) {
-      toast.error(`Erreur lors du désarchivage en masse.`, { id: toastId });
-    }
-  };
-
-  const handleBulkArchiveCategories = async () => {
-    if (selectedCategoryIds.size === 0) return;
-    const count = selectedCategoryIds.size;
-    if (!window.confirm(`Êtes-vous sûr de vouloir archiver ${count} catégorie(s) ?`)) return;
-
-    const idsToArchive = Array.from(selectedCategoryIds).filter(id => {
-      const c = categories.find(cat => cat.$id === id);
-      return c && c.teamId === currentTeamId && c.status !== 'archived';
-    });
-
-    if (idsToArchive.length === 0) {
-      toast.error(`Aucune catégorie sélectionnée ne peut être archivée.`);
-      return;
-    }
-
-    setSelectedCategoryIds(new Set());
-    const toastId = toast.loading(`Archivage de ${idsToArchive.length} catégorie(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    const BATCH_SIZE = 10;
-    let successCount = 0;
-    let errorCount = 0;
-    const permissions = getTeamPermissions();
-
-    try {
-      for (let i = 0; i < idsToArchive.length; i += BATCH_SIZE) {
-        const batch = idsToArchive.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(DATABASE_ID, 'categories', id, { status: 'archived' }, permissions);
-              return { success: true };
-            } catch (err) {
-              console.error(`Erreur archivage catégorie ${id}:`, err);
-              return { success: false };
-            }
-          })
-        );
-        results.forEach(r => r.status === 'fulfilled' && r.value.success ? successCount++ : errorCount++);
-        if (i + BATCH_SIZE < idsToArchive.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      if (successCount > 0) {
-        toast.success(`${successCount} catégorie(s) archivée(s) avec succès`, {
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        await loadData();
-      }
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s).`, { style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' } });
-      }
-    } catch (error: any) {
-      toast.error(`Erreur lors de l'archivage en masse.`, { id: toastId });
-    }
-  };
-
-  const handleBulkUnarchiveCategories = async () => {
-    if (selectedCategoryIds.size === 0) return;
-    const count = selectedCategoryIds.size;
-    if (!window.confirm(`Êtes-vous sûr de vouloir désarchiver ${count} catégorie(s) ?`)) return;
-
-    const idsToUnarchive = Array.from(selectedCategoryIds).filter(id => {
-      const c = categories.find(cat => cat.$id === id);
-      return c && c.teamId === currentTeamId && c.status === 'archived';
-    });
-
-    if (idsToUnarchive.length === 0) {
-      toast.error(`Aucune catégorie sélectionnée ne peut être désarchivée.`);
-      return;
-    }
-
-    setSelectedCategoryIds(new Set());
-    const toastId = toast.loading(`Désarchivage de ${idsToUnarchive.length} catégorie(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    const BATCH_SIZE = 10;
-    let successCount = 0;
-    let errorCount = 0;
-    const permissions = getTeamPermissions();
-
-    try {
-      for (let i = 0; i < idsToUnarchive.length; i += BATCH_SIZE) {
-        const batch = idsToUnarchive.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(DATABASE_ID, 'categories', id, { status: 'active' }, permissions);
-              return { success: true };
-            } catch (err) {
-              console.error(`Erreur désarchivage catégorie ${id}:`, err);
-              return { success: false };
-            }
-          })
-        );
-        results.forEach(r => r.status === 'fulfilled' && r.value.success ? successCount++ : errorCount++);
-        if (i + BATCH_SIZE < idsToUnarchive.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      if (successCount > 0) {
-        toast.success(`${successCount} catégorie(s) désarchivée(s) avec succès`, {
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        await loadData();
-        setViewMode('active');
-      }
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s).`, { style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' } });
-      }
-    } catch (error: any) {
-      toast.error(`Erreur lors du désarchivage en masse.`, { id: toastId });
-    }
-  };
-
-  // ============================================================
   // ✅ FILTRAGE ET PAGINATION
   // ============================================================
 
@@ -1113,6 +816,14 @@ export default function Catalogue() {
 
   const productsTotalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
   const categoriesTotalPages = Math.max(1, Math.ceil(filteredCategories.length / ITEMS_PER_PAGE));
+
+  useEffect(() => {
+    setProductsPage(1);
+  }, [search, filterCategory, viewMode, mainTab]);
+
+  useEffect(() => {
+    setCategoriesPage(1);
+  }, [search, viewMode, mainTab]);
 
   const productsStart = (productsPage - 1) * ITEMS_PER_PAGE;
   const productsEnd = productsStart + ITEMS_PER_PAGE;
@@ -1172,7 +883,7 @@ export default function Catalogue() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 relative">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <TypeTabs
             tabs={[
               { key: 'products', label: 'Produits', count: products.filter(p => p.status === (viewMode === 'active' ? 'active' : 'archived')).length },
@@ -1210,41 +921,6 @@ export default function Catalogue() {
             )}
           </div>
 
-          {/* ✅ BARRE DE SÉLECTION MULTIPLE */}
-          {mainTab === 'products' && viewMode === 'active' && (
-            <div className="flex items-center justify-between mb-3 p-3 bg-purple-50/50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-800/30">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <Checkbox
-                  checked={paginatedProducts.length > 0 && paginatedProducts.every(p => selectedProductIds.has(p.$id))}
-                  indeterminate={selectedProductIds.size > 0 && !paginatedProducts.every(p => selectedProductIds.has(p.$id))}
-                  onChange={(e) => toggleSelectAllProducts(e.target.checked)}
-                />
-                <span className="text-sm font-medium text-purple-900 dark:text-purple-200">
-                  {selectedProductIds.size > 0 
-                    ? `${selectedProductIds.size} produit(s) sélectionné(s)` 
-                    : 'Tout sélectionner sur cette page'}
-                </span>
-              </label>
-            </div>
-          )}
-
-          {mainTab === 'categories' && viewMode === 'active' && (
-            <div className="flex items-center justify-between mb-3 p-3 bg-purple-50/50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-800/30">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <Checkbox
-                  checked={paginatedCategories.length > 0 && paginatedCategories.every(c => selectedCategoryIds.has(c.$id))}
-                  indeterminate={selectedCategoryIds.size > 0 && !paginatedCategories.every(c => selectedCategoryIds.has(c.$id))}
-                  onChange={(e) => toggleSelectAllCategories(e.target.checked)}
-                />
-                <span className="text-sm font-medium text-purple-900 dark:text-purple-200">
-                  {selectedCategoryIds.size > 0 
-                    ? `${selectedCategoryIds.size} catégorie(s) sélectionnée(s)` 
-                    : 'Tout sélectionner sur cette page'}
-                </span>
-              </label>
-            </div>
-          )}
-
           {loading ? (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400 animate-pulse">Chargement...</div>
           ) : mainTab === 'categories' ? (
@@ -1263,7 +939,6 @@ export default function Catalogue() {
             ) : (
               <>
                 <DataTable headers={[
-                  { label: '', align: 'center', width: 'w-12' },
                   { label: 'Nom', align: 'left' },
                   { label: 'Description', align: 'left' },
                   { label: 'Produits liés', align: 'left' },
@@ -1273,13 +948,7 @@ export default function Catalogue() {
                   {paginatedCategories.map(cat => {
                     const linkedProducts = products.filter(p => p.categoryId === cat.$id && p.status !== 'archived').length;
                     return (
-                      <tr key={cat.$id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${selectedCategoryIds.has(cat.$id) ? 'bg-purple-50/30 dark:bg-purple-900/10' : ''}`}>
-                        <td className="px-6 py-4">
-                          <Checkbox
-                            checked={selectedCategoryIds.has(cat.$id)}
-                            onChange={(e) => toggleSelectCategory(cat.$id, e.target.checked)}
-                          />
-                        </td>
+                      <tr key={cat.$id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="font-medium text-slate-900 dark:text-white flex items-center gap-2">
                             <Tag size={16} className="text-purple-500" />
@@ -1329,21 +998,14 @@ export default function Catalogue() {
                   {paginatedCategories.map(cat => {
                     const linkedProducts = products.filter(p => p.categoryId === cat.$id && p.status !== 'archived').length;
                     return (
-                      <MobileCard key={cat.$id} className={selectedCategoryIds.has(cat.$id) ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''}>
+                      <MobileCard key={cat.$id}>
                         <div className="flex justify-between items-start mb-3">
-                          <div className="flex items-start gap-2 flex-1">
-                            <Checkbox
-                              checked={selectedCategoryIds.has(cat.$id)}
-                              onChange={(e) => toggleSelectCategory(cat.$id, e.target.checked)}
-                              className="mt-1"
-                            />
-                            <div>
-                              <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                                <Tag size={16} className="text-purple-500" />
-                                {cat.name}
-                              </h3>
-                              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{cat.description || 'Aucune description'}</p>
-                            </div>
+                          <div>
+                            <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                              <Tag size={16} className="text-purple-500" />
+                              {cat.name}
+                            </h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{cat.description || 'Aucune description'}</p>
                           </div>
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[cat.status]}`}>
                             {statusLabelsLocal[cat.status]}
@@ -1411,7 +1073,6 @@ export default function Catalogue() {
             ) : (
               <>
                 <DataTable headers={[
-                  { label: '', align: 'center', width: 'w-12' },
                   { label: 'Réf.', align: 'left' },
                   { label: 'Nom', align: 'left' },
                   { label: 'Catégorie', align: 'left' },
@@ -1422,13 +1083,7 @@ export default function Catalogue() {
                   { label: '', align: 'right', width: 'w-12' }
                 ]}>
                   {paginatedProducts.map(prod => (
-                    <tr key={prod.$id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${selectedProductIds.has(prod.$id) ? 'bg-purple-50/30 dark:bg-purple-900/10' : ''}`}>
-                      <td className="px-6 py-4">
-                        <Checkbox
-                          checked={selectedProductIds.has(prod.$id)}
-                          onChange={(e) => toggleSelectProduct(prod.$id, e.target.checked)}
-                        />
-                      </td>
+                    <tr key={prod.$id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
                          {prod.reference || '—'}
@@ -1492,21 +1147,14 @@ export default function Catalogue() {
 
                 <div className="md:hidden space-y-4 mt-4">
                   {paginatedProducts.map(prod => (
-                    <MobileCard key={prod.$id} className={selectedProductIds.has(prod.$id) ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''}>
+                    <MobileCard key={prod.$id}>
                       <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-start gap-2 flex-1">
-                          <Checkbox
-                            checked={selectedProductIds.has(prod.$id)}
-                            onChange={(e) => toggleSelectProduct(prod.$id, e.target.checked)}
-                            className="mt-1"
-                          />
-                          <div>
-                            <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded mb-1">
-                              {prod.reference || '—'}
-                            </span>
-                            <h3 className="font-semibold text-slate-900 dark:text-white">{prod.name}</h3>
-                            {prod.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{prod.description}</p>}
-                          </div>
+                        <div>
+                          <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded mb-1">
+                            {prod.reference || '—'}
+                          </span>
+                          <h3 className="font-semibold text-slate-900 dark:text-white">{prod.name}</h3>
+                          {prod.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{prod.description}</p>}
                         </div>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[prod.status]}`}>
                           {statusLabelsLocal[prod.status]}
@@ -1563,58 +1211,6 @@ export default function Catalogue() {
                 />
               </>
             )
-          )}
-
-          {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
-          {mainTab === 'products' && (
-            <BulkActionBar
-              selectedCount={selectedProductIds.size}
-              onClear={() => setSelectedProductIds(new Set())}
-              actions={
-                viewMode === 'active' ? (
-                  <button
-                    onClick={handleBulkArchiveProducts}
-                    className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-orange-500/20 active:scale-95"
-                  >
-                    <Archive size={16} />
-                    Archiver la sélection
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleBulkUnarchiveProducts}
-                    className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
-                  >
-                    <RotateCcw size={16} />
-                    Désarchiver la sélection
-                  </button>
-                )
-              }
-            />
-          )}
-          {mainTab === 'categories' && (
-            <BulkActionBar
-              selectedCount={selectedCategoryIds.size}
-              onClear={() => setSelectedCategoryIds(new Set())}
-              actions={
-                viewMode === 'active' ? (
-                  <button
-                    onClick={handleBulkArchiveCategories}
-                    className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-orange-500/20 active:scale-95"
-                  >
-                    <Archive size={16} />
-                    Archiver la sélection
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleBulkUnarchiveCategories}
-                    className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
-                  >
-                    <RotateCcw size={16} />
-                    Désarchiver la sélection
-                  </button>
-                )
-              }
-            />
           )}
         </main>
 

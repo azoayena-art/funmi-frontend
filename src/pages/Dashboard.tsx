@@ -180,7 +180,7 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
         if ((i.type === 'standard' || i.type === 'balance') && originalsWithAdvance.has(i.$id)) return false;
         return true;
       };
-
+   console.log("🚀 MISE À JOUR VERCEL FORCÉE - VERSION DU 19/10/2026");
       const getPaidAmount = (invoice: Invoice): number => {
         let payments: any[] = [];
         try {

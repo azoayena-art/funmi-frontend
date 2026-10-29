@@ -1,116 +1,118 @@
-// ⚠️ VERSION AMÉLIORÉE : mapping dynamique userId → teamId
-import { Client, Databases, Query, Permission, Role } from 'node-appwrite';
-
-export default async ({ req, res, log, error }) {
-  const client = new Client()
-    .setEndpoint(process.env.APPWRITE_ENDPOINT)
-    .setProject(process.env.APPWRITE_PROJECT)
-    .setKey(process.env.APPWRITE_API_KEY);
-
-  const databases = new Databases(client);
-  const DATABASE_ID = 'REMPLACEZ_PAR_VOTRE_DATABASE_ID';
-
-  // ✅ Vos IDs d'équipe (récupérés depuis les logs)
-  const DEFAULT_CUSTOM_TEAM_ID = '6ac4c02c00293611f4a1';
-  const DEFAULT_APPWRITE_TEAM_ID = '6ac4c02c0007d55b5a10';
-
-  const collections = [
-    'reminders', 'clients', 'prospects', 'quotes', 'invoices',
-    'received_invoices', 'payments', 'bank_transactions',
-    'company_settings', 'einvoice_settings', 'expense_justifications'
-  ];
-
-  const stats = {
-    totalScanned: 0,
-    teamIdAdded: 0,
-    permissionsFixed: 0,
-    alreadyOk: 0,
-    errors: 0,
-    details: []
+export default async ({ req, res, log, error: logError }) => {
+  // 🛡️ 1. CONFIGURATION CORS (Obligatoire pour les appels depuis le frontend Vercel)
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*', // En production, remplacez '*' par 'https://funmi-ten.vercel.app'
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-appwrite-project, x-appwrite-key',
   };
 
-  for (const collectionId of collections) {
-    log(`📂 Migration de ${collectionId}...`);
+  // 🛡️ 2. Gérer la requête "preflight" OPTIONS du navigateur
+  if (req.method === 'OPTIONS') {
+    return res.send('', 204, corsHeaders);
+.  }
 
-    try {
-      let offset = 0;
-      const limit = 100;
-      let hasMore = true;
+  log('=== Début validation reCAPTCHA v3 ===');
+  log('Headers:', JSON.stringify(req.headers));
+  log('Method:', req.method);
+  log('Raw body type:', typeof req.body);
+  log('Raw body:', typeof req.body === 'string' ? req.body.substring(0, 200) : JSON.stringify(req.body));
 
-      while (hasMore) {
-        const response = await databases.listDocuments(
-          DATABASE_ID,
-          collectionId,
-          [Query.limit(limit), Query.offset(offset)]
-        );
+  const SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
+  if (!SECRET_KEY) {
+    logError('❌ RECAPTCHA_SECRET_KEY manquante !');
+    return res.json({
+      success: false,
+      error: 'Secret key not configured',
+      debug: 'Missing RECAPTCHA_SECRET_KEY env var',
+    }, 500, corsHeaders); // Ajout des headers CORS
+  }
+  log('✅ Secret key présente:', SECRET_KEY.substring(0, 10) + '...');
 
-        for (const doc of response.documents) {
-          stats.totalScanned++;
-
-          try {
-            // ─── CAS 1 : Document sans teamId ───
-            if (!doc.teamId) {
-              await databases.updateDocument(
-                DATABASE_ID,
-                collectionId,
-                doc.$id,
-                { teamId: DEFAULT_CUSTOM_TEAM_ID },
-                [
-                  Permission.read(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
-                  Permission.update(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
-                  Permission.delete(Role.team(DEFAULT_APPWRITE_TEAM_ID))
-                ]
-              );
-              stats.teamIdAdded++;
-              log(`✅ ${collectionId}/${doc.$id} : teamId ajouté`);
-              continue;
-            }
-
-            // ─── CAS 2 : Vérifier les permissions ───
-            const perms = doc.$permissions || [];
-            const hasTeamRead = perms.some(p =>
-              p.includes(`team(${DEFAULT_APPWRITE_TEAM_ID})`) ||
-              p === `read("team:${DEFAULT_APPWRITE_TEAM_ID}")`
-            );
-
-            if (!hasTeamRead) {
-              await databases.updateDocument(
-                DATABASE_ID,
-                collectionId,
-                doc.$id,
-                {}, // Pas de modif des données, juste permissions
-                [
-                  Permission.read(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
-                  Permission.update(Role.team(DEFAULT_APPWRITE_TEAM_ID)),
-                  Permission.delete(Role.team(DEFAULT_APPWRITE_TEAM_ID))
-                ]
-              );
-              stats.permissionsFixed++;
-              log(`🔐 ${collectionId}/${doc.$id} : permissions corrigées`);
-            } else {
-              stats.alreadyOk++;
-            }
-          } catch (err) {
-            stats.errors++;
-            error(`❌ ${collectionId}/${doc.$id} : ${err.message}`);
-          }
-        }
-
-        hasMore = response.documents.length === limit;
-        offset += limit;
-      }
-    } catch (err) {
-      error(`❌ Collection ${collectionId} : ${err.message}`);
-      stats.errors++;
+  // Parsing robuste du body (Appwrite peut l'envoyer en string ou objet)
+  let body = {};
+  try {
+    if (typeof req.body === 'string') {
+      body = req.body.trim() ? JSON.parse(req.body) : {};
+    } else if (req.body && typeof req.body === 'object') {
+      body = req.body;
+    } else if (req.bodyRaw) {
+      body = JSON.parse(Buffer.from(req.bodyRaw).toString());
     }
+  } catch (e) {
+    logError('❌ Erreur parsing body:', e.message);
+    return res.json({ success: false, error: 'Invalid body: ' + e.message }, 400, corsHeaders);
   }
 
-  log('🎉 Migration terminée !');
-  log(JSON.stringify(stats, null, 2));
+  log('Body parsé:', JSON.stringify(body));
 
-  return res.json({
-    success: true,
-    stats,
-    message: `${stats.teamIdAdded} teamId ajoutés, ${stats.permissionsFixed} permissions corrigées, ${stats.errors} erreurs`
-  });
+  const { token, expectedAction, minScore = 0.5 } = body;
+
+  if (!token) {
+    return res.json({ success: false, error: 'Token manquant dans le body' }, 400, corsHeaders);
+  }
+
+  log('🔄 Appel Google siteverify pour action:', expectedAction);
+
+  try {
+    const params = new URLSearchParams({
+      secret: SECRET_KEY,
+      response: token,
+    });
+
+    const verifyResponse = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+
+    log('Google HTTP status:', verifyResponse.status);
+
+    if (!verifyResponse.ok) {
+      const errorText = await verifyResponse.text();
+      logError('❌ Erreur HTTP Google:', errorText);
+      return res.json({
+        success: false,
+        error: `Google HTTP ${verifyResponse.status}`,
+        details: errorText,
+      }, 502, corsHeaders);
+    }
+
+    const data = await verifyResponse.json();
+    log('✅ Réponse Google:', JSON.stringify(data));
+
+    if (!data.success) {
+      logError('❌ Google a rejeté le token:', data['error-codes']);
+      return res.json({
+        success: false,
+        error: (data['error-codes'] || []).join(', '),
+        errorCodes: data['error-codes'],
+      }, 200, corsHeaders); // 200 car c'est une réponse valide de l'API, même si le captcha échoue
+    }
+
+    // Calcul du résultat
+    const actionMatch = !expectedAction || data.action === expectedAction;
+    const score = data.score ?? 1.0;
+    const scoreOk = score >= minScore;
+
+    const result = {
+      success: actionMatch && scoreOk,
+      score,
+      action: data.action,
+      hostname: data.hostname,
+      challengeTs: data.challenge_ts,
+      actionMatch,
+      scoreOk,
+      minScore,
+    };
+
+    log('✅ Résultat final:', JSON.stringify(result));
+    return res.json(result, 200, corsHeaders);
+  } catch (e) {
+    logError('❌ Exception lors de la vérification:', e.message);
+    return res.json({
+      success: false,
+      error: e.message,
+      stack: e.stack,
+    }, 500, corsHeaders);
+  }
 };

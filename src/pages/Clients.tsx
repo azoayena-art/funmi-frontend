@@ -1,5 +1,4 @@
-// src/pages/Clients.tsx
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +18,7 @@ import {
   Avatar,
   StatusIndicator,
   TypeLabel,
+  SkeletonRow,
   SkeletonCard,
   ConfirmDialog,
   FormField,
@@ -32,8 +32,6 @@ import {
   SelectFilter,
   MobileCard,
   DataTable,
-  Checkbox,
-  BulkActionBar,
   type Entity,
 } from '../components/ui/SharedUI';
 import {
@@ -43,6 +41,7 @@ import {
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
 
+// ✅ CHANGEMENT : Import des helpers e-facturation
 import { 
   isEInvoiceRequired, 
   validateEInvoiceFields, 
@@ -50,11 +49,7 @@ import {
   validateVatNumber 
 } from '../utils/eInvoicing';
 
-import {
-  getCountryConfig, getPrimaryIdentifier,
-  validateIdentifier, listCountryOptions,
-} from '../config/countries';
-
+// ✅ CORRECTION CRITIQUE : Import des permissions multi-tenant (comme dans Quotes.tsx)
 import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 interface Client {
@@ -122,6 +117,7 @@ export default function Clients() {
     loading: settingsLoading 
   } = useCompanySettings();
   
+  // ✅ CORRECTION : Récupérer appwriteTeamId en plus de customTeamId
   const { customTeamId, appwriteTeamId } = useTeam();
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -139,38 +135,20 @@ export default function Clients() {
   const [clientToArchive, setClientToArchive] = useState<Client | null>(null);
   const [activeStat, setActiveStat] = useState(0);
   
-  // ✅ NOUVEAU : État pour la sélection multiple
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const companyCountry = companySettings?.country || 'FR';
-  
-  const clientCountryConfig = useMemo(() => getCountryConfig(form.country), [form.country]);
-  const clientPrimaryIdentifier = getPrimaryIdentifier(clientCountryConfig);
-  const countryOptions = useMemo(() => listCountryOptions(), []);
 
   const isCompany = form.type === 'entreprise';
   const visible = getVisibleFields(companyCountry, form.country, isCompany);
-
-  const validateClientIdentifier = (value: string): boolean => {
-    if (!value || !value.trim()) return false;
-    if (clientCountryConfig.code === 'FR') {
-      const clean = value.replace(/\s/g, '');
-      if (!/^\d{14}$/.test(clean)) return false;
-      let sum = 0, isEven = false;
-      for (let i = clean.length - 1; i >= 0; i--) {
-        let digit = parseInt(clean.charAt(i), 10);
-        if (isEven) { digit *= 2; if (digit > 9) digit -= 9; }
-        sum += digit; isEven = !isEven;
-      }
-      return sum % 10 === 0;
-    }
-    return validateIdentifier(clientPrimaryIdentifier, value);
-  };
+  const eInvoiceRequired = isEInvoiceRequired(companyCountry, {
+    country: form.country,
+    type: form.type as 'entreprise' | 'particulier',
+    companyName: form.companyName,
+  });
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -193,25 +171,11 @@ export default function Clients() {
     loadClients();
   }, [user, viewMode, customTeamId]);
 
-  // ✅ Réinitialiser la sélection quand les filtres ou la page changent
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [search, filterStatus, filterType, viewMode, currentPage]);
-
   useEffect(() => {
     const editId = searchParams.get('edit');
     if (editId && clients.length > 0 && !showModal) {
       const clientToEdit = clients.find(c => c.$id === editId);
       if (clientToEdit) {
-        if (!clientToEdit.teamId) {
-          toast.error('Client ancien détecté', {
-            description: 'Ce client a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
-            duration: 6000
-          });
-          setSearchParams({}, { replace: true });
-          return;
-        }
-        
         if (clientToEdit.teamId !== currentTeamId) {
           toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
           setSearchParams({}, { replace: true });
@@ -221,7 +185,7 @@ export default function Clients() {
         setDuplicateFound(null);
         setForm({
           type: clientToEdit.type || 'particulier',
-          country: clientToEdit.country || companyCountry,
+          country: clientToEdit.country || 'FR',
           firstName: clientToEdit.firstName || '',
           lastName: clientToEdit.lastName || '',
           companyName: clientToEdit.companyName || '',
@@ -242,7 +206,7 @@ export default function Clients() {
         setSearchParams({}, { replace: true });
       }
     }
-  }, [searchParams, clients, showModal, currentTeamId, companyCountry]);
+  }, [searchParams, clients, showModal, currentTeamId]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -259,6 +223,7 @@ export default function Clients() {
       }
       
       setCurrentTeamId(customTeamId);
+      console.log('📄 Clients: Chargement avec customTeamId:', customTeamId);
       
       const response = await databases.listDocuments(
         DATABASE_ID, 'clients',
@@ -348,7 +313,7 @@ export default function Clients() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setDuplicateFound(null);
-    setForm({ ...emptyForm, country: companyCountry });
+    setForm(emptyForm);
     setShowModal(true);
   };
 
@@ -357,14 +322,6 @@ export default function Clients() {
   };
 
   const handleOpenEdit = (client: Client) => {
-    if (!client.teamId) {
-      toast.error('Client ancien détecté', {
-        description: 'Ce client a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
-        duration: 6000
-      });
-      return;
-    }
-    
     if (client.teamId !== currentTeamId) {
       toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
       return;
@@ -379,7 +336,7 @@ export default function Clients() {
     setDuplicateFound(null);
     setForm({
       type: client.type || 'particulier',
-      country: client.country || companyCountry,
+      country: client.country || 'FR',
       firstName: client.firstName || '',
       lastName: client.lastName || '',
       companyName: client.companyName || '',
@@ -419,14 +376,6 @@ export default function Clients() {
         description: eInvoiceValidation.errors.join('. '),
         duration: 5000,
       });
-      return;
-    }
-
-    if (form.siret && !validateClientIdentifier(form.siret)) {
-      const errorMsg = clientCountryConfig.code === 'FR'
-        ? 'Le numéro SIRET est invalide (14 chiffres attendus, checksum Luhn).'
-        : `Le numéro ${clientPrimaryIdentifier.shortLabel} est invalide.${clientPrimaryIdentifier.example ? ` Ex: ${clientPrimaryIdentifier.example}` : ''}`;
-      toast.error('Identifiant invalide', { description: errorMsg });
       return;
     }
 
@@ -477,39 +426,22 @@ export default function Clients() {
       if (!editingId) {
         data.clientId = await getNextClientNumber();
         
-        const permissions = getTeamPermissions(appwriteTeamId);
+        // ✅ CORRECTION CRITIQUE : Appliquer les permissions multi-tenant exactement comme dans Quotes.tsx
+        const clientPermissions = getTeamPermissions(appwriteTeamId, { isPublic: false });
         
         await databases.createDocument(
           DATABASE_ID, 
           'clients', 
           ID.unique(), 
           data,
-          permissions
+          clientPermissions
         );
         toast.success('Client ajouté', { description: `N° ${data.clientId}` });
       } else {
-        let existingDoc;
-        try {
-          existingDoc = await databases.getDocument(DATABASE_ID, 'clients', editingId);
-        } catch (err: any) {
-          console.error('❌ Impossible de récupérer le client:', err);
-          
-          if (err.code === 401 || err.code === 403 || err.code === 404) {
-            toast.error('Document ancien détecté', {
-              description: 'Ce client n\'a pas les bonnes permissions. Contactez un administrateur.',
-              duration: 6000
-            });
-          } else {
-            toast.error('Erreur', { description: err.message });
-          }
-          setSaving(false);
-          return;
-        }
-
-        if (!existingDoc.teamId || existingDoc.teamId !== currentTeamId) {
-          toast.error('Accès refusé', { 
-            description: "Ce client n'appartient pas à votre équipe." 
-          });
+        const existingDoc = await databases.getDocument(DATABASE_ID, 'clients', editingId);
+        
+        if (existingDoc.teamId !== currentTeamId) {
+          toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
           setSaving(false);
           return;
         }
@@ -539,28 +471,24 @@ export default function Clients() {
   const handleArchive = async () => {
     if (!clientToArchive) return;
     
-    if (!hasPermission('clients.delete')) {
-      toast.error('Permission refusée', { description: "Vous n'avez pas le droit d'archiver ce client." });
-      setClientToArchive(null);
-      return;
-    }
-    
-    if (!clientToArchive.teamId) {
-      toast.error('Client ancien détecté', {
-        description: 'Ce client a été créé avant la mise à jour. Contactez un administrateur.',
-        duration: 6000
-      });
-      setClientToArchive(null);
-      return;
-    }
-    
     if (clientToArchive.teamId !== currentTeamId) {
       toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
       setClientToArchive(null);
       return;
     }
-
+    
+    if (!hasPermission('clients.delete')) {
+      toast.error('Permission refusée', { description: "Vous n'avez pas le droit d'archiver ce client." });
+      return;
+    }
+    
     try {
+      const doc = await databases.getDocument(DATABASE_ID, 'clients', clientToArchive.$id);
+      if (doc.teamId !== currentTeamId) { 
+        toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
+        return; 
+      }
+      
       await databases.updateDocument(
         DATABASE_ID, 
         'clients', 
@@ -579,24 +507,9 @@ export default function Clients() {
   };
 
   const handleUnarchive = async (id: string, name: string) => {
-    const clientInList = clients.find(c => c.$id === id);
-    
-    if (clientInList && !clientInList.teamId) {
-      toast.error('Client ancien détecté', {
-        description: 'Ce client a été créé avant la mise à jour. Contactez un administrateur.',
-        duration: 6000
-      });
-      return;
-    }
-    
-    if (clientInList && clientInList.teamId !== currentTeamId) {
-      toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
-      return;
-    }
-
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'clients', id);
-      if (!doc.teamId || doc.teamId !== currentTeamId) { 
+      if (doc.teamId !== currentTeamId) { 
         toast.error('Accès refusé', { description: "Ce client n'appartient pas à votre équipe." });
         return; 
       }
@@ -613,129 +526,6 @@ export default function Clients() {
     } catch (error: any) {
       console.error('Erreur désarchivage:', error);
       toast.error('Erreur', { description: error.message });
-    }
-  };
-
-  // ✅ NOUVEAU : Handlers pour la sélection multiple
-  const toggleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedIds(new Set(paginatedClients.map(c => c.$id)));
-    } else {
-      setSelectedIds(new Set());
-    }
-  };
-
-  const toggleSelect = (id: string, checked: boolean) => {
-    const newSet = new Set(selectedIds);
-    if (checked) {
-      newSet.add(id);
-    } else {
-      newSet.delete(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  // ✅ OPTIMISÉ : Action en masse adaptative avec traitement par lots
-  const handleBulkStatusChange = async () => {
-    if (selectedIds.size === 0) return;
-
-    const count = selectedIds.size;
-    const isArchiveAction = viewMode === 'active';
-    const actionLabel = isArchiveAction ? 'archiver' : 'désarchiver';
-    const newStatus = isArchiveAction ? 'archived' : 'active';
-
-    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} client(s) ?`)) {
-      return;
-    }
-
-    // ✅ Filtrer immédiatement les IDs valides (appartenance à l'équipe)
-    const idsToUpdate = Array.from(selectedIds).filter(id => {
-      const c = clients.find(cli => cli.$id === id);
-      return c && c.teamId === currentTeamId;
-    });
-
-    if (idsToUpdate.length === 0) {
-      toast.error(`Aucun client sélectionné n'appartient à votre équipe.`, {
-        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
-      });
-      return;
-    }
-
-    // ✅ Vider la sélection AVANT de lancer les requêtes (libère le thread UI)
-    setSelectedIds(new Set());
-
-    // ✅ Toast de chargement (style clair)
-    const toastId = toast.loading(`${isArchiveAction ? 'Archivage' : 'Désarchivage'} de ${idsToUpdate.length} client(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    // ✅ Traitement par lots de 5 pour ne pas bloquer le thread
-    const BATCH_SIZE = 5;
-    let successCount = 0;
-    let errorCount = 0;
-
-    try {
-      for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
-        const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
-
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(
-                DATABASE_ID,
-                'clients',
-                id,
-                { status: newStatus }
-              );
-              return { success: true, id };
-            } catch (err) {
-              console.error(`Erreur ${actionLabel} client ${id}:`, err);
-              return { success: false, id, error: err };
-            }
-          })
-        );
-
-        results.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            successCount++;
-          } else {
-            errorCount++;
-          }
-        });
-
-        // ✅ Petit délai entre les lots pour laisser le navigateur respirer
-        if (i + BATCH_SIZE < idsToUpdate.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      // ✅ Feedback utilisateur (styles clairs)
-      if (successCount > 0) {
-        const successMsg = isArchiveAction 
-          ? `${successCount} client(s) archivé(s) avec succès`
-          : `${successCount} client(s) désarchivé(s) avec succès`;
-        
-        toast.success(successMsg, { 
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        
-        await loadClients();
-      }
-
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s) (accès refusé ou erreur).`, { 
-          duration: 5000,
-          style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' }
-        });
-      }
-
-    } catch (error: any) {
-      console.error(`Erreur globale ${actionLabel} en masse:`, error);
-      toast.error(`Une erreur est survenue lors de l'${actionLabel} en masse.`, { 
-        id: toastId,
-        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
-      });
     }
   };
 
@@ -810,10 +600,6 @@ export default function Clients() {
 
   if (permLoading || settingsLoading) return <Sidebar><div className="flex items-center justify-center h-full w-full"><div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">Vérification des droits...</div></div></Sidebar>;
   if (!hasPermission('clients.view')) return null;
-
-  // ✅ Calculs pour la checkbox "Tout sélectionner"
-  const isAllSelected = paginatedClients.length > 0 && paginatedClients.every(c => selectedIds.has(c.$id));
-  const isIndeterminate = selectedIds.size > 0 && !isAllSelected;
 
   return (
     <Sidebar>
@@ -904,7 +690,6 @@ export default function Clients() {
           {loading ? (
             <>
               <DataTable loading={true} headers={[
-                { label: '', align: 'left', width: 'w-12' },
                 { label: 'N° Client', align: 'left' },
                 { label: 'Client', align: 'left' },
                 { label: 'Contact', align: 'left' },
@@ -950,9 +735,7 @@ export default function Clients() {
             />
           ) : (
             <>
-              {/* ✅ TABLEAU DESKTOP AVEC CHECKBOX */}
               <DataTable headers={[
-                { label: '', align: 'left', width: 'w-12' },
                 { label: 'N° Client', align: 'left' },
                 { label: 'Client', align: 'left' },
                 { label: 'Contact', align: 'left' },
@@ -961,31 +744,8 @@ export default function Clients() {
                 { label: 'Statut', align: 'left' },
                 { label: '', align: 'right', width: 'w-12' }
               ]}>
-                {/* ✅ Ligne d'en-tête avec checkbox "Tout sélectionner" */}
-                <tr className="bg-slate-50/50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700">
-                  <td colSpan={8} className="px-6 py-2">
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <Checkbox 
-                        checked={isAllSelected}
-                        indeterminate={isIndeterminate}
-                        onChange={(e) => toggleSelectAll(e.target.checked)}
-                      />
-                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                        {selectedIds.size > 0 
-                          ? `${selectedIds.size} sélectionné(s)` 
-                          : 'Tout sélectionner'}
-                      </span>
-                    </label>
-                  </td>
-                </tr>
                 {paginatedClients.map((c) => (
-                  <tr key={c.$id} className={`group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200 ${selectedIds.has(c.$id) ? 'bg-purple-50/30 dark:bg-purple-900/10' : ''}`}>
-                    <td className="px-6 py-4">
-                      <Checkbox 
-                        checked={selectedIds.has(c.$id)}
-                        onChange={(e) => toggleSelect(c.$id, e.target.checked)}
-                      />
-                    </td>
+                  <tr key={c.$id} className="group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200">
                     <td className="px-6 py-4">
                       <span className="text-xs font-mono font-medium text-slate-500 dark:text-slate-400 tabular-nums">
                         {c.clientId || '—'}
@@ -1023,7 +783,7 @@ export default function Clients() {
                         )}
                         <span className="flex items-center text-xs text-slate-500 dark:text-slate-400">
                           <Globe size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
-                          {c.country || companyCountry}
+                          {c.country || 'FR'}
                         </span>
                         {!c.city && !c.postalCode && <span className="text-xs text-slate-400 italic">Non renseigné</span>}
                       </div>
@@ -1060,34 +820,11 @@ export default function Clients() {
                 ))}
               </DataTable>
 
-              {/* ✅ CARTES MOBILE AVEC CHECKBOX */}
               <div className="md:hidden space-y-4 mt-4">
-                {/* Barre de sélection mobile */}
-                {paginatedClients.length > 0 && (
-                  <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <Checkbox 
-                        checked={isAllSelected}
-                        indeterminate={isIndeterminate}
-                        onChange={(e) => toggleSelectAll(e.target.checked)}
-                      />
-                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                        {selectedIds.size > 0 
-                          ? `${selectedIds.size} sélectionné(s)` 
-                          : 'Tout sélectionner'}
-                      </span>
-                    </label>
-                  </div>
-                )}
                 {paginatedClients.map((c) => (
-                  <MobileCard key={c.$id} className={selectedIds.has(c.$id) ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''}>
+                  <MobileCard key={c.$id}>
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Checkbox 
-                          checked={selectedIds.has(c.$id)}
-                          onChange={(e) => toggleSelect(c.$id, e.target.checked)}
-                          className="mt-1"
-                        />
                         <Avatar client={getEntity(c)} size="lg" />
                         <div className="min-w-0">
                           <h3 className="font-bold text-slate-900 dark:text-white truncate text-base">{c.type === 'entreprise' ? c.companyName : `${c.firstName} ${c.lastName}`.trim()}</h3>
@@ -1151,31 +888,6 @@ export default function Clients() {
               )}
             </>
           )}
-
-          {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
-          <BulkActionBar
-            selectedCount={selectedIds.size}
-            onClear={() => setSelectedIds(new Set())}
-            actions={
-              viewMode === 'active' ? (
-                <button 
-                  onClick={handleBulkStatusChange}
-                  className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-rose-500/20 active:scale-95"
-                >
-                  <Archive size={16} /> 
-                  Archiver la sélection
-                </button>
-              ) : (
-                <button 
-                  onClick={handleBulkStatusChange}
-                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
-                >
-                  <RotateCcw size={16} /> 
-                  Désarchiver la sélection
-                </button>
-              )
-            }
-          />
         </main>
 
         <Modal
@@ -1254,7 +966,6 @@ export default function Clients() {
                   <option value="entreprise">🏢 Professionnel (B2B)</option>
                 </Select>
               </FormField>
-              
               <FormField label="Pays" required>
                 <div className="relative">
                   <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1263,9 +974,17 @@ export default function Clients() {
                     onChange={(e) => setForm({ ...form, country: e.target.value })}
                     className="pl-9"
                   >
-                    {countryOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
+                    <option value="FR">🇫🇷 France</option>
+                    <option value="BE">🇧🇪 Belgique</option>
+                    <option value="CH">🇨🇭 Suisse</option>
+                    <option value="LU">🇱🇺 Luxembourg</option>
+                    <option value="DE">🇩🇪 Allemagne</option>
+                    <option value="ES">🇪🇸 Espagne</option>
+                    <option value="IT">🇮🇹 Italie</option>
+                    <option value="GB">🇬🇧 Royaume-Uni</option>
+                    <option value="US">🇺🇸 États-Unis</option>
+                    <option value="CA">🇨🇦 Canada</option>
+                    <option value="OTHER">🌍 Autre</option>
                   </Select>
                 </div>
               </FormField>
@@ -1355,14 +1074,7 @@ export default function Clients() {
                       type="text"
                       value={form.city}
                       onChange={(e) => setForm({ ...form, city: e.target.value })}
-                      placeholder={
-                        form.country === 'BJ' ? 'Cotonou' :
-                        form.country === 'SN' ? 'Dakar' :
-                        form.country === 'CI' ? 'Abidjan' :
-                        form.country === 'CM' ? 'Douala' :
-                        form.country === 'MA' ? 'Casablanca' :
-                        'Paris'
-                      }
+                      placeholder="Paris"
                     />
                   </FormField>
                 </div>
@@ -1418,15 +1130,12 @@ export default function Clients() {
             )}
 
             {visible.showVat && !visible.showSirenSiret && (
-              <FormField 
-                label={clientCountryConfig.vat?.numberLabel || "N° TVA / Identification fiscale"} 
-                hint={clientPrimaryIdentifier.example ? `Format attendu : ${clientPrimaryIdentifier.example}` : `Selon le pays (${clientCountryConfig.name})`}
-              >
+              <FormField label="N° TVA / Identification fiscale" hint="Selon le pays du client">
                 <Input 
                   type="text" 
                   value={form.vatNumber} 
                   onChange={(e) => setForm({ ...form, vatNumber: e.target.value.toUpperCase() })} 
-                  placeholder={clientPrimaryIdentifier.example || "Ex: BE0123456789, CHE-123.456.789..."} 
+                  placeholder="Ex: BE0123456789, CHE-123.456.789..." 
                   className="font-mono"
                 />
               </FormField>

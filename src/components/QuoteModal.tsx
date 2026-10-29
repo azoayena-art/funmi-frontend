@@ -13,51 +13,98 @@ import {
 import { Query, ID as AppwriteID } from 'appwrite';
 import Modal from '../components/ui/Modal';
 import {
-  FormField, Input, Select, Textarea, Alert, Badge, EmptyState, SearchFilter, Pagination,
+  FormField,
+  Input,
+  Select,
+  Textarea,
+  Alert,
+  Badge,
+  EmptyState,
+  SearchFilter,
+  Pagination,
 } from '../components/ui/SharedUI';
-import { isEInvoiceRequired, getVisibleFields, validateVatNumber as validateVatMultiCountry } from '../utils/eInvoicing';
+
+// ✅ E-FACTURATION MULTI-PAYS
+import { 
+  isEInvoiceRequired, 
+  getVisibleFields, 
+  validateVatNumber as validateVatMultiCountry 
+} from '../utils/eInvoicing';
+
+// 🔐 CORRECTION RLS : Import centralisé (supprime la duplication)
 import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
-// 🌍 REGISTRE INTERNATIONAL DES PAYS
-import {
-  COUNTRIES, getCountryConfig, getPrimaryIdentifier,
-  validateIdentifier, listCountryOptions,
-} from '../config/countries';
+// ============================================================
+// 📋 INTERFACES
+// ============================================================
 
-// ============================================================
-// 📋 INTERFACES & CONSTANTES
-// ============================================================
 interface QuoteItem {
   id: string; reference: string; description: string; quantity: number;
   unit: string; unitPrice: number; tvaRate: number; total: number; discount: number;
 }
+
 interface Quote {
   $id: string; quoteNumber: string; clientName: string; subject?: string; status: string;
   total: number; issueDate?: string; validityDate?: string; items?: string;
   subtotal?: number; discount?: number; tax?: number; deposit?: number; balance?: number;
-  companyName?: string; companyAddress?: string; companyPostalCode?: string; companyCity?: string; companyCountry?: string;
-  companySiret?: string; companyTva?: string; companyPhone?: string; companyEmail?: string; logoFileId?: string;
+  companyName?: string; companyAddress?: string;
+  companyPostalCode?: string; companyCity?: string; companyCountry?: string;
+  companySiret?: string; companyTva?: string;
+  companyPhone?: string; companyEmail?: string; logoFileId?: string;
   clientAddress?: string; clientPostalCode?: string; clientCity?: string; clientCountry?: string;
-  clientBillingAddress?: string; clientEmail?: string; clientPhone?: string; executionDelay?: string; paymentConditions?: string;
-  paymentMethods?: string; specialConditions?: string; acceptanceMention?: string; bonPourAccord?: boolean; tvaMention?: string; 
-  prospectId?: string; clientId?: string; clientSignature?: string; clientToken?: string; clientComment?: string; teamId?: string;
-  clientType?: 'particulier' | 'entreprise'; clientSiret?: string; clientSiren?: string; clientVatNumber?: string;
+  clientBillingAddress?: string; clientEmail?: string;
+  clientPhone?: string; executionDelay?: string; paymentConditions?: string;
+  paymentMethods?: string; specialConditions?: string; acceptanceMention?: string;
+  bonPourAccord?: boolean; tvaMention?: string; 
+  prospectId?: string;
+  clientId?: string;
+  clientSignature?: string; clientToken?: string; clientComment?: string;
+  teamId?: string;
+  clientType?: 'particulier' | 'entreprise';
+  clientSiret?: string;
+  clientSiren?: string;
+  clientVatNumber?: string;
 }
+
 interface CompanySettings {
-  name: string; address: string; siret: string; tvaNumber: string; phone: string; email: string; defaultTvaRate: string; logoFileId?: string;
-  tvaRates?: string; postalCode?: string; city?: string; country?: string;
+  name: string; address: string; siret: string;
+  tvaNumber: string; phone: string; email: string; defaultTvaRate: string; logoFileId?: string;
+  tvaRates?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
 }
+
 interface CatalogProduct {
-  $id: string; reference?: string; name: string; description?: string; unit: string; unitPrice: string; tvaRate: string;
+  $id: string; reference?: string; name: string; description?: string;
+  unit: string; unitPrice: string; tvaRate: string;
 }
+
 interface QuoteFormData {
-  prospectId: string; clientId: string; quoteNumber: string; status: string; issueDate: string; validityDate: string; subject: string; workAddress: string; companyName: string;
-  companyAddress: string; companyPostalCode: string; companyCity: string; companyCountry: string; companySiret: string; companyTva: string; companyPhone: string; companyEmail: string; logoFileId: string;
-  clientName: string; clientAddress: string; clientPostalCode: string; clientCity: string; clientCountry: string; clientBillingAddress: string;
-  clientEmail: string; clientPhone: string; items: QuoteItem[]; discount: number; deposit: number; executionDelay: string; paymentConditions: string; paymentMethods: string;
-  specialConditions: string; acceptanceMention: string; bonPourAccord: boolean; clientSignature: string; clientToken: string; clientComment: string;
-  clientType: 'particulier' | 'entreprise'; clientSiret: string; clientSiren: string; clientVatNumber: string;
+  prospectId: string;
+  clientId: string;
+  quoteNumber: string; status: string; issueDate: string;
+  validityDate: string; subject: string; workAddress: string; companyName: string;
+  companyAddress: string;
+  companyPostalCode: string; companyCity: string; companyCountry: string;
+  companySiret: string;
+  companyTva: string; companyPhone: string; companyEmail: string; logoFileId: string;
+  clientName: string; clientAddress: string;
+  clientPostalCode: string; clientCity: string; clientCountry: string;
+  clientBillingAddress: string;
+  clientEmail: string; clientPhone: string; items: QuoteItem[]; discount: number;
+  deposit: number; executionDelay: string; paymentConditions: string; paymentMethods: string;
+  specialConditions: string; acceptanceMention: string; bonPourAccord: boolean;
+  clientSignature: string; clientToken: string; clientComment: string;
+  clientType: 'particulier' | 'entreprise';
+  clientSiret: string;
+  clientSiren: string;
+  clientVatNumber: string;
 }
+
+// ============================================================
+// 🎨 CONSTANTES
+// ============================================================
 
 const PAYMENT_METHODS = ["Virement bancaire", "Chèque", "Espèces", "Carte bancaire", "Prélèvement SEPA"];
 const EXECUTION_DELAYS = ["Immédiat", "Selon planning", "Sous 1 semaine", "Sous 2 semaines", "Sous 1 mois", "À convenir"];
@@ -65,27 +112,67 @@ const UNIT_OPTIONS = ['Forfait', 'Heure', 'Jour', 'm²', 'ml', 'Unité', 'kg', '
 const TVA_OPTIONS = ['20', '10', '5.5', '0'];
 const CATALOG_ITEMS_PER_PAGE = 20;
 
-const parseAddressRetroactive = (address: string | undefined, existingPostalCode?: string, existingCity?: string, existingCountry?: string) => {
-  if (existingPostalCode || existingCity) return { address: address || '', postalCode: existingPostalCode || '', city: existingCity || '', country: existingCountry || 'FR' };
-  if (!address || !address.trim()) return { address: '', postalCode: '', city: '', country: existingCountry || 'FR' };
-  const match = address.match(/\b(\d{5})\b/);
-  if (!match) return { address, postalCode: '', city: '', country: existingCountry || 'FR' };
+// ============================================================
+// 🏠 PARSER RÉTROACTIF D'ADRESSE
+// ============================================================
+const parseAddressRetroactive = (
+  address: string | undefined,
+  existingPostalCode?: string,
+  existingCity?: string,
+  existingCountry?: string
+) => {
+  if (existingPostalCode || existingCity) {
+    return {
+      address: address || '',
+      postalCode: existingPostalCode || '',
+      city: existingCity || '',
+      country: existingCountry || 'FR'
+    };
+  }
+  
+  if (!address || !address.trim()) {
+    return { address: '', postalCode: '', city: '', country: existingCountry || 'FR' };
+  }
+  
+  const postalRegex = /\b(\d{5})\b/;
+  const match = address.match(postalRegex);
+  
+  if (!match) {
+    return { address, postalCode: '', city: '', country: existingCountry || 'FR' };
+  }
+  
   const postalCode = match[1];
   const postalIndex = match.index!;
   const line1 = address.substring(0, postalIndex).replace(/,\s*$/, '').trim();
-  const city = address.substring(postalIndex + 5).trim().replace(/^[,\s-]+/, '').replace(/[,\s-]+$/, '').trim();
-  return { address: line1 || address, postalCode, city: city || '', country: existingCountry || 'FR' };
+  const afterPostal = address.substring(postalIndex + 5).trim();
+  const city = afterPostal.replace(/^[,\s-]+/, '').replace(/[,\s-]+$/, '').trim();
+  
+  return {
+    address: line1 || address,
+    postalCode,
+    city: city || '',
+    country: existingCountry || 'FR'
+  };
 };
+
+// ============================================================
+// ✅ VALIDATION SIRET/SIREN (Luhn)
+// ============================================================
 
 const validateSIRET = (siret: string): boolean => {
   if (!siret) return false;
   const clean = siret.replace(/\s/g, '');
   if (!/^\d{14}$/.test(clean)) return false;
-  let sum = 0, isEven = false;
+  let sum = 0;
+  let isEven = false;
   for (let i = clean.length - 1; i >= 0; i--) {
     let digit = parseInt(clean.charAt(i), 10);
-    if (isEven) { digit *= 2; if (digit > 9) digit -= 9; }
-    sum += digit; isEven = !isEven;
+    if (isEven) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    isEven = !isEven;
   }
   return sum % 10 === 0;
 };
@@ -94,93 +181,126 @@ const validateSIREN = (siren: string): boolean => {
   if (!siren) return false;
   const clean = siren.replace(/\s/g, '');
   if (!/^\d{9}$/.test(clean)) return false;
-  let sum = 0, isEven = false;
+  let sum = 0;
+  let isEven = false;
   for (let i = clean.length - 1; i >= 0; i--) {
     let digit = parseInt(clean.charAt(i), 10);
-    if (isEven) { digit *= 2; if (digit > 9) digit -= 9; }
-    sum += digit; isEven = !isEven;
+    if (isEven) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    isEven = !isEven;
   }
   return sum % 10 === 0;
 };
 
 const validateVatNumber = (vat: string): boolean => {
   if (!vat) return true;
-  return /^FR[0-9A-Z]{2}\d{9}$/.test(vat.replace(/\s/g, '').toUpperCase());
+  const clean = vat.replace(/\s/g, '').toUpperCase();
+  return /^FR[0-9A-Z]{2}\d{9}$/.test(clean);
 };
 
+// ============================================================
+// 🎯 PROPS
+// ============================================================
+
 interface QuoteModalProps {
-  isOpen: boolean; onClose: () => void; onSave: () => void; clients: any[]; companySettings: CompanySettings | null;
-  editingQuote?: Quote | null; preselectedClientId?: string | null; getNextQuoteNumber: () => Promise<string>;
-  currentTeamId: string | null; userPermissions?: string[];
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  clients: any[];
+  companySettings: CompanySettings | null;
+  editingQuote?: Quote | null;
+  preselectedClientId?: string | null;
+  getNextQuoteNumber: () => Promise<string>;
+  currentTeamId: string | null;
+  userPermissions?: string[];
 }
 
 const emptyFormData = (): QuoteFormData => ({
-  prospectId: '', clientId: '', quoteNumber: `DEV-${new Date().getFullYear()}-000`, status: 'Brouillon',
-  issueDate: new Date().toISOString().split('T')[0], validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  subject: '', workAddress: '', companyName: '', companyAddress: '', companyPostalCode: '', companyCity: '', companyCountry: 'FR',
-  companySiret: '', companyTva: 'TVA non applicable, art. 293 B du CGI', companyPhone: '', companyEmail: '', logoFileId: '',
-  clientName: '', clientAddress: '', clientPostalCode: '', clientCity: '', clientCountry: 'FR', clientBillingAddress: '',
-  clientEmail: '', clientPhone: '',
+  prospectId: '',
+  clientId: '', quoteNumber: `DEV-${new Date().getFullYear()}-000`,
+  status: 'Brouillon', issueDate: new Date().toISOString().split('T')[0],
+  validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  subject: '', workAddress: '', companyName: '',
+  companyAddress: '', companyPostalCode: '', companyCity: '', companyCountry: 'FR',
+  companySiret: '',
+  companyTva: 'TVA non applicable, art. 293 B du CGI', companyPhone: '', companyEmail: '', logoFileId: '',
+  clientName: '', clientAddress: '', clientPostalCode: '', clientCity: '', clientCountry: 'FR',
+  clientBillingAddress: '', clientEmail: '', clientPhone: '',
   items: [{ id: '1', reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: 20, total: 0, discount: 0 }],
-  discount: 0, deposit: 0, executionDelay: 'Selon planning', paymentConditions: 'Paiement à 30 jours', paymentMethods: 'Virement bancaire',
-  specialConditions: '', acceptanceMention: 'Lu et approuvé, bon pour accord', bonPourAccord: true,
-  clientSignature: '', clientToken: '', clientComment: '', clientType: 'particulier', clientSiret: '', clientSiren: '', clientVatNumber: '',
+  discount: 0, deposit: 0, executionDelay: 'Selon planning', paymentConditions: 'Paiement à 30 jours',
+  paymentMethods: 'Virement bancaire', specialConditions: '', acceptanceMention: 'Lu et approuvé, bon pour accord',
+  bonPourAccord: true,
+  clientSignature: '', clientToken: '', clientComment: '',
+  clientType: 'particulier',
+  clientSiret: '',
+  clientSiren: '',
+  clientVatNumber: '',
 });
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-// ============================================================
-// 🎯 COMPOSANT PRINCIPAL
-// ============================================================
 export default function QuoteModal({ 
-  isOpen, onClose, onSave, clients = [], companySettings, editingQuote, preselectedClientId = null, getNextQuoteNumber, currentTeamId, userPermissions = []
+  isOpen, onClose, onSave, clients = [], companySettings, 
+  editingQuote, preselectedClientId = null, getNextQuoteNumber, currentTeamId, userPermissions = []
 }: QuoteModalProps) {
 
-  // 1. HOOKS DE CONTEXTE
   const { user } = useAuth();
+  // 🔒 RLS : Récupération des DEUX IDs depuis le hook
   const { appwriteTeamId } = useTeam();
-  const { fm: hookFm, currency, currencyConfig, companyCountry: hookCompanyCountry } = useCompanySettings();
+  
+  // ✅ Pays de l'entreprise émettrice (fallback sur 'FR')
+  const { 
+    fm: hookFm, 
+    currency, 
+    currencyConfig, 
+    companyCountry: hookCompanyCountry 
+  } = useCompanySettings();
+  
+  const companyCountry = hookCompanyCountry || companySettings?.country || 'FR';
 
-  // 2. ÉTATS DU FORMULAIRE
+  // ✅ CORRECTION RLS : Définition locale SUPPRIMÉE
+  // Utilisation directe de getTeamPermissions(appwriteTeamId, { isPublic }) depuis utils/rowLevelPermissions
+
   const [saving, setSaving] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
   const [formData, setFormData] = useState<QuoteFormData>(emptyFormData());
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogPage, setCatalogPage] = useState(1);
+  
   const [clientSearch, setClientSearch] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  
   const [companyInfoCustomized, setCompanyInfoCustomized] = useState(false);
+  
   const sigCanvas = useRef<SignatureCanvas>(null);
   const [sigTab, setSigTab] = useState<'draw' | 'upload'>('draw');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wasOpenRef = useRef(false);
 
-  // 🌍 REGISTRE DE PAYS
-  const countryOptions = useMemo(() => listCountryOptions(), []);
-  const companyCountryConfig = useMemo(() => getCountryConfig(formData.companyCountry), [formData.companyCountry]);
-  const clientCountryConfig = useMemo(() => getCountryConfig(formData.clientCountry), [formData.clientCountry]);
-  const clientPrimaryIdentifier = getPrimaryIdentifier(clientCountryConfig);
-  const companyPrimaryIdentifier = getPrimaryIdentifier(companyCountryConfig);
+  // ============================================================
+  // ✅ CALCULS
+  // ============================================================
 
-  // ✅ Pays ACTUEL du formulaire avec fallback
-  const currentCompanyCountry = formData.companyCountry || hookCompanyCountry || companySettings?.country || 'FR';
-
-  // 3. CALCULS DÉRIVÉS (useMemo)
   const tvaSelectOptions = useMemo(() => {
     try {
       const raw = (companySettings as any)?.tvaRates;
       if (raw) {
         const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (Array.isArray(arr) && arr.length > 0) return arr.map((r: any) => ({ value: String(r.rate), label: `${r.rate}% — ${r.name}${r.country ? ` (${r.country})` : ''}` }));
+        if (Array.isArray(arr) && arr.length > 0) {
+          return arr.map((r: any) => ({ value: String(r.rate), label: `${r.rate}% — ${r.name}${r.country ? ` (${r.country})` : ''}` }));
+        }
       }
     } catch { /* fallback */ }
     return TVA_OPTIONS.map(t => ({ value: t, label: `${t}%` }));
   }, [companySettings]);
 
-  // ✅ CATALOGUE (filtrage + pagination)
   const filteredCatalogProducts = useMemo(() => {
     return catalogProducts.filter(p => 
       catalogSearch === '' || 
@@ -193,26 +313,52 @@ export default function QuoteModal({
   const catalogStartIndex = (catalogPage - 1) * CATALOG_ITEMS_PER_PAGE;
   const catalogEndIndex = catalogStartIndex + CATALOG_ITEMS_PER_PAGE;
   const paginatedCatalogProducts = filteredCatalogProducts.slice(catalogStartIndex, catalogEndIndex);
-  
+
   const filteredClients = useMemo(() => {
-    if (!clients || !Array.isArray(clients) || clients.length === 0) return [];
+    if (!clients || !Array.isArray(clients) || clients.length === 0) {
+      return [];
+    }
+    
     const active = clients.filter((c: any) => c && c.status !== 'archived');
-    if (clientSearch === '') return active;
+    
+    if (clientSearch === '') {
+      return active;
+    }
+    
     const search = clientSearch.toLowerCase();
-    return active.filter((c: any) => [c.firstName || '', c.lastName || '', c.companyName || '', c.email || '', c.phone || '', c.city || '', c.postalCode || ''].join(' ').toLowerCase().includes(search));
+    return active.filter((c: any) => {
+      const searchStr = [
+        c.firstName || '',
+        c.lastName || '',
+        c.companyName || '',
+        c.email || '',
+        c.phone || '',
+        c.city || '',
+        c.postalCode || ''
+      ].join(' ').toLowerCase();
+      return searchStr.includes(search);
+    });
   }, [clients, clientSearch]);
 
-  const isClientEntreprise = formData.clientType === 'entreprise';
-  
-  // ✅ Règles e-facturation réactives
-  const visible = useMemo(() => getVisibleFields(currentCompanyCountry, formData.clientCountry, isClientEntreprise), [currentCompanyCountry, formData.clientCountry, isClientEntreprise]);
-  const eInvoiceRequired = useMemo(() => isEInvoiceRequired(currentCompanyCountry, { country: formData.clientCountry, type: formData.clientType, companyName: formData.clientName }), [currentCompanyCountry, formData.clientCountry, formData.clientType, formData.clientName]);
+  useEffect(() => {
+    if (isOpen) {
+      console.log('🔍 [QuoteModal] Modal ouvert:', {
+        clientsRecus: clients?.length || 0,
+        clientsActifs: filteredClients.length,
+        currentTeamId,
+        companySettingsProps: companySettings?.name || '(null)',
+        companyCountry,
+        appwriteTeamId,
+      });
+    }
+  }, [isOpen, clients, filteredClients, currentTeamId, companySettings, companyCountry, appwriteTeamId]);
 
   const subtotalRaw = formData.items.reduce((s, i) => s + (i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100)), 0);
   const discountAmountRaw = subtotalRaw * (formData.discount / 100);
   const taxableRaw = subtotalRaw - discountAmountRaw;
   const isTvaApplicable = !formData.companyTva.includes('non applicable');
   const taxRaw = isTvaApplicable ? formData.items.reduce((a, i) => a + ((i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100) * (1 - formData.discount / 100)) * (i.tvaRate / 100)), 0) : 0;
+
   const subtotal = round2(subtotalRaw);
   const discountAmount = round2(discountAmountRaw);
   const taxableAmount = round2(taxableRaw);
@@ -233,16 +379,27 @@ export default function QuoteModal({
     return Array.from(map.values()).sort((a, b) => b.rate - a.rate);
   }, [formData.items, formData.discount, isTvaApplicable]);
 
-  // 🌍 VALIDATION DYNAMIQUE SELON LE PAYS DU CLIENT
-  const validateClientIdentifier = (value: string): boolean => {
-    if (!value || !value.trim()) return false;
-    if (clientCountryConfig.code === 'FR') {
-      return validateSIRET(value.replace(/\s/g, ''));
-    }
-    return validateIdentifier(clientPrimaryIdentifier, value);
-  };
+  // ✅ Calcul dynamique de la visibilité e-facturation
+  const isClientEntreprise = formData.clientType === 'entreprise';
+  const visible = useMemo(() => 
+    getVisibleFields(companyCountry, formData.clientCountry, isClientEntreprise),
+    [companyCountry, formData.clientCountry, isClientEntreprise]
+  );
+  
+  // ✅ Vérification croisée : e-facturation obligatoire ?
+  const eInvoiceRequired = useMemo(() => 
+    isEInvoiceRequired(companyCountry, {
+      country: formData.clientCountry,
+      type: formData.clientType,
+      companyName: formData.clientName,
+    }),
+    [companyCountry, formData.clientCountry, formData.clientType, formData.clientName]
+  );
 
-  // 4. EFFETS
+  // ============================================================
+  // ✅ EFFETS
+  // ============================================================
+
   useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
       wasOpenRef.current = true;
@@ -257,53 +414,98 @@ export default function QuoteModal({
     }
   }, [isOpen]);
 
-  useEffect(() => { setCatalogPage(1); }, [catalogSearch]);
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [catalogSearch]);
 
   useEffect(() => {
-    if (!isOpen || editingQuote || companyInfoCustomized) return;
+    if (!isOpen) return;
+    if (editingQuote) return;
+    if (companyInfoCustomized) return;
     
     const loadAndFillCompanySettings = async () => {
       let freshSettings = companySettings;
+      
       if (!freshSettings && currentTeamId) {
         try {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('teamId', currentTeamId), Query.limit(1)]);
-          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
-        } catch (e) { console.warn('⚠️ [QuoteModal] Erreur rechargement settings teamId:', e); }
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+            Query.equal('teamId', currentTeamId),
+            Query.limit(1)
+          ]);
+          if (res.documents.length > 0) {
+            freshSettings = res.documents[0] as unknown as CompanySettings;
+          }
+        } catch (e) {
+          console.warn('⚠️ [QuoteModal] Erreur rechargement settings teamId:', e);
+        }
       }
+      
       if (!freshSettings && user?.$id) {
         try {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('userId', user.$id), Query.limit(1)]);
-          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
-        } catch (e) { console.warn('⚠️ [QuoteModal] Erreur rechargement settings userId:', e); }
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+            Query.equal('userId', user.$id),
+            Query.limit(1)
+          ]);
+          if (res.documents.length > 0) {
+            freshSettings = res.documents[0] as unknown as CompanySettings;
+          }
+        } catch (e) {
+          console.warn('⚠️ [QuoteModal] Erreur rechargement settings userId:', e);
+        }
       }
-      if (!freshSettings) return;
       
-      // ✅ FORCER LE PAYS DE L'ENTREPRISE
-      const detectedCountry = (freshSettings as any)?.country || hookCompanyCountry || 'FR';
-      const addr = parseAddressRetroactive(freshSettings.address, (freshSettings as any)?.postalCode, (freshSettings as any)?.city, detectedCountry);
+      if (!freshSettings) {
+        console.warn('⚠️ [QuoteModal] Aucun paramètre entreprise trouvé');
+        return;
+      }
+      
+      const addr = parseAddressRetroactive(
+        freshSettings.address,
+        (freshSettings as any)?.postalCode,
+        (freshSettings as any)?.city,
+        (freshSettings as any)?.country
+      );
       
       let companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
       if (freshSettings.tvaNumber) {
-        companyTvaValue = freshSettings.tvaNumber.includes('non applicable') ? 'TVA non applicable, art. 293 B du CGI' : freshSettings.tvaNumber;
+        if (freshSettings.tvaNumber.includes('non applicable')) {
+          companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
+        } else if (freshSettings.tvaNumber.trim() !== '') {
+          companyTvaValue = freshSettings.tvaNumber;
+        }
       }
       
       setFormData(prev => ({
-        ...prev, companyName: freshSettings!.name || prev.companyName, companyAddress: addr.address,
-        companyPostalCode: addr.postalCode, companyCity: addr.city, 
-        companyCountry: detectedCountry, // ✅ FORCÉ
-        companySiret: freshSettings!.siret || prev.companySiret, companyTva: companyTvaValue,
-        companyPhone: freshSettings!.phone || prev.companyPhone, companyEmail: freshSettings!.email || prev.companyEmail,
+        ...prev,
+        companyName: freshSettings!.name || prev.companyName,
+        companyAddress: addr.address,
+        companyPostalCode: addr.postalCode,
+        companyCity: addr.city,
+        companyCountry: addr.country,
+        companySiret: freshSettings!.siret || prev.companySiret,
+        companyTva: companyTvaValue,
+        companyPhone: freshSettings!.phone || prev.companyPhone,
+        companyEmail: freshSettings!.email || prev.companyEmail,
         logoFileId: freshSettings!.logoFileId || prev.logoFileId,
       }));
     };
+    
     loadAndFillCompanySettings();
-  }, [isOpen, editingQuote, companyInfoCustomized, currentTeamId, companySettings, user, hookCompanyCountry]);
+  }, [isOpen, editingQuote, companyInfoCustomized, currentTeamId, companySettings, user]);
 
-  // 5. FONCTIONS MÉTIER
+  // ============================================================
+  // ✅ CHARGEMENT
+  // ============================================================
+
   const loadCatalogProducts = async () => {
     if (!currentTeamId) return;
     try {
-      const res = await databases.listDocuments(DATABASE_ID, 'products', [Query.equal('teamId', currentTeamId), Query.equal('status', 'active'), Query.orderDesc('$createdAt'), Query.limit(500)]);
+      const res = await databases.listDocuments(DATABASE_ID, 'products', [
+        Query.equal('teamId', currentTeamId),
+        Query.equal('status', 'active'),
+        Query.orderDesc('$createdAt'),
+        Query.limit(500)
+      ]);
       setCatalogProducts(res.documents as unknown as CatalogProduct[]);
     } catch (e) { console.error('Erreur chargement catalogue:', e); }
   };
@@ -311,18 +513,32 @@ export default function QuoteModal({
   const initForm = async () => {
     setStep(1);
     setCompanyInfoCustomized(false);
+    
     let freshSettings = companySettings;
+    
     if (!freshSettings) {
       try {
         if (currentTeamId) {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('teamId', currentTeamId), Query.limit(1)]);
-          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+            Query.equal('teamId', currentTeamId),
+            Query.limit(1)
+          ]);
+          if (res.documents.length > 0) {
+            freshSettings = res.documents[0] as unknown as CompanySettings;
+          }
         }
         if (!freshSettings && user?.$id) {
-          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('userId', user.$id), Query.limit(1)]);
-          if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+          const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+            Query.equal('userId', user.$id),
+            Query.limit(1)
+          ]);
+          if (res.documents.length > 0) {
+            freshSettings = res.documents[0] as unknown as CompanySettings;
+          }
         }
-      } catch (e) { console.warn('⚠️ [initForm] Erreur rechargement settings:', e); }
+      } catch (e) {
+        console.warn('⚠️ [initForm] Erreur rechargement settings:', e);
+      }
     }
 
     if (editingQuote) {
@@ -332,56 +548,112 @@ export default function QuoteModal({
         parsedItems = parsedItems.map(item => ({ ...item, discount: item.discount || 0 }));
       } catch(e){ parsedItems = emptyFormData().items; }
       
-      const editCompanyAddr = parseAddressRetroactive(editingQuote.companyAddress, editingQuote.companyPostalCode, editingQuote.companyCity, editingQuote.companyCountry);
-      const editClientAddr = parseAddressRetroactive(editingQuote.clientAddress, editingQuote.clientPostalCode, editingQuote.clientCity, editingQuote.clientCountry);
+      const editCompanyAddr = parseAddressRetroactive(
+        editingQuote.companyAddress,
+        editingQuote.companyPostalCode,
+        editingQuote.companyCity,
+        editingQuote.companyCountry
+      );
+      const editClientAddr = parseAddressRetroactive(
+        editingQuote.clientAddress,
+        editingQuote.clientPostalCode,
+        editingQuote.clientCity,
+        editingQuote.clientCountry
+      );
       
       setFormData({
-        prospectId: editingQuote.prospectId || '', clientId: editingQuote.clientId || '', quoteNumber: editingQuote.quoteNumber || '', 
+        prospectId: editingQuote.prospectId || '',
+        clientId: editingQuote.clientId || '',
+        quoteNumber: editingQuote.quoteNumber || '', 
         status: editingQuote.status === 'Refusé' ? 'Brouillon' : editingQuote.status || 'Brouillon',
-        issueDate: editingQuote.issueDate || new Date().toISOString().split('T')[0], validityDate: editingQuote.validityDate || '',
-        subject: editingQuote.subject || '', workAddress: '', companyName: editingQuote.companyName || '',
-        companyAddress: editCompanyAddr.address, companyPostalCode: editCompanyAddr.postalCode, companyCity: editCompanyAddr.city, companyCountry: editCompanyAddr.country || 'FR',
-        companySiret: editingQuote.companySiret || '', companyTva: editingQuote.companyTva || '', companyPhone: editingQuote.companyPhone || '', companyEmail: editingQuote.companyEmail || '',
-        logoFileId: editingQuote.logoFileId || '', clientName: editingQuote.clientName || '', clientAddress: editClientAddr.address,
-        clientPostalCode: editClientAddr.postalCode, clientCity: editClientAddr.city, clientCountry: editClientAddr.country || 'FR',
-        clientBillingAddress: editingQuote.clientBillingAddress || '', clientEmail: editingQuote.clientEmail || '', clientPhone: editingQuote.clientPhone || '',
-        items: parsedItems, discount: editingQuote.discount || 0, deposit: editingQuote.deposit || 0, executionDelay: editingQuote.executionDelay || '', paymentConditions: editingQuote.paymentConditions || '',
-        paymentMethods: editingQuote.paymentMethods || '', specialConditions: editingQuote.specialConditions || '', acceptanceMention: editingQuote.acceptanceMention || '', bonPourAccord: editingQuote.bonPourAccord || false,
-        clientSignature: editingQuote.clientSignature || '', clientToken: editingQuote.clientToken || '', clientComment: editingQuote.clientComment || '',
-        clientType: editingQuote.clientType || 'particulier', clientSiret: editingQuote.clientSiret || '', clientSiren: editingQuote.clientSiren || '', clientVatNumber: editingQuote.clientVatNumber || '',
+        issueDate: editingQuote.issueDate || new Date().toISOString().split('T')[0], 
+        validityDate: editingQuote.validityDate || '',
+        subject: editingQuote.subject || '', workAddress: '', 
+        companyName: editingQuote.companyName || '',
+        companyAddress: editCompanyAddr.address,
+        companyPostalCode: editCompanyAddr.postalCode,
+        companyCity: editCompanyAddr.city,
+        companyCountry: editCompanyAddr.country,
+        companySiret: editingQuote.companySiret || '', companyTva: editingQuote.companyTva || '',
+        companyPhone: editingQuote.companyPhone || '', companyEmail: editingQuote.companyEmail || '',
+        logoFileId: editingQuote.logoFileId || '', clientName: editingQuote.clientName || '',
+        clientAddress: editClientAddr.address,
+        clientPostalCode: editClientAddr.postalCode,
+        clientCity: editClientAddr.city,
+        clientCountry: editClientAddr.country,
+        clientBillingAddress: editingQuote.clientBillingAddress || '',
+        clientEmail: editingQuote.clientEmail || '', clientPhone: editingQuote.clientPhone || '',
+        items: parsedItems, discount: editingQuote.discount || 0, deposit: editingQuote.deposit || 0,
+        executionDelay: editingQuote.executionDelay || '', paymentConditions: editingQuote.paymentConditions || '',
+        paymentMethods: editingQuote.paymentMethods || '', specialConditions: editingQuote.specialConditions || '',
+        acceptanceMention: editingQuote.acceptanceMention || '', bonPourAccord: editingQuote.bonPourAccord || false,
+        clientSignature: editingQuote.clientSignature || '', clientToken: editingQuote.clientToken || '', 
+        clientComment: editingQuote.clientComment || '',
+        clientType: editingQuote.clientType || 'particulier',
+        clientSiret: editingQuote.clientSiret || '',
+        clientSiren: editingQuote.clientSiren || '',
+        clientVatNumber: editingQuote.clientVatNumber || '',
       });
       setClientSearch(editingQuote.clientName || '');
       setCompanyInfoCustomized(true);
     } else {
       const newQuoteNumber = await getNextQuoteNumber();
       const defaultTvaRate = parseFloat(freshSettings?.defaultTvaRate || '20');
+      
       let companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
       if (freshSettings?.tvaNumber) {
-        companyTvaValue = freshSettings.tvaNumber.includes('non applicable') ? 'TVA non applicable, art. 293 B du CGI' : freshSettings.tvaNumber;
+        if (freshSettings.tvaNumber.includes('non applicable')) {
+          companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
+        } else if (freshSettings.tvaNumber.trim() !== '') {
+          companyTvaValue = freshSettings.tvaNumber;
+        }
       }
       
-      // ✅ FORCER LE PAYS DE L'ENTREPRISE
-      const detectedCountry = (freshSettings as any)?.country || hookCompanyCountry || 'FR';
-      const companyAddr = parseAddressRetroactive(freshSettings?.address, (freshSettings as any)?.postalCode, (freshSettings as any)?.city, detectedCountry);
+      const companyAddr = parseAddressRetroactive(
+        freshSettings?.address,
+        (freshSettings as any)?.postalCode,
+        (freshSettings as any)?.city,
+        (freshSettings as any)?.country
+      );
 
       const def: QuoteFormData = {
-        ...emptyFormData(), quoteNumber: newQuoteNumber, companyName: freshSettings?.name || '', companyAddress: companyAddr.address,
-        companyPostalCode: companyAddr.postalCode, companyCity: companyAddr.city, companyCountry: detectedCountry, // ✅ FORCÉ
-        companySiret: freshSettings?.siret || '', companyTva: companyTvaValue, companyPhone: freshSettings?.phone || '', companyEmail: freshSettings?.email || '',
+        ...emptyFormData(), 
+        quoteNumber: newQuoteNumber,
+        companyName: freshSettings?.name || '', 
+        companyAddress: companyAddr.address,
+        companyPostalCode: companyAddr.postalCode,
+        companyCity: companyAddr.city,
+        companyCountry: companyAddr.country || 'FR',
+        companySiret: freshSettings?.siret || '',
+        companyTva: companyTvaValue,
+        companyPhone: freshSettings?.phone || '', 
+        companyEmail: freshSettings?.email || '',
         logoFileId: freshSettings?.logoFileId || '',
-        items: [{ id: '1', reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, total: 0, discount: 0 }]
+        items: [{ 
+          id: '1', reference: '', description: '', quantity: 1, 
+          unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, 
+          total: 0, discount: 0 
+        }]
       };
       
       if (preselectedClientId) {
         const c = clients.find((x: any) => x.$id === preselectedClientId);
         if (c) {
           const clientAddr = parseAddressRetroactive(c.address, c.postalCode, c.city, c.country);
+          
           def.clientId = c.$id;
           def.clientName = `${c.firstName||''} ${c.lastName||''}`.trim() || c.companyName || '';
-          def.clientAddress = clientAddr.address; def.clientPostalCode = clientAddr.postalCode; def.clientCity = clientAddr.city; def.clientCountry = c.country || detectedCountry;
-          def.clientBillingAddress = c.billingAddress || clientAddr.address; def.clientEmail = c.email || ''; def.clientPhone = c.phone || '';
+          def.clientAddress = clientAddr.address;
+          def.clientPostalCode = clientAddr.postalCode;
+          def.clientCity = clientAddr.city;
+          def.clientCountry = c.country || 'FR';
+          def.clientBillingAddress = c.billingAddress || clientAddr.address;
+          def.clientEmail = c.email || '';
+          def.clientPhone = c.phone || '';
           def.clientType = c.type === 'entreprise' ? 'entreprise' : 'particulier';
-          def.clientSiret = c.siret || ''; def.clientSiren = c.siren || ''; def.clientVatNumber = c.vatNumber || '';
+          def.clientSiret = c.siret || '';
+          def.clientSiren = c.siren || '';
+          def.clientVatNumber = c.vatNumber || '';
           setClientSearch(`${def.clientName} ${c.companyName ? `(${c.companyName})` : ''}`);
         }
       }
@@ -391,55 +663,125 @@ export default function QuoteModal({
     setSigTab('draw');
   };
 
+  // ============================================================
+  // ✅ ACTIONS
+  // ============================================================
+
   const handleClientSelect = (client: any) => {
-    const clientAddr = parseAddressRetroactive(client.address, client.postalCode, client.city, client.country);
+    const clientAddr = parseAddressRetroactive(
+      client.address,
+      client.postalCode,
+      client.city,
+      client.country
+    );
+    
     setFormData(prev => ({
-      ...prev, clientId: client.$id, prospectId: '',
+      ...prev,
+      clientId: client.$id,
+      prospectId: '',
       clientName: `${client.firstName||''} ${client.lastName||''}`.trim() || client.companyName || '',
-      clientAddress: clientAddr.address, clientPostalCode: clientAddr.postalCode, clientCity: clientAddr.city, clientCountry: client.country || prev.companyCountry,
-      clientBillingAddress: client.billingAddress || clientAddr.address, clientEmail: client.email || '', clientPhone: client.phone || '',
+      clientAddress: clientAddr.address,
+      clientPostalCode: clientAddr.postalCode,
+      clientCity: clientAddr.city,
+      clientCountry: client.country || 'FR',
+      clientBillingAddress: client.billingAddress || clientAddr.address,
+      clientEmail: client.email || '',
+      clientPhone: client.phone || '',
       clientType: client.type === 'entreprise' ? 'entreprise' : 'particulier',
-      clientSiret: client.siret || '', clientSiren: client.siren || '', clientVatNumber: client.vatNumber || '',
+      clientSiret: client.siret || '',
+      clientSiren: client.siren || '',
+      clientVatNumber: client.vatNumber || '',
     }));
     setClientSearch(`${client.firstName || ''} ${client.lastName || ''} ${client.companyName ? `(${client.companyName})` : ''}`.trim());
     setShowClientDropdown(false);
   };
 
   const handleClearClient = () => {
-    setFormData(prev => ({ ...prev, clientId: '', prospectId: '', clientName: '', clientAddress: '', clientPostalCode: '', clientCity: '', clientCountry: prev.companyCountry, clientBillingAddress: '', clientEmail: '', clientPhone: '', clientType: 'particulier', clientSiret: '', clientSiren: '', clientVatNumber: '' }));
+    setFormData(prev => ({
+      ...prev,
+      clientId: '',
+      prospectId: '',
+      clientName: '',
+      clientAddress: '',
+      clientPostalCode: '',
+      clientCity: '',
+      clientCountry: 'FR',
+      clientBillingAddress: '',
+      clientEmail: '',
+      clientPhone: '',
+      clientType: 'particulier',
+      clientSiret: '',
+      clientSiren: '',
+      clientVatNumber: '',
+    }));
     setClientSearch('');
   };
 
   const handleReloadCompanySettings = async () => {
     let freshSettings: CompanySettings | null = companySettings;
+    
     try {
       if (currentTeamId) {
-        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('teamId', currentTeamId), Query.limit(1)]);
-        if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+          Query.equal('teamId', currentTeamId),
+          Query.limit(1)
+        ]);
+        if (res.documents.length > 0) {
+          freshSettings = res.documents[0] as unknown as CompanySettings;
+        }
       }
-    } catch (e) { console.log('Erreur rechargement settings'); }
+    } catch (e) { 
+      console.log('Erreur rechargement settings'); 
+    }
+    
     if (!freshSettings && user?.$id) {
       try {
-        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [Query.equal('userId', user.$id), Query.limit(1)]);
-        if (res.documents.length > 0) freshSettings = res.documents[0] as unknown as CompanySettings;
+        const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
+          Query.equal('userId', user.$id),
+          Query.limit(1)
+        ]);
+        if (res.documents.length > 0) {
+          freshSettings = res.documents[0] as unknown as CompanySettings;
+        }
       } catch (e) { /* ignore */ }
     }
-    if (!freshSettings) return;
-    const settings = freshSettings;
     
-    // ✅ FORCER LE PAYS
-    const detectedCountry = (settings as any)?.country || hookCompanyCountry || 'FR';
-    const companyAddr = parseAddressRetroactive(settings.address, (settings as any)?.postalCode, (settings as any)?.city, detectedCountry);
+    if (!freshSettings) {
+      console.warn('⚠️ Aucun paramètre entreprise trouvé');
+      return;
+    }
+    
+    const settings = freshSettings;
+    const companyAddr = parseAddressRetroactive(
+      settings.address,
+      (settings as any)?.postalCode,
+      (settings as any)?.city,
+      (settings as any)?.country
+    );
     
     let companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
     if (settings.tvaNumber) {
-      companyTvaValue = settings.tvaNumber.includes('non applicable') ? 'TVA non applicable, art. 293 B du CGI' : settings.tvaNumber;
+      if (settings.tvaNumber.includes('non applicable')) {
+        companyTvaValue = 'TVA non applicable, art. 293 B du CGI';
+      } else if (settings.tvaNumber.trim() !== '') {
+        companyTvaValue = settings.tvaNumber;
+      }
     }
+    
     setFormData(prev => ({
-      ...prev, companyName: settings.name || '', companyAddress: companyAddr.address, companyPostalCode: companyAddr.postalCode,
-      companyCity: companyAddr.city, companyCountry: detectedCountry, // ✅ FORCÉ
-      companySiret: settings.siret || '', companyTva: companyTvaValue, companyPhone: settings.phone || '', companyEmail: settings.email || '', logoFileId: settings.logoFileId || '',
+      ...prev,
+      companyName: settings.name || '',
+      companyAddress: companyAddr.address,
+      companyPostalCode: companyAddr.postalCode,
+      companyCity: companyAddr.city,
+      companyCountry: (settings as any).country || 'FR',
+      companySiret: settings.siret || '',
+      companyTva: companyTvaValue,
+      companyPhone: settings.phone || '',
+      companyEmail: settings.email || '',
+      logoFileId: settings.logoFileId || '',
     }));
+    
     setCompanyInfoCustomized(false);
   };
 
@@ -457,15 +799,24 @@ export default function QuoteModal({
 
   const addItem = () => {
     const defaultTvaRate = parseFloat(companySettings?.defaultTvaRate || '20');
-    setFormData(prev => ({ ...prev, items: [...prev.items, { id: Date.now().toString(), reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, total: 0, discount: 0 }] }));
+    setFormData(prev => ({
+      ...prev, 
+      items: [...prev.items, { id: Date.now().toString(), reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, total: 0, discount: 0 }]
+    }));
   };
 
   const addCatalogItem = (product: CatalogProduct) => {
     const defaultTvaRate = parseFloat(companySettings?.defaultTvaRate || '20');
-    setFormData(prev => ({ ...prev, items: [...prev.items, {
-      id: Date.now().toString(), reference: product.reference || '', description: product.name + (product.description ? ` - ${product.description}` : ''),
-      quantity: 1, unit: product.unit || 'Forfait', unitPrice: parseFloat(product.unitPrice) || 0, tvaRate: parseFloat(product.tvaRate) || defaultTvaRate, total: parseFloat(product.unitPrice) || 0, discount: 0
-    }] }));
+    const newItem: QuoteItem = {
+      id: Date.now().toString(),
+      reference: product.reference || '',
+      description: product.name + (product.description ? ` - ${product.description}` : ''),
+      quantity: 1, unit: product.unit || 'Forfait',
+      unitPrice: parseFloat(product.unitPrice) || 0,
+      tvaRate: parseFloat(product.tvaRate) || defaultTvaRate,
+      total: parseFloat(product.unitPrice) || 0, discount: 0
+    };
+    setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
     setShowCatalogModal(false);
     setCatalogSearch('');
   };
@@ -497,26 +848,28 @@ export default function QuoteModal({
     if (sigCanvas.current) sigCanvas.current.clear();
   };
 
+  // ============================================================
+  // ✅ VALIDATION
+  // ============================================================
+
   const validateStep = (s: number): string | null => {
     if (s === 1) {
       if (!formData.clientId) return 'Étape 1 : veuillez sélectionner un client.';
       if (!formData.subject.trim()) return 'Étape 1 : veuillez indiquer l\'objet du devis.';
       
-      // 🌍 VALIDATION DYNAMIQUE SELON LE PAYS
+      // ✅ Validation conditionnelle selon la règle e-facturation
       if (eInvoiceRequired) {
         if (!formData.clientSiret.trim()) {
-          return clientCountryConfig.code === 'FR' 
-            ? 'Étape 1 : le SIRET est obligatoire pour l\'e-facturation B2B France (Réforme 2026).'
-            : `Étape 1 : l'identifiant ${clientPrimaryIdentifier.shortLabel} est obligatoire.`;
+          return 'Étape 1 : le SIRET est obligatoire pour l\'e-facturation B2B France (Réforme 2026).';
         }
-        if (!validateClientIdentifier(formData.clientSiret)) {
-          return clientCountryConfig.code === 'FR'
-            ? 'Étape 1 : le SIRET du client est invalide (14 chiffres attendus, checksum Luhn).'
-            : `Étape 1 : l'identifiant ${clientPrimaryIdentifier.shortLabel} est invalide.${clientPrimaryIdentifier.example ? ` Ex: ${clientPrimaryIdentifier.example}` : ''}`;
+        if (!validateSIRET(formData.clientSiret)) {
+          return 'Étape 1 : le SIRET du client est invalide (14 chiffres attendus, checksum Luhn).';
         }
-        if (clientCountryConfig.code === 'FR') {
-          if (formData.clientSiren && !validateSIREN(formData.clientSiren)) return 'Étape 1 : le SIREN du client est invalide (9 chiffres attendus).';
-          if (formData.clientVatNumber && !validateVatNumber(formData.clientVatNumber)) return 'Étape 1 : le numéro de TVA du client est invalide (format FR + 11 caractères).';
+        if (formData.clientSiren && !validateSIREN(formData.clientSiren)) {
+          return 'Étape 1 : le SIREN du client est invalide (9 chiffres attendus).';
+        }
+        if (formData.clientVatNumber && !validateVatNumber(formData.clientVatNumber)) {
+          return 'Étape 1 : le numéro de TVA du client est invalide (format FR + 11 caractères).';
         }
       } else if (isClientEntreprise && formData.clientVatNumber) {
         if (!validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry)) {
@@ -541,7 +894,7 @@ export default function QuoteModal({
   const firstInvalidStep = (): number | null => {
     for (let s = 1; s <= 4; s++) {
       const err = validateStep(s);
-      if (err) return s;
+      if (err) { return s; }
     }
     return null;
   };
@@ -561,34 +914,69 @@ export default function QuoteModal({
     setStep(s);
   };
 
+  // ============================================================
+  // ✅ SAUVEGARDE
+  // ============================================================
+
   const buildPayload = (status: string, clientToken?: string) => {
     let mainVatRate = 20;
     try {
         const rateCounts = new Map<number, number>();
         formData.items.forEach(item => {
             const rate = parseInt(String(item.tvaRate || 0), 10);
-            if (!isNaN(rate) && rate >= 0 && rate <= 100) rateCounts.set(rate, (rateCounts.get(rate) || 0) + 1);
+            if (!isNaN(rate) && rate >= 0 && rate <= 100) {
+                rateCounts.set(rate, (rateCounts.get(rate) || 0) + 1);
+            }
         });
         if (rateCounts.size > 0) {
             let maxCount = 0;
-            rateCounts.forEach((count, rate) => { if (count > maxCount) { maxCount = count; mainVatRate = rate; } });
+            rateCounts.forEach((count, rate) => {
+                if (count > maxCount) {
+                    maxCount = count;
+                    mainVatRate = rate;
+                }
+            });
         }
-    } catch { mainVatRate = 20; }
+    } catch {
+        mainVatRate = 20;
+    }
     
     return {
-        ...formData, userId: user?.$id, teamId: currentTeamId, status, clientToken: clientToken || formData.clientToken,
-        currencyCode: currency, vatRate: mainVatRate, items: JSON.stringify(formData.items), subtotal, discount: formData.discount, tax, total,
-        deposit: formData.deposit, balance, tvaMention: formData.companyTva, createdAt: new Date().toISOString(), clientType: formData.clientType,
-        clientSiret: visible.showSirenSiret ? formData.clientSiret : '', clientSiren: visible.showSirenSiret ? formData.clientSiren : '',
+        ...formData, 
+        userId: user?.$id, 
+        teamId: currentTeamId, 
+        status,
+        clientToken: clientToken || formData.clientToken,
+        currencyCode: currency,
+        vatRate: mainVatRate,
+        items: JSON.stringify(formData.items), 
+        subtotal, 
+        discount: formData.discount, 
+        tax: tax, 
+        total: total,
+        deposit: formData.deposit, 
+        balance: balance, 
+        tvaMention: formData.companyTva, 
+        createdAt: new Date().toISOString(),
+        clientType: formData.clientType,
+        // ✅ CORRECTION : Nettoyer les champs selon la règle e-facturation
+        clientSiret: visible.showSirenSiret ? formData.clientSiret : '',
+        clientSiren: visible.showSirenSiret ? formData.clientSiren : '',
         clientVatNumber: isClientEntreprise ? formData.clientVatNumber : '',
     };
   };
 
   const saveDocument = async (payload: any) => {
+    // ✅ CORRECTION RLS : Utilisation du helper centralisé
+    // ✅ FIX CRITIQUE : isPublic doit être true si clientToken présent (accès via /v/:token)
     const isPublic = !!payload.clientToken;
     const permissions = getTeamPermissions(appwriteTeamId, { isPublic });
+
     if (editingQuote) {
-      if (editingQuote.teamId && editingQuote.teamId !== currentTeamId) throw new Error('Accès refusé : Ce devis n\'appartient pas à votre équipe');
+      // ✅ Vérification cross-tenant
+      if (editingQuote.teamId && editingQuote.teamId !== currentTeamId) {
+        throw new Error('Accès refusé : Ce devis n\'appartient pas à votre équipe');
+      }
       await databases.updateDocument(DATABASE_ID, 'quotes', editingQuote.$id, payload, permissions);
     } else {
       await databases.createDocument(DATABASE_ID, 'quotes', AppwriteID.unique(), payload, permissions);
@@ -598,61 +986,137 @@ export default function QuoteModal({
   const handleSubmit = async () => {
     const bad = firstInvalidStep();
     if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
+    
     setSaving(true);
-    try { await saveDocument(buildPayload('Brouillon')); onSave(); } 
-    catch (e: any) { console.error('Erreur handleSubmit:', e); alert(`Erreur: ${e.message}`); } 
-    finally { setSaving(false); }
+    try {
+      await saveDocument(buildPayload('Brouillon'));
+      onSave();
+    } catch (e: any) { 
+      console.error('Erreur handleSubmit:', e);
+      alert(`Erreur: ${e.message}`); 
+    } finally { 
+      setSaving(false); 
+    }
   };
 
   const handleSendToClient = async () => {
     const bad = firstInvalidStep();
     if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
+    
     setSendingToClient(true);
     try {
       const token = formData.clientToken || Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       await saveDocument(buildPayload('Envoyé', token));
       const link = `${window.location.origin}/v/${token}`;
-      try { await navigator.clipboard.writeText(link); alert(`Devis envoyé !\n\nLien copié :\n${link}`); } 
-      catch { alert(`Devis envoyé !\n\nLien :\n${link}`); }
+      try {
+        await navigator.clipboard.writeText(link);
+        alert(`Devis envoyé !\n\nLien copié :\n${link}`);
+      } catch { alert(`Devis envoyé !\n\nLien :\n${link}`); }
       onSave();
-    } catch (e: any) { console.error('Erreur handleSendToClient:', e); alert(`Erreur: ${e.message}`); } 
-    finally { setSendingToClient(false); }
+    } catch (e: any) { 
+      console.error('Erreur handleSendToClient:', e);
+      alert(`Erreur: ${e.message}`); 
+    } finally { 
+      setSendingToClient(false); 
+    }
   };
 
-  // 6. RENDU JSX
+  // ============================================================
+  // 🎨 RENDU
+  // ============================================================
+
   if (!isOpen) return null;
-  const STEPS = [{ n: 1 as const, label: 'Client', icon: User }, { n: 2 as const, label: 'Entreprise', icon: Building2 }, { n: 3 as const, label: 'Prestations', icon: Wrench }, { n: 4 as const, label: 'Total & Conditions', icon: DollarSign }];
+
+  const STEPS = [
+    { n: 1 as const, label: 'Client', icon: User },
+    { n: 2 as const, label: 'Entreprise', icon: Building2 },
+    { n: 3 as const, label: 'Prestations', icon: Wrench },
+    { n: 4 as const, label: 'Total & Conditions', icon: DollarSign },
+  ];
+
   const selectedClient = formData.clientId ? clients.find((c: any) => c.$id === formData.clientId) : null;
 
   return (
-    <Modal open={isOpen} onClose={onClose} title={editingQuote ? (formData.status === 'Refusé' ? 'Modifier (Refusé)' : 'Modifier le devis') : 'Nouveau Devis'} icon={<Calculator size={20} className="text-purple-600" />} maxWidth="sm:max-w-5xl"
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title={editingQuote ? (formData.status === 'Refusé' ? 'Modifier (Refusé)' : 'Modifier le devis') : 'Nouveau Devis'}
+      icon={<Calculator size={20} className="text-purple-600" />}
+      maxWidth="sm:max-w-5xl"
       footer={
         <div className="flex flex-col sm:flex-row gap-3 w-full">
-          <button onClick={onClose} className="order-3 sm:order-1 w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95">Annuler</button>
+          <button 
+            onClick={onClose} 
+            className="order-3 sm:order-1 w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95"
+          >
+            Annuler
+          </button>
+          
           <div className="flex flex-col sm:flex-row gap-3 order-1 sm:order-2 flex-1">
-            {step > 1 && <button onClick={goPrev} className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95"><ChevronLeft size={16} /> Précédent</button>}
-            {step < 4 && <button onClick={goNext} className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 active:scale-95">Suivant <ChevronRight size={16} /></button>}
-            {step === 4 && (<>
-              <button onClick={handleSubmit} disabled={saving || sendingToClient} className="w-full sm:w-auto px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
-                {(saving || sendingToClient) && <span className="animate-spin h-4 w-4 border-2 border-slate-700 dark:border-slate-300 border-t-transparent rounded-full" />} Enregistrer (Brouillon)
+            {step > 1 && (
+              <button 
+                onClick={goPrev} 
+                className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95"
+              >
+                <ChevronLeft size={16} /> Précédent
               </button>
-              <button onClick={handleSendToClient} disabled={saving || sendingToClient} className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
-                {sendingToClient ? 'Envoi...' : <><Send size={16}/> Envoyer au client</>}
+            )}
+            {step < 4 && (
+              <button 
+                onClick={goNext} 
+                className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 active:scale-95"
+              >
+                Suivant <ChevronRight size={16} />
               </button>
-            </>)}
+            )}
+            {step === 4 && (
+              <>
+                <button 
+                  onClick={handleSubmit} 
+                  disabled={saving || sendingToClient}
+                  className="w-full sm:w-auto px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  {(saving || sendingToClient) && <span className="animate-spin h-4 w-4 border-2 border-slate-700 dark:border-slate-300 border-t-transparent rounded-full" />}
+                  Enregistrer (Brouillon)
+                </button>
+                <button 
+                  onClick={handleSendToClient} 
+                  disabled={saving || sendingToClient}
+                  className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  {sendingToClient ? 'Envoi...' : <><Send size={16}/> Envoyer au client</>}
+                </button>
+              </>
+            )}
           </div>
         </div>
       }
     >
       <div className="space-y-6">
+        {/* INDICATEUR D'ÉTAPES */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4">
           {STEPS.map((s, idx) => {
-            const Icon = s.icon; const isActive = step === s.n; const isDone = step > s.n;
+            const Icon = s.icon;
+            const isActive = step === s.n;
+            const isDone = step > s.n;
             return (
               <div key={s.n} className="flex items-center gap-2">
-                <button type="button" onClick={() => goToStep(s.n)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${isActive ? 'bg-purple-600 text-white shadow-sm' : isDone ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive ? 'bg-white/20' : isDone ? 'bg-purple-600 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300'}`}>{isDone ? <Check size={12} /> : s.n}</span>
-                  <Icon size={14} />{s.label}
+                <button
+                  type="button"
+                  onClick={() => goToStep(s.n)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : isDone
+                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive ? 'bg-white/20' : isDone ? 'bg-purple-600 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300'}`}>
+                    {isDone ? <Check size={12} /> : s.n}
+                  </span>
+                  <Icon size={14} />
+                  {s.label}
                 </button>
                 {idx < STEPS.length - 1 && <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />}
               </div>
@@ -660,67 +1124,161 @@ export default function QuoteModal({
           })}
         </div>
 
-        {formData.clientComment && formData.status === 'Refusé' && <Alert tone="error" icon={X} title="Motif du refus du client"><p className="text-sm mt-1 whitespace-pre-wrap">{formData.clientComment}</p></Alert>}
+        {/* Alerte refus */}
+        {formData.clientComment && formData.status === 'Refusé' && (
+          <Alert tone="error" icon={X} title="Motif du refus du client">
+            <p className="text-sm mt-1 whitespace-pre-wrap">{formData.clientComment}</p>
+          </Alert>
+        )}
 
+        {/* ÉTAPE 1 : CLIENT */}
         {step === 1 && (
           <div className="space-y-6">
             <div className="space-y-3">
-              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><User size={14} className="text-purple-600" /> Client destinataire</h3>
+              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <User size={14} className="text-purple-600" /> Client destinataire
+              </h3>
+              
               {selectedClient && (
                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-11 h-11 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-sm shrink-0">{(selectedClient.firstName?.[0] || '') + (selectedClient.lastName?.[0] || selectedClient.companyName?.[0] || '?')}</div>
+                      <div className="w-11 h-11 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-sm shrink-0">
+                        {(selectedClient.firstName?.[0] || '') + (selectedClient.lastName?.[0] || selectedClient.companyName?.[0] || '?')}
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-slate-900 dark:text-white text-sm truncate">{selectedClient.companyName || `${selectedClient.firstName} ${selectedClient.lastName}`}</div>
+                        <div className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                          {selectedClient.companyName || `${selectedClient.firstName} ${selectedClient.lastName}`}
+                        </div>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          {selectedClient.email && <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">✉️ {selectedClient.email}</span>}
-                          {(selectedClient.city || selectedClient.postalCode) && <span className="text-xs text-slate-500 dark:text-slate-500">📍 {selectedClient.postalCode} {selectedClient.city}</span>}
-                          <Badge tone={selectedClient.type === 'entreprise' ? 'blue' : 'slate'}>{selectedClient.type === 'entreprise' ? 'Entreprise' : 'Particulier'}</Badge>
+                          {selectedClient.email && (
+                            <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                              ✉️ {selectedClient.email}
+                            </span>
+                          )}
+                          {(selectedClient.city || selectedClient.postalCode) && (
+                            <span className="text-xs text-slate-500 dark:text-slate-500">
+                              📍 {selectedClient.postalCode} {selectedClient.city}
+                            </span>
+                          )}
+                          <Badge tone={selectedClient.type === 'entreprise' ? 'blue' : 'slate'}>
+                            {selectedClient.type === 'entreprise' ? 'Entreprise' : 'Particulier'}
+                          </Badge>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full"><Check size={11} /> SÉLECTIONNÉ</span>
-                      <button type="button" onClick={handleClearClient} className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Changer de client"><X size={16} /></button>
+                      <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full">
+                        <Check size={11} /> SÉLECTIONNÉ
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleClearClient}
+                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                        title="Changer de client"
+                      >
+                        <X size={16} />
+                      </button>
                     </div>
                   </div>
                 </div>
               )}
+              
               <div className="relative">
                 <div className="relative group">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={18} />
-                  <Input type="text" placeholder={selectedClient ? "Changer de client..." : "Rechercher un client par nom, entreprise, email, ville..."} value={clientSearch} onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }} onFocus={() => setShowClientDropdown(true)} className="pl-11" />
-                  {clientSearch && <button type="button" onClick={() => { setClientSearch(''); setShowClientDropdown(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"><X size={16} /></button>}
+                  <Input
+                    type="text"
+                    placeholder={selectedClient ? "Changer de client..." : "Rechercher un client par nom, entreprise, email, ville..."}
+                    value={clientSearch}
+                    onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }}
+                    onFocus={() => setShowClientDropdown(true)}
+                    className="pl-11"
+                  />
+                  {clientSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setClientSearch(''); setShowClientDropdown(false); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                 </div>
+                
                 {showClientDropdown && (
                   <div className="absolute z-20 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl max-h-80 overflow-y-auto ring-1 ring-black/5">
                     {filteredClients.length === 0 ? (
                       <div className="p-6 text-center">
                         <User size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                        <p className="text-sm text-slate-500 dark:text-slate-400">{clientSearch ? 'Aucun client trouvé pour cette recherche' : 'Aucun client disponible'}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          {clientSearch 
+                            ? 'Aucun client trouvé pour cette recherche' 
+                            : 'Aucun client disponible'}
+                        </p>
+                        {!clientSearch && (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                            Vérifiez que vos clients sont bien créés dans la page "Clients"
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <>
                         <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 sticky top-0">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{filteredClients.length} client{filteredClients.length > 1 ? 's' : ''} disponible{filteredClients.length > 1 ? 's' : ''}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            {filteredClients.length} client{filteredClients.length > 1 ? 's' : ''} disponible{filteredClients.length > 1 ? 's' : ''}
+                          </span>
                         </div>
                         {filteredClients.map((client: any) => {
                           const isSelected = formData.clientId === client.$id;
                           const clientAddr = parseAddressRetroactive(client.address, client.postalCode, client.city, client.country);
                           return (
-                            <button key={client.$id} onClick={() => handleClientSelect(client)} className={`w-full text-left px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-700 last:border-0 flex items-center gap-3 ${isSelected ? 'bg-purple-50 dark:bg-purple-900/20' : 'hover:bg-purple-50/50 dark:hover:bg-slate-700/50'}`}>
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>{(client.firstName?.[0] || '') + (client.lastName?.[0] || client.companyName?.[0] || '?')}</div>
+                            <button
+                              key={client.$id}
+                              onClick={() => handleClientSelect(client)}
+                              className={`w-full text-left px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-700 last:border-0 flex items-center gap-3 ${
+                                isSelected 
+                                  ? 'bg-purple-50 dark:bg-purple-900/20' 
+                                  : 'hover:bg-purple-50/50 dark:hover:bg-slate-700/50'
+                              }`}
+                            >
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                                isSelected 
+                                  ? 'bg-purple-600 text-white' 
+                                  : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                              }`}>
+                                {(client.firstName?.[0] || '') + (client.lastName?.[0] || client.companyName?.[0] || '?')}
+                              </div>
                               <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">{client.companyName || `${client.firstName} ${client.lastName}`}</div>
+                                <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                                  {client.companyName || `${client.firstName} ${client.lastName}`}
+                                </div>
                                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                  {client.companyName && (client.firstName || client.lastName) && <span className="text-xs text-slate-500 dark:text-slate-400 truncate">👤 {client.firstName} {client.lastName}</span>}
-                                  {client.email && <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">✉️ {client.email}</span>}
-                                  {clientAddr.city && <span className="text-xs text-slate-400 dark:text-slate-500">📍 {clientAddr.city}</span>}
-                                  <Badge tone={client.type === 'entreprise' ? 'blue' : 'slate'}>{client.type === 'entreprise' ? 'Entreprise' : 'Particulier'}</Badge>
+                                  {client.companyName && (client.firstName || client.lastName) && (
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                      👤 {client.firstName} {client.lastName}
+                                    </span>
+                                  )}
+                                  {client.email && (
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">
+                                      ✉️ {client.email}
+                                    </span>
+                                  )}
+                                  {clientAddr.city && (
+                                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                                      📍 {clientAddr.city}
+                                    </span>
+                                  )}
+                                  <Badge tone={client.type === 'entreprise' ? 'blue' : 'slate'}>
+                                    {client.type === 'entreprise' ? 'Entreprise' : 'Particulier'}
+                                  </Badge>
                                 </div>
                               </div>
-                              {isSelected && <div className="shrink-0"><Check size={18} className="text-purple-600 dark:text-purple-400" /></div>}
+                              {isSelected && (
+                                <div className="shrink-0">
+                                  <Check size={18} className="text-purple-600 dark:text-purple-400" />
+                                </div>
+                              )}
                             </button>
                           );
                         })}
@@ -732,100 +1290,251 @@ export default function QuoteModal({
 
               {formData.clientId && (
                 <div className="space-y-4">
+                  {/* SECTION TYPE DE CLIENT */}
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
-                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2"><User size={12} className="text-purple-600 dark:text-purple-400" /> Type de client</h4>
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      <User size={12} className="text-purple-600 dark:text-purple-400" />
+                      Type de client
+                    </h4>
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => setFormData({...formData, clientType: 'particulier', clientSiret: '', clientSiren: ''})} className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${formData.clientType === 'particulier' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><User size={16} /> Particulier (B2C)</button>
-                      <button type="button" onClick={() => setFormData({...formData, clientType: 'entreprise'})} className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${formData.clientType === 'entreprise' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Building2 size={16} /> Entreprise (B2B)</button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({...formData, clientType: 'particulier', clientSiret: '', clientSiren: ''})}
+                        className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                          formData.clientType === 'particulier'
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        <User size={16} />
+                        Particulier (B2C)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({...formData, clientType: 'entreprise'})}
+                        className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                          formData.clientType === 'entreprise'
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        <Building2 size={16} />
+                        Entreprise (B2B)
+                      </button>
                     </div>
                   </div>
 
+                  {/* Section Identification fiscale CONDITIONNELLE */}
                   {isClientEntreprise && (
-                    <div className={`rounded-xl p-4 space-y-4 border ${eInvoiceRequired ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
-                      <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-2 ${eInvoiceRequired ? 'text-purple-900 dark:text-purple-200' : 'text-blue-900 dark:text-blue-200'}`}>
-                        <Landmark size={12} className={eInvoiceRequired ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'} /> Identification fiscale
-                        {eInvoiceRequired && <span className="ml-auto text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">OBLIGATOIRE</span>}
+                    <div className={`rounded-xl p-4 space-y-4 border ${
+                      eInvoiceRequired 
+                        ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' 
+                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                    }`}>
+                      <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-2 ${
+                        eInvoiceRequired 
+                          ? 'text-purple-900 dark:text-purple-200' 
+                          : 'text-blue-900 dark:text-blue-200'
+                      }`}>
+                        <Landmark size={12} className={eInvoiceRequired ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'} />
+                        Identification fiscale
+                        {eInvoiceRequired && (
+                          <span className="ml-auto text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">
+                            OBLIGATOIRE
+                          </span>
+                        )}
                       </h4>
-                      
+
+                      {/* Alerte contextuelle selon la règle */}
                       {eInvoiceRequired ? (
-                        <Alert tone="info" icon={Shield}><p className="text-xs"><strong>E-facturation B2B obligatoire (Réforme 2026) :</strong> Votre entreprise ({currentCompanyCountry}) et le client ({formData.clientCountry}) sont tous deux en France. Les identifiants <strong>SIREN</strong> et <strong>SIRET</strong> sont requis pour la transmission électronique.</p></Alert>
-                      ) : currentCompanyCountry === 'FR' && formData.clientCountry !== 'FR' ? (
-                        <Alert tone="info" icon={Info}><p className="text-xs"><strong>Client étranger (export) :</strong> Le client est basé en {formData.clientCountry}. L'e-facturation française ne s'applique pas. Le numéro de TVA intracommunautaire est recommandé pour les échanges intra-UE.</p></Alert>
-                      ) : currentCompanyCountry !== 'FR' ? (
-                        <Alert tone="info" icon={Info}><p className="text-xs"><strong>Entreprise non-française :</strong> Votre entreprise est basée en {currentCompanyCountry}. La réglementation française sur l'e-facturation ne s'applique pas.</p></Alert>
+                        <Alert tone="info" icon={Shield}>
+                          <p className="text-xs">
+                            <strong>E-facturation B2B obligatoire (Réforme 2026) :</strong> Votre entreprise ({companyCountry}) et le client ({formData.clientCountry}) 
+                            sont tous deux en France. Les identifiants <strong>SIREN</strong> et <strong>SIRET</strong> sont requis pour la transmission électronique.
+                          </p>
+                        </Alert>
+                      ) : companyCountry === 'FR' && formData.clientCountry !== 'FR' ? (
+                        <Alert tone="info" icon={Info}>
+                          <p className="text-xs">
+                            <strong>Client étranger (export) :</strong> Le client est basé en {formData.clientCountry}. L'e-facturation française ne s'applique pas. 
+                            Le numéro de TVA intracommunautaire est recommandé pour les échanges intra-UE.
+                          </p>
+                        </Alert>
+                      ) : companyCountry !== 'FR' ? (
+                        <Alert tone="info" icon={Info}>
+                          <p className="text-xs">
+                            <strong>Entreprise non-française :</strong> Votre entreprise est basée en {companyCountry}. La réglementation française sur l'e-facturation ne s'applique pas.
+                          </p>
+                        </Alert>
                       ) : null}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {visible.showSirenSiret && (<>
-                          <FormField label="SIRET (14 chiffres)" required hint="Identifie l'établissement">
-                            <Input type="text" value={formData.clientSiret} onChange={e => setFormData({...formData, clientSiret: e.target.value.replace(/\D/g, '').slice(0, 14)})} className="font-mono" placeholder="12345678901234" maxLength={14} />
-                            {formData.clientSiret && !validateSIRET(formData.clientSiret) && <p className="text-xs text-red-500 mt-1">SIRET invalide (14 chiffres attendus)</p>}
-                            {formData.clientSiret && validateSIRET(formData.clientSiret) && <p className="text-xs text-emerald-600 mt-1">✓ SIRET valide</p>}
-                          </FormField>
-                          <FormField label="SIREN (9 chiffres)" hint="Identifie l'entreprise">
-                            <Input type="text" value={formData.clientSiren} onChange={e => setFormData({...formData, clientSiren: e.target.value.replace(/\D/g, '').slice(0, 9)})} className="font-mono" placeholder="123456789" maxLength={9} />
-                            {formData.clientSiren && !validateSIREN(formData.clientSiren) && <p className="text-xs text-red-500 mt-1">SIREN invalide (9 chiffres attendus)</p>}
-                            {formData.clientSiren && validateSIREN(formData.clientSiren) && <p className="text-xs text-emerald-600 mt-1">✓ SIREN valide</p>}
-                          </FormField>
-                        </>)}
+                        {/* SIREN/SIRET : uniquement si règle croisée remplie */}
+                        {visible.showSirenSiret && (
+                          <>
+                            <FormField label="SIRET (14 chiffres)" required hint="Identifie l'établissement">
+                              <Input
+                                type="text"
+                                value={formData.clientSiret}
+                                onChange={e => setFormData({...formData, clientSiret: e.target.value.replace(/\D/g, '').slice(0, 14)})}
+                                className="font-mono"
+                                placeholder="12345678901234"
+                                maxLength={14}
+                              />
+                              {formData.clientSiret && !validateSIRET(formData.clientSiret) && (
+                                <p className="text-xs text-red-500 mt-1">SIRET invalide (14 chiffres attendus)</p>
+                              )}
+                              {formData.clientSiret && validateSIRET(formData.clientSiret) && (
+                                <p className="text-xs text-emerald-600 mt-1">✓ SIRET valide</p>
+                              )}
+                            </FormField>
+                            <FormField label="SIREN (9 chiffres)" hint="Identifie l'entreprise">
+                              <Input
+                                type="text"
+                                value={formData.clientSiren}
+                                onChange={e => setFormData({...formData, clientSiren: e.target.value.replace(/\D/g, '').slice(0, 9)})}
+                                className="font-mono"
+                                placeholder="123456789"
+                                maxLength={9}
+                              />
+                              {formData.clientSiren && !validateSIREN(formData.clientSiren) && (
+                                <p className="text-xs text-red-500 mt-1">SIREN invalide (9 chiffres attendus)</p>
+                              )}
+                              {formData.clientSiren && validateSIREN(formData.clientSiren) && (
+                                <p className="text-xs text-emerald-600 mt-1">✓ SIREN valide</p>
+                              )}
+                            </FormField>
+                          </>
+                        )}
+                        
+                        {/* TVA : affichée pour tout B2B */}
                         <FormField 
-                          label={clientCountryConfig.vat?.numberLabel || (visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale")} 
-                          className={visible.showSirenSiret ? "sm:col-span-2" : ""} 
-                          hint={visible.showSirenSiret ? "Format: FR + clé + 9 chiffres" : (clientPrimaryIdentifier.example || `Selon le pays (${formData.clientCountry})`)}
+                          label={visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale"} 
+                          className={visible.showSirenSiret ? "sm:col-span-2" : ""}
+                          hint={visible.showSirenSiret ? "Format: FR + clé + 9 chiffres" : `Selon le pays (${formData.clientCountry})`}
                         >
-                          <Input type="text" value={formData.clientVatNumber} onChange={e => setFormData({...formData, clientVatNumber: e.target.value.toUpperCase()})} className="font-mono" placeholder={visible.showSirenSiret ? "FR12345678901" : (clientPrimaryIdentifier.example || "Ex: BE0123456789, CHE-123.456.789...")} />
-                          {formData.clientVatNumber && !validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && <p className="text-xs text-red-500 mt-1">Format invalide pour {formData.clientCountry}</p>}
-                          {formData.clientVatNumber && validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && <p className="text-xs text-emerald-600 mt-1">✓ TVA valide</p>}
+                          <Input
+                            type="text"
+                            value={formData.clientVatNumber}
+                            onChange={e => setFormData({...formData, clientVatNumber: e.target.value.toUpperCase()})}
+                            className="font-mono"
+                            placeholder={visible.showSirenSiret ? "FR12345678901" : "Ex: BE0123456789, CHE-123.456.789..."}
+                          />
+                          {formData.clientVatNumber && !validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && (
+                            <p className="text-xs text-red-500 mt-1">Format invalide pour {formData.clientCountry}</p>
+                          )}
+                          {formData.clientVatNumber && validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && (
+                            <p className="text-xs text-emerald-600 mt-1">✓ TVA valide</p>
+                          )}
                         </FormField>
                       </div>
                     </div>
                   )}
 
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
-                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2"><Home size={12} className="text-purple-600 dark:text-purple-400" /> Adresse du client</h4>
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      <Home size={12} className="text-purple-600 dark:text-purple-400" />
+                      Adresse du client
+                    </h4>
+
                     <FormField label="Adresse (n° et rue)">
                       <div className="relative">
                         <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        <Input value={formData.clientAddress} onChange={e => setFormData({...formData, clientAddress: e.target.value})} className="pl-9" placeholder="123 rue de la Paix" />
+                        <Input
+                          value={formData.clientAddress}
+                          onChange={e => setFormData({...formData, clientAddress: e.target.value})}
+                          className="pl-9"
+                          placeholder="123 rue de la Paix"
+                        />
                       </div>
                     </FormField>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField label="Code postal">
                         <div className="relative">
                           <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <Input value={formData.clientPostalCode} onChange={e => setFormData({...formData, clientPostalCode: formData.clientCountry === 'FR' ? e.target.value.replace(/\D/g, '').slice(0, 5) : e.target.value.slice(0, 10)})} className="pl-9 font-mono" placeholder={formData.clientCountry === 'FR' ? '75000' : 'Code postal'} />
+                          <Input
+                            value={formData.clientPostalCode}
+                            onChange={e => setFormData({
+                              ...formData,
+                              clientPostalCode: formData.clientCountry === 'FR'
+                                ? e.target.value.replace(/\D/g, '').slice(0, 5)
+                                : e.target.value.slice(0, 10)
+                            })}
+                            className="pl-9 font-mono"
+                            placeholder={formData.clientCountry === 'FR' ? '75000' : 'Code postal'}
+                          />
                         </div>
                       </FormField>
-                      <FormField label="Ville"><Input value={formData.clientCity} onChange={e => setFormData({...formData, clientCity: e.target.value})} placeholder={formData.clientCountry === 'BJ' ? 'Cotonou' : formData.clientCountry === 'SN' ? 'Dakar' : 'Paris'} /></FormField>
+                      <FormField label="Ville">
+                        <Input
+                          value={formData.clientCity}
+                          onChange={e => setFormData({...formData, clientCity: e.target.value})}
+                          placeholder="Paris"
+                        />
+                      </FormField>
                       <FormField label="Pays">
                         <div className="relative">
                           <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <Select value={formData.clientCountry} onChange={e => setFormData({...formData, clientCountry: e.target.value})} className="pl-9">
-                            {countryOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
+                          <Select
+                            value={formData.clientCountry}
+                            onChange={e => setFormData({...formData, clientCountry: e.target.value})}
+                            className="pl-9"
+                          >
+                            <option value="FR">🇫🇷 France</option>
+                            <option value="BE">🇧🇪 Belgique</option>
+                            <option value="CH">🇨🇭 Suisse</option>
+                            <option value="LU">🇱🇺 Luxembourg</option>
+                            <option value="DE">🇩🇪 Allemagne</option>
+                            <option value="ES">🇪🇸 Espagne</option>
+                            <option value="IT">🇮🇹 Italie</option>
+                            <option value="GB">🇬🇧 Royaume-Uni</option>
+                            <option value="US">🇺🇸 États-Unis</option>
+                            <option value="CA">🇨🇦 Canada</option>
+                            <option value="OTHER">🌍 Autre</option>
                           </Select>
                         </div>
                       </FormField>
                     </div>
-                    <FormField label="Adresse de facturation" hint="Si différente de l'adresse principale"><Input value={formData.clientBillingAddress} onChange={e => setFormData({...formData, clientBillingAddress: e.target.value})} placeholder="Adresse de facturation" /></FormField>
+
+                    <FormField label="Adresse de facturation" hint="Si différente de l'adresse principale">
+                      <Input
+                        value={formData.clientBillingAddress}
+                        onChange={e => setFormData({...formData, clientBillingAddress: e.target.value})}
+                        placeholder="Adresse de facturation"
+                      />
+                    </FormField>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <FormField label="Email"><Input type="email" value={formData.clientEmail} onChange={e => setFormData({...formData, clientEmail: e.target.value})} /></FormField>
-                    <FormField label="Téléphone"><Input type="tel" value={formData.clientPhone} onChange={e => setFormData({...formData, clientPhone: e.target.value})} /></FormField>
+                    <FormField label="Email">
+                      <Input type="email" value={formData.clientEmail} onChange={e => setFormData({...formData, clientEmail: e.target.value})} />
+                    </FormField>
+                    <FormField label="Téléphone">
+                      <Input type="tel" value={formData.clientPhone} onChange={e => setFormData({...formData, clientPhone: e.target.value})} />
+                    </FormField>
                   </div>
                 </div>
               )}
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><FileText size={14} className="text-purple-600" /> Informations du devis</h3>
+              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <FileText size={14} className="text-purple-600" /> Informations du devis
+              </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="N° Devis"><Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-purple-700 dark:text-purple-400" /></FormField>
-                <FormField label="Objet" required><Input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Ex: Rénovation salle de bain..." /></FormField>
-                <FormField label="Date d'émission"><Input type="date" value={formData.issueDate} onChange={e => setFormData({...formData, issueDate: e.target.value})} /></FormField>
-                <FormField label="Date de validité"><Input type="date" value={formData.validityDate} onChange={e => setFormData({...formData, validityDate: e.target.value})} /></FormField>
+                <FormField label="N° Devis">
+                  <Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-purple-700 dark:text-purple-400" />
+                </FormField>
+                <FormField label="Objet" required>
+                  <Input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Ex: Rénovation salle de bain..." />
+                </FormField>
+                <FormField label="Date d'émission">
+                  <Input type="date" value={formData.issueDate} onChange={e => setFormData({...formData, issueDate: e.target.value})} />
+                </FormField>
+                <FormField label="Date de validité">
+                  <Input type="date" value={formData.validityDate} onChange={e => setFormData({...formData, validityDate: e.target.value})} />
+                </FormField>
                 <FormField label="Adresse du chantier" hint="Si différent de l'adresse du client" className="sm:col-span-2">
                   <div className="relative">
                     <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -837,43 +1546,131 @@ export default function QuoteModal({
           </div>
         )}
 
+        {/* ÉTAPE 2 : ENTREPRISE */}
         {step === 2 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><Building2 size={14} className="text-purple-600" /> Mon Entreprise</h3>
-              <button type="button" onClick={handleReloadCompanySettings} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors active:scale-95" title="Recharger depuis les paramètres entreprise"><RefreshCw size={13} /> Utiliser mes infos</button>
+              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <Building2 size={14} className="text-purple-600" /> Mon Entreprise
+              </h3>
+              <button
+                type="button"
+                onClick={handleReloadCompanySettings}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors active:scale-95"
+                title="Recharger depuis les paramètres entreprise"
+              >
+                <RefreshCw size={13} />
+                Utiliser mes infos
+              </button>
             </div>
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Nom de l'entreprise" required className="sm:col-span-2"><Input placeholder="Nom entreprise" value={formData.companyName} onChange={e => { setFormData({...formData, companyName: e.target.value}); setCompanyInfoCustomized(true); }} /></FormField>
-              <FormField label={companyCountryConfig.code === 'FR' ? "SIRET" : `${companyPrimaryIdentifier.shortLabel}`}>
-                <Input placeholder={companyPrimaryIdentifier.example || "Identifiant"} value={formData.companySiret} onChange={e => { setFormData({...formData, companySiret: e.target.value}); setCompanyInfoCustomized(true); }} className="font-mono" />
+              <FormField label="Nom de l'entreprise" required className="sm:col-span-2">
+                <Input 
+                  placeholder="Nom entreprise" 
+                  value={formData.companyName} 
+                  onChange={e => {
+                    setFormData({...formData, companyName: e.target.value});
+                    setCompanyInfoCustomized(true);
+                  }} 
+                />
               </FormField>
-              <FormField label="Téléphone"><Input type="tel" placeholder="Téléphone" value={formData.companyPhone} onChange={e => { setFormData({...formData, companyPhone: e.target.value}); setCompanyInfoCustomized(true); }} /></FormField>
+              <FormField label="SIRET">
+                <Input 
+                  placeholder="SIRET" 
+                  value={formData.companySiret} 
+                  onChange={e => {
+                    setFormData({...formData, companySiret: e.target.value});
+                    setCompanyInfoCustomized(true);
+                  }} 
+                />
+              </FormField>
+              <FormField label="Téléphone">
+                <Input 
+                  type="tel" 
+                  placeholder="Téléphone" 
+                  value={formData.companyPhone} 
+                  onChange={e => {
+                    setFormData({...formData, companyPhone: e.target.value});
+                    setCompanyInfoCustomized(true);
+                  }} 
+                />
+              </FormField>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2"><Home size={12} className="text-purple-600 dark:text-purple-400" /> Adresse de l'entreprise</h4>
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <Home size={12} className="text-purple-600 dark:text-purple-400" />
+                Adresse de l'entreprise
+              </h4>
+
               <FormField label="Adresse (n° et rue)">
                 <div className="relative">
                   <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <Input value={formData.companyAddress} onChange={e => { setFormData({...formData, companyAddress: e.target.value}); setCompanyInfoCustomized(true); }} className="pl-9" placeholder="123 rue de la Paix" />
+                  <Input
+                    value={formData.companyAddress}
+                    onChange={e => {
+                      setFormData({...formData, companyAddress: e.target.value});
+                      setCompanyInfoCustomized(true);
+                    }}
+                    className="pl-9"
+                    placeholder="123 rue de la Paix"
+                  />
                 </div>
               </FormField>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <FormField label="Code postal">
                   <div className="relative">
                     <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <Input value={formData.companyPostalCode} onChange={e => { setFormData({...formData, companyPostalCode: formData.companyCountry === 'FR' ? e.target.value.replace(/\D/g, '').slice(0, 5) : e.target.value.slice(0, 10)}); setCompanyInfoCustomized(true); }} className="pl-9 font-mono" placeholder={formData.companyCountry === 'FR' ? '75000' : 'Code postal'} />
+                    <Input
+                      value={formData.companyPostalCode}
+                      onChange={e => {
+                        setFormData({
+                          ...formData,
+                          companyPostalCode: formData.companyCountry === 'FR'
+                            ? e.target.value.replace(/\D/g, '').slice(0, 5)
+                            : e.target.value.slice(0, 10)
+                        });
+                        setCompanyInfoCustomized(true);
+                      }}
+                      className="pl-9 font-mono"
+                      placeholder={formData.companyCountry === 'FR' ? '75000' : 'Code postal'}
+                    />
                   </div>
                 </FormField>
-                <FormField label="Ville"><Input value={formData.companyCity} onChange={e => { setFormData({...formData, companyCity: e.target.value}); setCompanyInfoCustomized(true); }} placeholder={formData.companyCountry === 'BJ' ? 'Cotonou' : formData.companyCountry === 'SN' ? 'Dakar' : 'Paris'} /></FormField>
+                <FormField label="Ville">
+                  <Input
+                    value={formData.companyCity}
+                    onChange={e => {
+                      setFormData({...formData, companyCity: e.target.value});
+                      setCompanyInfoCustomized(true);
+                    }}
+                    placeholder="Paris"
+                  />
+                </FormField>
                 <FormField label="Pays">
                   <div className="relative">
                     <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <Select value={formData.companyCountry} onChange={e => { setFormData({...formData, companyCountry: e.target.value}); setCompanyInfoCustomized(true); }} className="pl-9">
-                      {countryOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
+                    <Select
+                      value={formData.companyCountry}
+                      onChange={e => {
+                        setFormData({...formData, companyCountry: e.target.value});
+                        setCompanyInfoCustomized(true);
+                      }}
+                      className="pl-9"
+                    >
+                      <option value="FR">🇫🇷 France</option>
+                      <option value="BE">🇧🇪 Belgique</option>
+                      <option value="CH">🇨🇭 Suisse</option>
+                      <option value="LU">🇱🇺 Luxembourg</option>
+                      <option value="DE">🇩🇪 Allemagne</option>
+                      <option value="ES">🇪🇸 Espagne</option>
+                      <option value="IT">🇮🇹 Italie</option>
+                      <option value="GB">🇬🇧 Royaume-Uni</option>
+                      <option value="US">🇺🇸 États-Unis</option>
+                      <option value="CA">🇨🇦 Canada</option>
+                      <option value="OTHER">🌍 Autre</option>
                     </Select>
                   </div>
                 </FormField>
@@ -881,37 +1678,99 @@ export default function QuoteModal({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Email"><Input type="email" placeholder="Email" value={formData.companyEmail} onChange={e => { setFormData({...formData, companyEmail: e.target.value}); setCompanyInfoCustomized(true); }} /></FormField>
+              <FormField label="Email">
+                <Input 
+                  type="email" 
+                  placeholder="Email" 
+                  value={formData.companyEmail} 
+                  onChange={e => {
+                    setFormData({...formData, companyEmail: e.target.value});
+                    setCompanyInfoCustomized(true);
+                  }} 
+                />
+              </FormField>
               <FormField label="Régime TVA" className="sm:col-span-2">
-                <Select value={formData.companyTva.includes('non applicable') ? 'TVA non applicable, art. 293 B du CGI' : 'assujetti'} onChange={e => {
-                  const val = e.target.value;
-                  if (val === 'TVA non applicable, art. 293 B du CGI') { setFormData({...formData, companyTva: 'TVA non applicable, art. 293 B du CGI'}); } 
-                  else {
-                    const tvaFromSettings = companySettings?.tvaNumber || '';
-                    const hasRealNumber = tvaFromSettings && !tvaFromSettings.includes('non applicable');
-                    setFormData({...formData, companyTva: hasRealNumber ? tvaFromSettings : 'FR00000000000'});
-                  }
-                  setCompanyInfoCustomized(true);
-                }}>
-                  <option value="TVA non applicable, art. 293 B du CGI">TVA non applicable, art. 293 B du CGI</option>
-                  <option value="assujetti">Assujetti à la TVA ({formData.companyTva.includes('non applicable') ? 'numéro à saisir' : formData.companyTva || 'FR...'})</option>
+                <Select 
+                  value={
+                    formData.companyTva.includes('non applicable') 
+                      ? 'TVA non applicable, art. 293 B du CGI' 
+                      : 'assujetti'
+                  } 
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === 'TVA non applicable, art. 293 B du CGI') {
+                      setFormData({...formData, companyTva: 'TVA non applicable, art. 293 B du CGI'});
+                    } else {
+                      const tvaFromSettings = companySettings?.tvaNumber || '';
+                      const hasRealNumber = tvaFromSettings && !tvaFromSettings.includes('non applicable');
+                      setFormData({
+                        ...formData, 
+                        companyTva: hasRealNumber ? tvaFromSettings : 'FR00000000000'
+                      });
+                    }
+                    setCompanyInfoCustomized(true);
+                  }}
+                >
+                  <option value="TVA non applicable, art. 293 B du CGI">
+                    TVA non applicable, art. 293 B du CGI
+                  </option>
+                  <option value="assujetti">
+                    Assujetti à la TVA ({
+                      formData.companyTva.includes('non applicable') 
+                        ? 'numéro à saisir' 
+                        : formData.companyTva || 'FR...'
+                    })
+                  </option>
                 </Select>
-                {!formData.companyTva.includes('non applicable') && <Input type="text" placeholder="Ex: FR12345678901" value={formData.companyTva} onChange={(e) => { setFormData({...formData, companyTva: e.target.value}); setCompanyInfoCustomized(true); }} className="mt-2" />}
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{isTvaApplicable ? '✅ TVA appliquée sur les lignes selon leurs taux.' : 'ℹ️ Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}</p>
+                
+                {!formData.companyTva.includes('non applicable') && (
+                  <Input 
+                    type="text" 
+                    placeholder="Ex: FR12345678901" 
+                    value={formData.companyTva} 
+                    onChange={(e) => {
+                      setFormData({...formData, companyTva: e.target.value});
+                      setCompanyInfoCustomized(true);
+                    }}
+                    className="mt-2"
+                  />
+                )}
+                
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  {isTvaApplicable 
+                    ? '✅ TVA appliquée sur les lignes selon leurs taux.' 
+                    : 'ℹ️ Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}
+                </p>
               </FormField>
             </div>
           </div>
         )}
 
+        {/* ÉTAPE 3 : PRESTATIONS */}
         {step === 3 && (
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><Wrench size={14} className="text-purple-600" /> Prestations & Produits</h3>
+              <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <Wrench size={14} className="text-purple-600" /> Prestations & Produits
+              </h3>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCatalogModal(true)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors"><Package size={14}/> Catalogue</button>
-                <button type="button" onClick={addItem} className="text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 px-3 py-2 rounded-lg transition-colors"><Plus size={14}/> Ligne libre</button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowCatalogModal(true)} 
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <Package size={14}/> Catalogue
+                </button>
+                <button 
+                  type="button" 
+                  onClick={addItem} 
+                  className="text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <Plus size={14}/> Ligne libre
+                </button>
               </div>
             </div>
+            
             <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden overflow-x-auto">
               <table className="w-full text-sm min-w-[800px]">
                 <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
@@ -930,68 +1789,141 @@ export default function QuoteModal({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
                   {formData.items.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
-                      <td className="px-4 py-2"><input type="text" value={item.reference} onChange={e => handleItemChange(idx, 'reference', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400" placeholder="REF" /></td>
-                      <td className="px-4 py-2"><input type="text" value={item.description} onChange={e => handleItemChange(idx, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400" placeholder="Description" /></td>
-                      <td className="px-4 py-2"><input type="number" min="0" step="0.01" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" /></td>
+                      <td className="px-4 py-2">
+                        <input type="text" value={item.reference} onChange={e => handleItemChange(idx, 'reference', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400" placeholder="REF" />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input type="text" value={item.description} onChange={e => handleItemChange(idx, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400" placeholder="Description" />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input type="number" min="0" step="0.01" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
+                      </td>
                       <td className="px-4 py-2">
                         <select value={item.unit} onChange={e => handleItemChange(idx, 'unit', e.target.value)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
                           {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
                       </td>
-                      <td className="px-4 py-2"><input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)} className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" /></td>
-                      <td className="px-4 py-2"><input type="number" min="0" max="100" step="0.01" value={item.discount || 0} onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" title="Remise en %" /></td>
+                      <td className="px-4 py-2">
+                        <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)} className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input type="number" min="0" max="100" step="0.01" value={item.discount || 0} onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" title="Remise en %" />
+                      </td>
                       <td className="px-4 py-2">
                         <select value={item.tvaRate} onChange={e => handleItemChange(idx, 'tvaRate', parseFloat(e.target.value))} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
-                          {!tvaSelectOptions.some(o => parseFloat(o.value) === item.tvaRate) && <option value={item.tvaRate}>{item.tvaRate}%</option>}
+                          {!tvaSelectOptions.some(o => parseFloat(o.value) === item.tvaRate) && (
+                            <option value={item.tvaRate}>{item.tvaRate}%</option>
+                          )}
                           {tvaSelectOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-slate-900 dark:text-white text-xs">{round2(item.total).toFixed(2)} {currencyConfig?.symbol || '€'}</td>
-                      <td className="px-4 py-2 text-center"><button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"><Minus size={14} /></button></td>
+                      <td className="px-4 py-2 text-right font-semibold text-slate-900 dark:text-white text-xs">
+                        {round2(item.total).toFixed(2)} {currencyConfig?.symbol || '€'}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"><Minus size={14} /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <Alert tone="info" icon={Package}><p className="text-xs">💡 Les taux disponibles proviennent de vos paramètres entreprise (TVA multi-pays). Devise actuelle : <strong className="text-purple-600 dark:text-purple-400">{currencyConfig?.symbol || '€'} {currency}</strong>.</p></Alert>
+            <Alert tone="info" icon={Package}>
+              <p className="text-xs">
+                💡 Les taux disponibles proviennent de vos paramètres entreprise (TVA multi-pays). Devise actuelle : <strong className="text-purple-600 dark:text-purple-400">{currencyConfig?.symbol || '€'} {currency}</strong>.
+              </p>
+            </Alert>
           </div>
         )}
 
+        {/* ÉTAPE 4 : TOTAL & CONDITIONS */}
         {step === 4 && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
               <div className="space-y-4">
-                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><DollarSign size={14} className="text-purple-600" /> Conditions & Modalités</h3>
+                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <DollarSign size={14} className="text-purple-600" /> Conditions & Modalités
+                </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField label="Remise globale (%)"><Input type="number" min="0" max="100" value={formData.discount} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value) || 0})} /></FormField>
-                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `⚠️ Maximum : ${hookFm(total)}` : undefined}><Input type="number" min="0" max={total} step="0.01" value={formData.deposit} onChange={e => setFormData({...formData, deposit: parseFloat(e.target.value) || 0})} /></FormField>
+                  <FormField label="Remise globale (%)">
+                    <Input type="number" min="0" max="100" value={formData.discount} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value) || 0})} />
+                  </FormField>
+                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `⚠️ Maximum : ${hookFm(total)}` : undefined}>
+                    <Input type="number" min="0" max={total} step="0.01" value={formData.deposit} onChange={e => setFormData({...formData, deposit: parseFloat(e.target.value) || 0})} />
+                  </FormField>
                 </div>
-                <FormField label="Modalités de paiement"><Input list="dl-pm" value={formData.paymentMethods} onChange={e => setFormData({...formData, paymentMethods: e.target.value})} placeholder="Ex: Virement..." /><datalist id="dl-pm">{PAYMENT_METHODS.map(m => <option key={m} value={m}/>)}</datalist></FormField>
-                <FormField label="Conditions de règlement"><Input value={formData.paymentConditions} onChange={e => setFormData({...formData, paymentConditions: e.target.value})} placeholder="Ex: Paiement à 30 jours" /></FormField>
-                <FormField label="Délai d'exécution"><Input list="dl-ed" value={formData.executionDelay} onChange={e => setFormData({...formData, executionDelay: e.target.value})} /><datalist id="dl-ed">{EXECUTION_DELAYS.map(d => <option key={d} value={d}/>)}</datalist></FormField>
-                <FormField label="Conditions particulières"><Textarea rows={2} value={formData.specialConditions} onChange={e => setFormData({...formData, specialConditions: e.target.value})} placeholder="Ex: Accès chantier, horaires..." /></FormField>
+                <FormField label="Modalités de paiement">
+                  <Input list="dl-pm" value={formData.paymentMethods} onChange={e => setFormData({...formData, paymentMethods: e.target.value})} placeholder="Ex: Virement..." />
+                  <datalist id="dl-pm">{PAYMENT_METHODS.map(m => <option key={m} value={m}/>)}</datalist>
+                </FormField>
+                <FormField label="Conditions de règlement">
+                  <Input value={formData.paymentConditions} onChange={e => setFormData({...formData, paymentConditions: e.target.value})} placeholder="Ex: Paiement à 30 jours" />
+                </FormField>
+                <FormField label="Délai d'exécution">
+                  <Input list="dl-ed" value={formData.executionDelay} onChange={e => setFormData({...formData, executionDelay: e.target.value})} />
+                  <datalist id="dl-ed">{EXECUTION_DELAYS.map(d => <option key={d} value={d}/>)}</datalist>
+                </FormField>
+                <FormField label="Conditions particulières">
+                  <Textarea rows={2} value={formData.specialConditions} onChange={e => setFormData({...formData, specialConditions: e.target.value})} placeholder="Ex: Accès chantier, horaires..." />
+                </FormField>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 border border-slate-200 dark:border-slate-600 space-y-3 h-fit">
-                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Récapitulatif financier ({currencyConfig?.symbol || '€'} {currency})</h3>
-                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">Total HT</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(subtotal)}</span></div>
-                {formData.discount > 0 && <div className="flex justify-between text-sm text-red-600 dark:text-red-400"><span>Remise globale ({formData.discount}%)</span><span className="font-semibold">- {hookFm(discountAmount)}</span></div>}
-                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">HT après remise</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(taxableAmount)}</span></div>
+                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">
+                  Récapitulatif financier ({currencyConfig?.symbol || '€'} {currency})
+                </h3>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Total HT</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(subtotal)}</span>
+                </div>
+                {formData.discount > 0 && (
+                  <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
+                    <span>Remise globale ({formData.discount}%)</span>
+                    <span className="font-semibold">- {hookFm(discountAmount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">HT après remise</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(taxableAmount)}</span>
+                </div>
+                
                 {isTvaApplicable && taxBreakdown.length > 0 && (
                   <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg p-3 space-y-1">
                     <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Ventilation TVA</p>
-                    {taxBreakdown.map(b => (<div key={b.rate} className="flex justify-between text-xs text-slate-600 dark:text-slate-300"><span>TVA {b.rate}% (base {hookFm(b.baseHT)})</span><span className="font-semibold">{hookFm(b.taxAmount)}</span></div>))}
+                    {taxBreakdown.map(b => (
+                      <div key={b.rate} className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
+                        <span>TVA {b.rate}% (base {hookFm(b.baseHT)})</span>
+                        <span className="font-semibold">{hookFm(b.taxAmount)}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
-                <div className="flex justify-between text-sm"><span className="text-slate-600 dark:text-slate-400">Total TVA</span><span className="font-semibold text-slate-900 dark:text-white">{hookFm(tax)}</span></div>
+                
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Total TVA</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{hookFm(tax)}</span>
+                </div>
                 <div className="border-t border-slate-200 dark:border-slate-600 my-3"></div>
-                <div className="flex justify-between text-base"><span className="font-bold text-slate-900 dark:text-white">Total TTC</span><span className="font-bold text-purple-600 dark:text-purple-400">{hookFm(total)}</span></div>
-                {formData.deposit > 0 && (<>
-                  <div className="flex justify-between text-sm text-red-600 dark:text-red-400"><span>Acompte à verser</span><span className="font-semibold">- {hookFm(formData.deposit)}</span></div>
-                  <div className="border-t border-slate-300 dark:border-slate-500 my-3"></div>
-                  <div className="flex justify-between text-lg"><span className="font-bold text-slate-900 dark:text-white">Net à payer</span><span className="font-bold text-slate-900 dark:text-white">{hookFm(balance)}</span></div>
-                </>)}
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">✅ Contrôle : HT ({hookFm(taxableAmount)}) + TVA ({hookFm(tax)}) = TTC ({hookFm(taxableAmount + tax)})</p>
+                <div className="flex justify-between text-base">
+                  <span className="font-bold text-slate-900 dark:text-white">Total TTC</span>
+                  <span className="font-bold text-purple-600 dark:text-purple-400">{hookFm(total)}</span>
+                </div>
+                {formData.deposit > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
+                      <span>Acompte à verser</span>
+                      <span className="font-semibold">- {hookFm(formData.deposit)}</span>
+                    </div>
+                    <div className="border-t border-slate-300 dark:border-slate-500 my-3"></div>
+                    <div className="flex justify-between text-lg">
+                      <span className="font-bold text-slate-900 dark:text-white">Net à payer</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{hookFm(balance)}</span>
+                    </div>
+                  </>
+                )}
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
+                  ✅ Contrôle : HT ({hookFm(taxableAmount)}) + TVA ({hookFm(tax)}) = TTC ({hookFm(taxableAmount + tax)})
+                </p>
               </div>
             </div>
 
@@ -1019,7 +1951,8 @@ export default function QuoteModal({
                   </div>
                 )}
                 <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
-                  <input type="checkbox" checked={formData.bonPourAccord} onChange={e => setFormData(prev => ({...prev, bonPourAccord: e.target.checked}))} className="rounded text-purple-600 focus:ring-purple-500"/> Inclure la signature sur le PDF généré
+                  <input type="checkbox" checked={formData.bonPourAccord} onChange={e => setFormData(prev => ({...prev, bonPourAccord: e.target.checked}))} className="rounded text-purple-600 focus:ring-purple-500"/> 
+                  Inclure la signature sur le PDF généré
                 </label>
               </div>
             </div>
@@ -1027,22 +1960,52 @@ export default function QuoteModal({
         )}
       </div>
 
-      <Modal open={showCatalogModal} onClose={() => { setShowCatalogModal(false); setCatalogSearch(''); }} title="Ajouter depuis le catalogue" icon={<Package size={20} className="text-indigo-600" />} maxWidth="sm:max-w-2xl">
+      {/* MODAL CATALOGUE */}
+      <Modal
+        open={showCatalogModal}
+        onClose={() => { setShowCatalogModal(false); setCatalogSearch(''); }}
+        title="Ajouter depuis le catalogue"
+        icon={<Package size={20} className="text-indigo-600" />}
+        maxWidth="sm:max-w-2xl"
+      >
         <div className="space-y-4">
-          <SearchFilter value={catalogSearch} onChange={setCatalogSearch} placeholder="Rechercher un produit par nom ou référence..." />
+          <SearchFilter
+            value={catalogSearch}
+            onChange={setCatalogSearch}
+            placeholder="Rechercher un produit par nom ou référence..."
+          />
+
           <div className="max-h-96 overflow-y-auto">
             {filteredCatalogProducts.length === 0 ? (
-              <EmptyState icon={Package} title="Aucun produit trouvé" description="Modifiez votre recherche ou ajoutez des produits au catalogue." tone="indigo" />
+              <EmptyState
+                icon={Package}
+                title="Aucun produit trouvé"
+                description="Modifiez votre recherche ou ajoutez des produits au catalogue."
+                tone="indigo"
+              />
             ) : (
               <div className="space-y-2">
                 {paginatedCatalogProducts.map(product => (
-                  <button key={product.$id} onClick={() => addCatalogItem(product)} className="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-all flex justify-between items-center group">
+                  <button
+                    key={product.$id}
+                    onClick={() => addCatalogItem(product)}
+                    className="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-all flex justify-between items-center group"
+                  >
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 truncate">{product.name}{product.reference && <Badge tone="slate">{product.reference}</Badge>}</div>
-                      {product.description && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{product.description}</div>}
+                      <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 truncate">
+                        {product.name}
+                        {product.reference && (
+                          <Badge tone="slate">{product.reference}</Badge>
+                        )}
+                      </div>
+                      {product.description && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{product.description}</div>
+                      )}
                     </div>
                     <div className="text-right ml-4 shrink-0">
-                      <div className="font-bold text-indigo-700 dark:text-indigo-400">{parseFloat(product.unitPrice).toFixed(2)} {currencyConfig?.symbol || '€'}</div>
+                      <div className="font-bold text-indigo-700 dark:text-indigo-400">
+                        {parseFloat(product.unitPrice).toFixed(2)} {currencyConfig?.symbol || '€'}
+                      </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">{product.unit} • TVA {product.tvaRate}%</div>
                     </div>
                   </button>
@@ -1050,7 +2013,18 @@ export default function QuoteModal({
               </div>
             )}
           </div>
-          {catalogTotalPages > 1 && <Pagination currentPage={catalogPage} totalPages={catalogTotalPages} onPageChange={setCatalogPage} startItem={catalogStartIndex + 1} endItem={Math.min(catalogEndIndex, filteredCatalogProducts.length)} totalItems={filteredCatalogProducts.length} itemName="produit" />}
+
+          {catalogTotalPages > 1 && (
+            <Pagination
+              currentPage={catalogPage}
+              totalPages={catalogTotalPages}
+              onPageChange={setCatalogPage}
+              startItem={catalogStartIndex + 1}
+              endItem={Math.min(catalogEndIndex, filteredCatalogProducts.length)}
+              totalItems={filteredCatalogProducts.length}
+              itemName="produit"
+            />
+          )}
         </div>
       </Modal>
     </Modal>

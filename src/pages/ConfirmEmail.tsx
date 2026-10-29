@@ -1,7 +1,7 @@
 // src/pages/ConfirmEmail.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { CheckCircle2, XCircle, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, ArrowRight, AlertCircle, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { account, databases, teams, DATABASE_ID } from '../appwrite';
 import { ID, Permission, Role, AppwriteException } from 'appwrite';
@@ -26,94 +26,60 @@ const ADMIN_PERMISSIONS = [
 
 const PENDING_KEY = 'relancepro_pending_registration';
 
-type Status = 'loading' | 'success' | 'error';
+type Status = 'loading' | 'success' | 'error' | 'resend';
 
 export default function ConfirmEmail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-
-  // 🔧 EXTRACTION ROBUSTE DES PARAMÈTRES
-  const extractParams = () => {
-    const userId = searchParams.get('userId');
-    const secret = searchParams.get('secret');
-    
-    if (userId && secret) {
-      return { userId, secret };
-    }
-
-    const url = window.location.href;
-    const match = url.match(/[?&]userId=([^&]+).*?[?&]secret=([^&]+)/);
-    if (match) {
-      return { 
-        userId: decodeURIComponent(match[1]), 
-        secret: decodeURIComponent(match[2]) 
-      };
-    }
-
-    if (window.location.hash) {
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const hashUserId = hashParams.get('userId');
-      const hashSecret = hashParams.get('secret');
-      if (hashUserId && hashSecret) {
-        return { userId: hashUserId, secret: hashSecret };
-      }
-    }
-
-    return { userId: null, secret: null };
-  };
-
-  const { userId, secret } = extractParams();
-
   const [status, setStatus] = useState<Status>('loading');
   const [errorMessage, setErrorMessage] = useState('');
-
-  // 🔍 DEBUG : Afficher les paramètres dans la console
-  useEffect(() => {
-    console.log('🔍 ConfirmEmail - URL complète:', window.location.href);
-    console.log('🔍 ConfirmEmail - userId:', userId);
-    console.log(' ConfirmEmail - secret:', secret ? `${secret.substring(0, 10)}...` : 'null');
-    console.log('🔍 ConfirmEmail - searchParams:', searchParams.toString());
-  }, [userId, secret, searchParams]);
+  const [userEmail, setUserEmail] = useState('');
 
   // ============================================================
-  // 🔄 TRAITEMENT AUTOMATIQUE AU MONTAGE
+  // 🔄 TRAITEMENT AU MONTAGE
   // ============================================================
   useEffect(() => {
-    const processVerification = async () => {
-      // ✅ Vérifier les paramètres
-      if (!userId || !secret) {
-        console.error('❌ Paramètres manquants dans l\'URL');
-        console.error('URL actuelle:', window.location.href);
-        setErrorMessage('Lien invalide : paramètres manquants. Veuillez demander un nouveau lien.');
-        setStatus('error');
-        return;
-      }
-
+    const processConfirmation = async () => {
       try {
-        // 🛡️ ÉTAPE 1 : Confirmer la vérification auprès d'Appwrite
-        console.log('🔄 Appel account.updateVerification...');
-        await account.updateVerification(userId, secret);
-        console.log('✅ Email confirmé auprès d\'Appwrite');
-
-        // 🛡️ ÉTAPE 2 : Récupérer l'utilisateur
+        // 🛡️ ÉTAPE 1 : Récupérer l'utilisateur (Appwrite a DÉJÀ vérifié l'email si on est ici)
+        console.log(' Récupération de l\'utilisateur...');
         const user = await account.get();
         console.log('✅ Utilisateur récupéré:', user.email);
+        setUserEmail(user.email);
 
-        // 🛡️ ÉTAPE 3 : Lire les données d'inscription en attente
+        // 🛡️ ÉTAPE 2 : Vérifier si l'email est bien vérifié
+        if (!user.emailVerification) {
+          console.warn('⚠️ Email non vérifié, tentative de vérification manuelle...');
+          
+          // Essayer de vérifier manuellement avec les params de l'URL
+          const userId = searchParams.get('userId');
+          const secret = searchParams.get('secret');
+          
+          if (userId && secret) {
+            await account.updateVerification(userId, secret);
+            console.log('✅ Vérification manuelle réussie');
+          } else {
+            throw new Error('Email non vérifié et pas de token dans l\'URL');
+          }
+        } else {
+          console.log('✅ Email déjà vérifié par Appwrite');
+        }
+
+        // 🛡️ ÉTAPE 3 : Lire les données pending
         let pendingData: any = null;
         try {
           const raw = localStorage.getItem(PENDING_KEY);
           if (raw) pendingData = JSON.parse(raw);
         } catch {
-          console.warn('⚠️ Pas de données pending trouvées');
+          console.warn('⚠️ Pas de données pending');
         }
 
-        // 🛡️ ÉTAPE 4 : Créer l'équipe si nécessaire (pas en mode invitation)
+        // ️ ÉTAPE 4 : Créer l'équipe si nécessaire
         if (pendingData && !pendingData.isInvitation && pendingData.companyName) {
           await createTeamAndWorkspace(user.$id, pendingData);
         }
 
-        // ✅ Nettoyer les données pending
+        // ✅ Nettoyer
         localStorage.removeItem(PENDING_KEY);
 
         setStatus('success');
@@ -122,7 +88,7 @@ export default function ConfirmEmail() {
           duration: 3000,
         });
 
-        // 🛡️ ÉTAPE 5 : Rediriger AVEC RECHARGEMENT COMPLET
+        // 🛡️ ÉTAPE 5 : Rediriger
         setTimeout(() => {
           if (pendingData?.isInvitation) {
             const joinParams = new URLSearchParams();
@@ -134,39 +100,31 @@ export default function ConfirmEmail() {
             if (pendingData.customTeamId) joinParams.set('customTeamId', pendingData.customTeamId);
             window.location.href = `/join-team?${joinParams.toString()}`;
           } else {
-            // ✅ RECHARGEMENT COMPLET pour forcer AuthContext à relire la session
-            console.log(' Redirection vers dashboard avec rechargement complet');
             window.location.href = '/dashboard';
           }
         }, 2000);
-      } catch (err: any) {
-        console.error(' Erreur confirmation email:', err);
-        console.error('❌ Code erreur:', err.code);
-        console.error('❌ Message erreur:', err.message);
 
-        if (err instanceof AppwriteException) {
-          switch (err.code) {
-            case 401:
-              setErrorMessage('Lien expiré ou invalide. Demandez un nouveau lien depuis votre boîte mail.');
-              break;
-            case 404:
-              setErrorMessage('Ce lien de vérification n\'est plus valide.');
-              break;
-            default:
-              setErrorMessage(err.message || 'Une erreur est survenue.');
-          }
+      } catch (err: any) {
+        console.error('❌ Erreur confirmation:', err);
+        
+        if (err instanceof AppwriteException && err.code === 401) {
+          setErrorMessage('Lien expiré ou déjà utilisé. Demandez un nouveau lien.');
+          setStatus('resend');
+        } else if (err.message?.includes('Email non vérifié')) {
+          setErrorMessage('Email non vérifié. Veuillez demander un nouveau lien de vérification.');
+          setStatus('resend');
         } else {
-          setErrorMessage('Erreur inattendue. Réessayez.');
+          setErrorMessage(err.message || 'Une erreur est survenue.');
+          setStatus('error');
         }
-        setStatus('error');
       }
     };
 
-    processVerification();
-  }, [userId, secret]);
+    processConfirmation();
+  }, []);
 
   // ============================================================
-  //  CRÉATION DE L'ÉQUIPE ET DES DOCUMENTS ASSOCIÉS
+  // 🏢 CRÉATION DE L'ÉQUIPE
   // ============================================================
   const createTeamAndWorkspace = async (userId: string, pendingData: any) => {
     const companyName = pendingData.companyName;
@@ -247,7 +205,6 @@ export default function ConfirmEmail() {
       rolePerms
     );
 
-    // ✅ CRÉATION DES PARAMÈTRES ENTREPRISE AVEC GESTION currencyConfig
     try {
       const settingsData: any = {
         userId: userId,
@@ -258,7 +215,6 @@ export default function ConfirmEmail() {
         createdAt: new Date().toISOString(),
       };
 
-      // Essayer d'abord avec currencyConfig
       try {
         await databases.createDocument(
           DATABASE_ID,
@@ -272,7 +228,6 @@ export default function ConfirmEmail() {
         );
         console.log('✅ Paramètres entreprise créés avec currencyConfig');
       } catch (configError: any) {
-        // Si currencyConfig n'existe pas, créer sans
         if (configError.message?.includes('currencyConfig') || configError.message?.includes('Unknown attribute')) {
           console.warn('⚠️ currencyConfig non supporté, création sans...');
           await databases.createDocument(
@@ -288,10 +243,38 @@ export default function ConfirmEmail() {
         }
       }
     } catch (e) {
-      console.warn('️ Paramètres entreprise non créés:', e);
+      console.warn('⚠️ Paramètres entreprise non créés:', e);
     }
 
     console.log('✅ Équipe et workspace créés avec succès');
+  };
+
+  // ============================================================
+  //  DEMANDER UN NOUVEAU LIEN
+  // ============================================================
+  const handleResendVerification = async () => {
+    try {
+      setStatus('loading');
+      setErrorMessage('');
+      
+      // Créer une nouvelle session de vérification
+      const verifyUrl = `${window.location.origin}/confirm-email`;
+      await account.createVerification(verifyUrl);
+      
+      toast.success('Nouveau lien envoyé !', {
+        description: `Vérifiez votre boîte mail (${userEmail || 'votre email'}).`,
+        duration: 5000,
+      });
+      
+      setStatus('success');
+      setTimeout(() => {
+        navigate('/verify-email', { replace: true });
+      }, 2000);
+    } catch (err: any) {
+      console.error('❌ Erreur renvoi lien:', err);
+      toast.error('Erreur', { description: 'Impossible d\'envoyer un nouveau lien. Réessayez.' });
+      setStatus('error');
+    }
   };
 
   // ============================================================
@@ -346,6 +329,45 @@ export default function ConfirmEmail() {
               >
                 Mot de passe oublié ?
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // 🎨 RENDU : DEMANDER UN NOUVEAU LIEN
+  // ============================================================
+  if (status === 'resend') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-6 sm:p-8">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-amber-500/30">
+              <Mail size={32} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+              Lien invalide
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              {errorMessage}
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleResendVerification}
+                className="w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-semibold hover:from-purple-700 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
+              >
+                <Mail size={16} />
+                Demander un nouveau lien
+              </button>
+              <Link
+                to="/login"
+                className="w-full py-2.5 px-4 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Retour à la connexion
+              </Link>
             </div>
           </div>
         </div>

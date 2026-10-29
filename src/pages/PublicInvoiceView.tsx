@@ -81,8 +81,6 @@ interface Invoice {
   notes?: string;
   clientTokenExpiresAt?: string;
   currency?: string;
-  companyCountry?: string;
-  clientCountry?: string;
 }
 
 const typeLabels: Record<string, { label: string; title: string; icon: any }> = {
@@ -106,10 +104,11 @@ export default function InvoicePublic() {
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
   
+  // 🌍 Paramètres entreprise (chargés dynamiquement)
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
 
-  // ✅ Rate limiters
+  // ✅ Rate limiters pour les différentes actions
   const {
     tryConsume: tryConsumeFailed,
     isBlocked: isBlockedForFailed,
@@ -135,26 +134,12 @@ export default function InvoicePublic() {
   // ============================================================
   const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
   
-  // ✅ DEVISE DYNAMIQUE : priorité invoice.currency → companySettings.currency → devise du pays
-  const activeCurrencyCode = useMemo(() => {
-    if (invoice?.currency) return invoice.currency;
-    if (companySettings?.currency) return companySettings.currency;
-    // Fallback sur la devise du pays de l'entreprise (pas EUR en dur)
-    const country = companySettings?.country || invoice?.companyCountry || 'FR';
-    const cc = getCountryConfig(country);
-    return cc?.currency || 'EUR';
-  }, [invoice, companySettings]);
-
-  const currencyConfig = useMemo(
-    () => getCurrencyConfig(activeCurrencyCode),
-    [activeCurrencyCode]
-  );
-
-  // 🌍 Formatage monétaire avec devise dynamique
+  // 🌍 Fonction de formatage monétaire adaptée au pays
   const fm = (n: number) => {
+    const currencyCode = invoice?.currency || companySettings?.currency || 'EUR';
+    const currencyConfig = getCurrencyConfig(currencyCode);
     const symbol = currencyConfig?.symbol || '€';
-    const decimals = currencyConfig?.decimals ?? 2;
-    const formatted = round2(n || 0).toFixed(decimals);
+    const formatted = round2(n || 0).toFixed(currencyConfig?.decimals ?? 2);
     return `${formatted} ${symbol}`;
   };
 
@@ -184,9 +169,9 @@ export default function InvoicePublic() {
   };
 
   // ============================================================
-  // 🌍 CHARGEMENT DES PARAMÈTRES ENTREPRISE (SÉCURITÉ MULTI-TENANT)
+  // 🌍 CHARGEMENT DES PARAMÈTRES ENTREPRISE
   // ============================================================
-  const loadCompanySettings = async (teamId: string, invoiceTeamId: string): Promise<any> => {
+  const loadCompanySettings = async (teamId: string) => {
     try {
       setSettingsLoading(true);
       const res = await databases.listDocuments(DATABASE_ID, 'company_settings', [
@@ -194,36 +179,22 @@ export default function InvoicePublic() {
         Query.limit(1),
       ]);
       if (res.documents.length > 0) {
-        const settings = res.documents[0];
-        
-        // ✅ VÉRIFICATION MULTI-TENANT : s'assurer que les settings appartiennent bien à la facture
-        if (settings.teamId !== invoiceTeamId) {
-          console.error('🚨 MULTI-TENANT VIOLATION: settings.teamId !== invoice.teamId');
-          return null;
-        }
-        
-        setCompanySettings(settings);
-        return settings;
+        setCompanySettings(res.documents[0]);
       }
-      return null;
     } catch (e) {
       console.warn('⚠️ Paramètres entreprise non chargés:', e);
-      return null;
     } finally {
       setSettingsLoading(false);
     }
   };
 
-  // 🌍 Configuration pays DYNAMIQUE depuis la facture ou les settings
-  const countryCode = useMemo(() => {
-    // Priorité : facture → settings → fallback intelligent
-    if (invoice?.companyCountry) return invoice.companyCountry;
-    if (companySettings?.country) return companySettings.country;
-    // Pas de 'FR' en dur, on utilise le fallback du registre
-    return 'FR';
-  }, [invoice, companySettings]);
-
+  // 🌍 Configuration pays
+  const countryCode = companySettings?.country || 'FR';
   const countryConfig = useMemo(() => getCountryConfig(countryCode), [countryCode]);
+  const currencyConfig = useMemo(
+    () => getCurrencyConfig(invoice?.currency || companySettings?.currency || 'EUR'),
+    [invoice, companySettings]
+  );
 
   // ============================================================
   // 📥 CHARGEMENT DE LA FACTURE
@@ -267,7 +238,6 @@ export default function InvoicePublic() {
 
       const inv = response.documents[0] as unknown as Invoice;
 
-      // ✅ SÉCURITÉ MULTI-TENANT : vérification teamId
       if (!inv.teamId) {
         setError('Erreur de sécurité : document invalide.');
         return;
@@ -278,20 +248,8 @@ export default function InvoicePublic() {
         return;
       }
 
-      // 🌍 Charger les paramètres de l'entreprise avec vérification multi-tenant
-      const settings = await loadCompanySettings(inv.teamId, inv.teamId);
-      
-      if (!settings) {
-        console.warn('⚠️ Settings non trouvés pour teamId:', inv.teamId);
-        // On continue quand même, la facture a ses propres données
-      }
-
-      // ✅ VÉRIFICATION CROISÉE MULTI-TENANT
-      if (settings && settings.teamId !== inv.teamId) {
-        console.error('🚨 VIOLATION MULTI-TENANT: settings.teamId mismatch');
-        setError('Erreur de sécurité : données incohérentes.');
-        return;
-      }
+      // 🌍 Charger les paramètres de l'entreprise
+      await loadCompanySettings(inv.teamId);
 
       // Log d'audit
       try {
@@ -303,8 +261,7 @@ export default function InvoicePublic() {
             documentNumber: inv.invoiceNumber,
             eventDate: new Date().toISOString(),
             userAgent: navigator.userAgent.substring(0, 200),
-            ipAddress: 'client',
-            countryCode: inv.companyCountry || settings?.country || 'unknown'
+            ipAddress: 'client'
           })
         });
       } catch (auditErr) {
@@ -327,7 +284,7 @@ export default function InvoicePublic() {
   }, [token]);
 
   // ============================================================
-  // ✅ CONFIRMATION DE RÉCEPTION → STATUT 'sent' (TRANSMIS)
+  // ✅ CONFIRMATION DE RÉCEPTION
   // ============================================================
   const handleConfirmReceipt = async () => {
     if (!invoice) return;
@@ -340,7 +297,6 @@ export default function InvoicePublic() {
       return;
     }
 
-    // ✅ SÉCURITÉ MULTI-TENANT
     if (!invoice.teamId) {
       toast.error('Erreur de sécurité', { description: 'Document invalide.' });
       return;
@@ -349,19 +305,10 @@ export default function InvoicePublic() {
     setAcknowledging(true);
 
     try {
-      // ✅ CHANGEMENT DE STATUT EN 'sent' (TRANSMIS) + receivedAt
-      const updatePayload: any = {
-        receivedAt: new Date().toISOString(),
-      };
-      
-      // ✅ Si la facture n'est pas encore en statut 'sent' ou 'paid', la passer en 'sent'
-      if (invoice.status !== 'sent' && invoice.status !== 'paid' && invoice.status !== 'cancelled') {
-        updatePayload.status = 'sent';
-      }
+      await databases.updateDocument(DATABASE_ID, 'invoices', invoice.$id, {
+        receivedAt: new Date().toISOString()
+      });
 
-      await databases.updateDocument(DATABASE_ID, 'invoices', invoice.$id, updatePayload);
-
-      // Log d'audit
       try {
         await databases.createDocument(DATABASE_ID, 'accounting_events', ID.unique(), {
           teamId: invoice.teamId,
@@ -372,9 +319,7 @@ export default function InvoicePublic() {
             documentNumber: invoice.invoiceNumber,
             eventDate: new Date().toISOString(),
             userAgent: navigator.userAgent.substring(0, 200),
-            previousStatus: invoice.status,
-            newStatus: updatePayload.status || invoice.status,
-            note: 'Réception confirmée via le lien public client - Statut mis à jour en "transmis"'
+            note: 'Réception confirmée via le lien public client'
           })
         });
       } catch (auditErr) {
@@ -382,10 +327,6 @@ export default function InvoicePublic() {
       }
 
       setAcknowledged(true);
-      
-      // ✅ Mise à jour locale du statut
-      setInvoice(prev => prev ? { ...prev, receivedAt: updatePayload.receivedAt, status: updatePayload.status || prev.status } : null);
-
       toast.success('Réception confirmée', {
         description: 'Votre prestataire a été informé de la bonne réception de la facture.'
       });
@@ -456,14 +397,13 @@ export default function InvoicePublic() {
       doc.setFontSize(8); doc.setFont(undefined, 'normal');
       if (invoice.companyAddress) doc.text(invoice.companyAddress, M, Y + 5);
       
-      // 🌍 Identifiants fiscaux adaptés au pays DYNAMIQUE
-      const primaryId = countryConfig?.identifier?.primary;
-      if (primaryId?.key === 'siret' && invoice.companySiret) {
+      // 🌍 Identifiants fiscaux adaptés au pays
+      if (countryConfig.identifier.primary.key === 'siret' && invoice.companySiret) {
         doc.text(`SIRET : ${invoice.companySiret}`, M, Y + 9);
       } else if (invoice.companySiret) {
-        doc.text(`${primaryId?.label || 'ID'} : ${invoice.companySiret}`, M, Y + 9);
+        doc.text(`${countryConfig.identifier.primary.label} : ${invoice.companySiret}`, M, Y + 9);
       }
-      if (invoice.companyTva) doc.text(`${countryConfig?.vat?.label || 'TVA'} : ${invoice.companyTva}`, M, Y + 13);
+      if (invoice.companyTva) doc.text(`${countryConfig.vat?.label || 'TVA'} : ${invoice.companyTva}`, M, Y + 13);
 
       const clientBoxX = W - M - 60;
       doc.setDrawColor(150); doc.setLineWidth(0.3);
@@ -490,7 +430,7 @@ export default function InvoicePublic() {
 
       autoTable(doc, {
         startY: Y,
-        head: [['Réf.', 'Désignation', 'Qté', 'Unité', 'Prix U HT', 'Remise', 'Total HT', countryConfig?.vat?.label || 'TVA']],
+        head: [['Réf.', 'Désignation', 'Qté', 'Unité', 'Prix U HT', 'Remise', 'Total HT', countryConfig.vat?.label || 'TVA']],
         body: tableData,
         theme: 'grid',
         margin: { left: M, right: M },
@@ -526,7 +466,7 @@ export default function InvoicePublic() {
           map.set(i.tvaRate, cur);
         });
         Array.from(map.entries()).sort((a, b) => b[0] - a[0]).forEach(([rate, v]) => {
-          line(`${countryConfig?.vat?.label || 'TVA'} ${rate}% (base ${fm(v.baseHT)})`, fm(v.taxAmount));
+          line(`${countryConfig.vat?.label || 'TVA'} ${rate}% (base ${fm(v.baseHT)})`, fm(v.taxAmount));
         });
       }
 
@@ -680,7 +620,7 @@ export default function InvoicePublic() {
               <p className="text-purple-100 text-sm whitespace-pre-line mt-1">{invoice.companyAddress}</p>
               {invoice.companySiret && (
                 <p className="text-purple-100 text-xs">
-                  {countryConfig?.identifier?.primary?.label || 'ID'} : {invoice.companySiret}
+                  {countryConfig.identifier.primary.label} : {invoice.companySiret}
                 </p>
               )}
               {invoice.companyRcs && <p className="text-purple-100 text-xs">RCS : {invoice.companyRcs}</p>}
@@ -760,7 +700,7 @@ export default function InvoicePublic() {
                   <th className="text-left py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Description</th>
                   <th className="text-right py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Qté</th>
                   <th className="text-right py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Prix unit. HT</th>
-                  {subjectToVAT && <th className="text-right py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">{countryConfig?.vat?.label || 'TVA'}</th>}
+                  {subjectToVAT && <th className="text-right py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">{countryConfig.vat?.label || 'TVA'}</th>}
                   <th className="text-right py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Total HT</th>
                 </tr>
               </thead>
@@ -811,7 +751,7 @@ export default function InvoicePublic() {
               )}
               {subjectToVAT && taxBreakdown.map(b => (
                 <div key={b.rate} className="flex justify-between text-slate-600 dark:text-slate-400 text-sm">
-                  <span>{countryConfig?.vat?.label || 'TVA'} {b.rate}% (base {fm(b.baseHT)}) :</span>
+                  <span>{countryConfig.vat?.label || 'TVA'} {b.rate}% (base {fm(b.baseHT)}) :</span>
                   <span>{fm(b.taxAmount)}</span>
                 </div>
               ))}
@@ -853,17 +793,17 @@ export default function InvoicePublic() {
               {invoice.executionDelay && (
                 <p className="text-xs text-slate-500 dark:text-slate-400"><strong>Délai :</strong> {invoice.executionDelay}</p>
               )}
-              {/* 🌍 Mentions légales adaptées au pays DYNAMIQUE */}
+              {/* 🌍 Mentions légales adaptées au pays */}
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 italic">
-                {countryConfig?.code === 'FR' ? (
+                {countryConfig.code === 'FR' ? (
                   <>
                     Pénalités de retard : 3× le taux d'intérêt légal (loi 2008-776).<br />
                     Indemnité forfaitaire pour frais de recouvrement : 40 € (art. D.441-5).
                   </>
                 ) : (
                   <>
-                    Pénalités de retard selon la législation en vigueur en {countryConfig?.name || 'votre pays'}.<br />
-                    Conservation des documents : {countryConfig?.retentionYears || 10} ans.
+                    Pénalités de retard selon la législation en vigueur en {countryConfig.name}.<br />
+                    Conservation des documents : {countryConfig.retentionYears} ans.
                   </>
                 )}
               </p>
@@ -938,7 +878,7 @@ export default function InvoicePublic() {
           <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
             <p className="italic flex items-center gap-2">
               <Flag size={12} />
-              {countryConfig?.flag} {countryConfig?.name} • {currencyConfig?.code || activeCurrencyCode}
+              {countryConfig.flag} {countryConfig.name} • {currencyConfig?.code || 'EUR'}
             </p>
             <p className="text-center">
               <Shield size={12} className="inline mr-1" />

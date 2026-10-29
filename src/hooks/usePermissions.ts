@@ -4,9 +4,6 @@ import { useTeam } from './useTeam';
 import { databases, DATABASE_ID } from '../appwrite';
 import { Query } from 'appwrite';
 
-// ============================================================
-// 📋 PERMISSIONS GLOBALES DE L'APPLICATION
-// ============================================================
 const ALL_APP_PERMISSIONS: string[] = [
   'dashboard',
   'prospects.view', 'prospects.create', 'prospects.edit', 'prospects.delete', 'prospects.convert',
@@ -25,156 +22,6 @@ const ALL_APP_PERMISSIONS: string[] = [
   'billing.view', 'billing.manage',
 ];
 
-// ============================================================
-// 🗄️ CACHE MODULE-LEVEL : déduplication des requêtes simultanées
-// ============================================================
-// Ce cache est partagé entre TOUS les composants qui utilisent usePermissions.
-// Quand 3 composants se montent en même temps, une SEULE requête est faite.
-// Les 3 composants reçoivent le même résultat via la même Promise.
-
-interface CacheEntry {
-  promise: Promise<{ permissions: string[]; userRole: string }>;
-  timestamp: number;
-}
-
-const permissionsCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 60_000; // 60 secondes - évite les re-requêtes lors de navigations rapides
-
-// ============================================================
-// 🔄 LOGIQUE DE CHARGEMENT (hors du hook pour être partagée)
-// ============================================================
-async function fetchPermissionsFromServer(
-  userId: string,
-  customTeamId: string
-): Promise<{ permissions: string[]; userRole: string }> {
-  console.log('🔍 usePermissions: Chargement serveur pour', { userId, customTeamId });
-
-  // 1. Récupérer les rôles de l'équipe
-  const rolesRes = await databases.listDocuments(DATABASE_ID, 'roles', [
-    Query.equal('teamId', customTeamId)
-  ]);
-
-  const roles = rolesRes.documents.map(doc => ({
-    $id: doc.$id,
-    name: doc.name as string,
-    permissions: doc.permissions as string,
-    isDefault: doc.isDefault as boolean,
-    teamId: doc.teamId as string
-  }));
-
-  console.log(`📋 ${roles.length} rôles trouvés`);
-
-  // 2. Trouver le membre actif
-  const membersRes = await databases.listDocuments(DATABASE_ID, 'team_members', [
-    Query.equal('teamId', customTeamId),
-    Query.equal('userId', userId),
-    Query.equal('status', 'active'),
-    Query.limit(1)
-  ]);
-
-  let userPerms: string[] = [];
-  let userRole = '';
-
-  if (membersRes.documents.length > 0) {
-    const member = membersRes.documents[0] as any;
-    const role = roles.find(r => r.$id === member.roleId);
-
-    if (role) {
-      try {
-        userPerms = JSON.parse(role.permissions || '[]');
-        userRole = role.name;
-        console.log(`✅ Rôle: ${role.name} (${userPerms.length} permissions)`);
-      } catch (e) {
-        console.error('Erreur parsing permissions du rôle:', e);
-        userPerms = [];
-      }
-    } else {
-      // Pas de rôle assigné, on prend le rôle par défaut
-      const defaultRole = roles.find(r => r.isDefault);
-      if (defaultRole) {
-        try {
-          userPerms = JSON.parse(defaultRole.permissions || '[]');
-          userRole = defaultRole.name;
-          console.log(`✅ Rôle par défaut: ${defaultRole.name} (${userPerms.length} permissions)`);
-        } catch (e) {
-          console.error('Erreur parsing rôle par défaut:', e);
-        }
-      }
-    }
-  } else {
-    // Aucun membre actif : probablement le propriétaire (fallback)
-    console.warn('⚠️ Aucun membre actif - fallback owner');
-    userPerms = ALL_APP_PERMISSIONS;
-    userRole = 'Propriétaire (fallback)';
-  }
-
-  // Fallback final si aucune permission trouvée
-  if (userPerms.length === 0) {
-    console.warn('⚠️ Aucune permission - fallback complet');
-    userPerms = ALL_APP_PERMISSIONS;
-    userRole = userRole || 'Fallback';
-  }
-
-  // Dédupliquer
-  userPerms = [...new Set(userPerms)];
-  console.log(`🔐 ${userPerms.length} permissions chargées`);
-
-  return { permissions: userPerms, userRole };
-}
-
-/**
- * Récupère les permissions avec déduplication :
- * - Si une requête est déjà en cours pour ce couple userId:teamId, on la réutilise
- * - Si le cache est valide (< TTL), on retourne immédiatement
- * - Sinon, on lance une nouvelle requête
- */
-async function getPermissionsDeduplicated(
-  userId: string,
-  customTeamId: string
-): Promise<{ permissions: string[]; userRole: string }> {
-  const cacheKey = `${userId}:${customTeamId}`;
-  const now = Date.now();
-
-  // ✅ Cache valide (TTL non expiré)
-  const cached = permissionsCache.get(cacheKey);
-  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
-    console.log(`🗄️ usePermissions: cache réutilisé pour ${cacheKey}`);
-    return cached.promise;
-  }
-
-  // ✅ Nouvelle requête (ou remplacement d'un cache expiré)
-  const promise = fetchPermissionsFromServer(userId, customTeamId).finally(() => {
-    // Planifier le nettoyage après expiration pour éviter une fuite mémoire
-    setTimeout(() => {
-      const entry = permissionsCache.get(cacheKey);
-      if (entry && entry.promise === promise) {
-        permissionsCache.delete(cacheKey);
-        console.log(`🧹 Cache nettoyé pour ${cacheKey}`);
-      }
-    }, CACHE_TTL_MS);
-  });
-
-  permissionsCache.set(cacheKey, { promise, timestamp: now });
-  return promise;
-}
-
-/**
- * Invalide le cache pour forcer un rechargement (utile après modification de rôle)
- */
-export function invalidatePermissionsCache(userId?: string, customTeamId?: string): void {
-  if (userId && customTeamId) {
-    const key = `${userId}:${customTeamId}`;
-    permissionsCache.delete(key);
-    console.log(`🔄 Cache invalidé pour ${key}`);
-  } else {
-    permissionsCache.clear();
-    console.log('🔄 Cache complètement invalidé');
-  }
-}
-
-// ============================================================
-// 🎯 HOOK PRINCIPAL
-// ============================================================
 export function usePermissions() {
   const { user } = useAuth();
   const { customTeamId } = useTeam();
@@ -183,70 +30,128 @@ export function usePermissions() {
   const [userRole, setUserRole] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Ref pour tracker le mount (éviter setState après démontage)
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  // ✅ Refs anti-boucle
+  const lastLoadedKeyRef = useRef<string | null>(null);
+  const isLoadingRef = useRef(false);
 
   useEffect(() => {
     const userId = user?.$id || null;
 
     // ✅ CAS 1 : Pas d'utilisateur connecté
+    // → on débloque immédiatement avec permissions vides (cas normal : utilisateur déconnecté)
     if (!userId) {
       setPermissions([]);
       setUserRole('');
       setLoading(false);
+      lastLoadedKeyRef.current = null;
+      isLoadingRef.current = false;
       return;
     }
 
     // ✅ CAS 2 : Utilisateur connecté mais équipe pas encore chargée
-    // On reste en loading pour éviter les redirections prématurées
+    // → CRITIQUE : on RESTE en loading (true) pour éviter que les pages
+    //   croient qu'il n'y a "aucune permission" et redirigent vers /dashboard
     if (!customTeamId) {
-      console.log('⏳ usePermissions: attente du customTeamId...');
+      console.log('⏳ usePermissions: attente du customTeamId (utilisateur connecté)...');
       setLoading(true);
       return;
     }
 
-    // ✅ CAS 3 : Chargement avec déduplication via le cache module-level
-    let cancelled = false;
+    const loadKey = `${userId}:${customTeamId}`;
 
-    const load = async () => {
+    // ✅ Anti-boucle 1 : même clé = pas de rechargement
+    if (loadKey === lastLoadedKeyRef.current) {
+      return;
+    }
+
+    // ✅ Anti-boucle 2 : déjà en cours
+    if (isLoadingRef.current) {
+      return;
+    }
+
+    // Marquer immédiatement pour éviter les re-triggers
+    lastLoadedKeyRef.current = loadKey;
+    isLoadingRef.current = true;
+
+    const loadPermissions = async () => {
       try {
         setLoading(true);
+        console.log('🔍 usePermissions: Chargement pour', { userId, customTeamId });
 
-        const result = await getPermissionsDeduplicated(userId, customTeamId);
+        // 1. Récupérer les rôles
+        const rolesRes = await databases.listDocuments(DATABASE_ID, 'roles', [
+          Query.equal('teamId', customTeamId)
+        ]);
 
-        // Vérifier que le composant est toujours monté
-        if (cancelled || !mountedRef.current) {
-          console.log('🚫 usePermissions: composant démonté, résultats ignorés');
-          return;
+        const roles = rolesRes.documents.map(doc => ({
+          $id: doc.$id,
+          name: doc.name as string,
+          permissions: doc.permissions as string,
+          isDefault: doc.isDefault as boolean,
+          teamId: doc.teamId as string
+        }));
+
+        console.log(`📋 ${roles.length} rôles trouvés`);
+
+        // 2. Trouver le member
+        const membersRes = await databases.listDocuments(DATABASE_ID, 'team_members', [
+          Query.equal('teamId', customTeamId),
+          Query.equal('userId', userId),
+          Query.equal('status', 'active'),
+          Query.limit(1)
+        ]);
+
+        let userPerms: string[] = [];
+
+        if (membersRes.documents.length > 0) {
+          const member = membersRes.documents[0] as any;
+          const role = roles.find(r => r.$id === member.roleId);
+
+          if (role) {
+            try {
+              userPerms = JSON.parse(role.permissions || '[]');
+              setUserRole(role.name);
+              console.log(`✅ Rôle: ${role.name} (${userPerms.length} permissions)`);
+            } catch (e) {
+              userPerms = [];
+            }
+          } else {
+            const defaultRole = roles.find(r => r.isDefault);
+            if (defaultRole) {
+              try {
+                userPerms = JSON.parse(defaultRole.permissions || '[]');
+                setUserRole(defaultRole.name);
+              } catch (e) {
+                console.error('Erreur parsing rôle par défaut:', e);
+              }
+            }
+          }
+        } else {
+          console.warn('⚠️ Aucun membre actif - fallback owner');
+          userPerms = ALL_APP_PERMISSIONS;
+          setUserRole('Propriétaire (fallback)');
         }
 
-        setPermissions(result.permissions);
-        setUserRole(result.userRole);
+        if (userPerms.length === 0) {
+          userPerms = ALL_APP_PERMISSIONS;
+          setUserRole('Fallback');
+        }
+
+        userPerms = [...new Set(userPerms)];
+        setPermissions(userPerms);
+        console.log(`🔐 ${userPerms.length} permissions chargées`);
+
       } catch (error: any) {
         console.error('❌ Erreur usePermissions:', error);
-        if (!cancelled && mountedRef.current) {
-          setPermissions(ALL_APP_PERMISSIONS);
-          setUserRole('Erreur');
-        }
+        setPermissions(ALL_APP_PERMISSIONS);
+        setUserRole('Erreur');
       } finally {
-        if (!cancelled && mountedRef.current) {
-          setLoading(false);
-        }
+        setLoading(false);
+        isLoadingRef.current = false;
       }
     };
 
-    load();
-
-    return () => {
-      cancelled = true;
-    };
+    loadPermissions();
   }, [user?.$id, customTeamId]);
 
   const hasPermission = (permission: string): boolean => {

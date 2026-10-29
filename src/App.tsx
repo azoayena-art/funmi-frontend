@@ -3,7 +3,7 @@
 // 🍪 Intégration du bandeau cookies RGPD
 // 📄 Pages légales : PrivacyPolicy + LegalNotices
 // 🛡️ reCAPTCHA v3 : Protection anti-bot invisible
-// 🔐 Routes de récupération de mot de passe
+// 🔐 Routes de récupération et vérification de mot de passe
 
 import { lazy, Suspense } from 'react';
 import { Toaster } from "sonner";
@@ -26,7 +26,6 @@ const RECAPTCHA_SITE_KEY =
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard'; // Page d'accueil : doit être rapide
-
 
 // ============================================================
 // ⚡ IMPORTS DYNAMIQUES (lazy loading)
@@ -87,7 +86,7 @@ const LegalNotices = lazy(() => import('./pages/LegalNotices'));
 const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner'));
 
 // ============================================================
-// 🛡️ GARDE : Route protégée (utilisateur connecté uniquement)
+// 🛡️ GARDE : Route protégée (utilisateur connecté ET vérifié)
 // ============================================================
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -157,67 +156,66 @@ function AppRoutes() {
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        {/* ===== ROUTES PUBLIQUES ===== */}
+        {/* ===== ROUTES PUBLIQUES (Accessibles à tous) ===== */}
         <Route path="/v/:token" element={<PublicQuoteView />} />
         <Route path="/f/:token" element={<PublicInvoiceView />} />
         <Route path="/demande/:slug" element={<PublicRequest />} />
         <Route path="/join-team" element={<JoinTeam />} />
-<Route path="/verify-email" element={<VerifyEmail />} />
-<Route path="/confirm-email" element={<ConfirmEmail />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/confirm-email" element={<ConfirmEmail />} />
 
         <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
         <Route path="/accept-invitation" element={<AcceptInvitation />} />
 
-        {/* ===== 🔐 RÉCUPÉRATION DE MOT DE PASSE (publiques, sans auth) ===== */}
+        {/* ===== 🔐 RÉCUPÉRATION DE MOT DE PASSE ===== */}
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* ===== 📄 PAGES LÉGALES (publiques, accessibles sans authentification) ===== */}
+        {/* ===== 📄 PAGES LÉGALES ===== */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
 
         {/* ===== REDIRECTION RACINE ===== */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-        {/* ===== DASHBOARD (statique pour vitesse) ===== */}
+        {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-
-        {/* ===== STATISTIQUES ===== */}
         <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-
-        {/* ===== CRM (Prospects / Clients / Catalogue) ===== */}
+        
+        {/* CRM */}
         <Route path="/prospects" element={<ProtectedRoute><Prospects /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
         <Route path="/catalogue" element={<ProtectedRoute><Catalogue /></ProtectedRoute>} />
-
-        {/* ===== DEVIS ===== */}
+        
+        {/* Devis & Factures */}
         <Route path="/quotes" element={<ProtectedRoute><Quotes /></ProtectedRoute>} />
-        <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
-
-        {/* ===== FACTURES ===== */}
         <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
         <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
         <Route path="/received-invoices" element={<ProtectedRoute><ReceivedInvoices /></ProtectedRoute>} />
         <Route path="/reminders" element={<ProtectedRoute><Reminders /></ProtectedRoute>} />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
-
-        {/* ===== PAIEMENTS & TRÉSORERIE ===== */}
+        
+        {/* Trésorerie & Compta */}
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
         <Route path="/treasury" element={<ProtectedRoute><Treasury /></ProtectedRoute>} />
         <Route path="/cash-operations" element={<ProtectedRoute><CashOperations /></ProtectedRoute>} />
         <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
+        <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
         <Route path="/test-payment" element={<ProtectedRoute><TestPaymentModal /></ProtectedRoute>} />
-
-        {/* ===== PARAMÈTRES ===== */}
+        
+        {/* Paramètres & Admin */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
         <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
         <Route path="/admin/security-migration" element={<ProtectedRoute><SecurityMigration /></ProtectedRoute>} />
 
+        {/* ===== ROUTES UTILITAIRES (À protéger si nécessaire en prod) ===== */}
         <Route path="/setup" element={<SetupAttributes />} />
         <Route path="/backup" element={<BackupUtility />} />
+        
+        {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>
@@ -256,9 +254,7 @@ export default function App() {
           <BrowserRouter>
             <AppRoutes />
             
-            {/* 🍪 BANDEAU COOKIES RGPD
-                Affiché sur toutes les pages (publiques et protégées)
-                Le composant gère lui-même son affichage (uniquement si pas encore consenti) */}
+            {/* 🍪 BANDEAU COOKIES RGPD */}
             <Suspense fallback={null}>
               <CookieConsentBanner />
             </Suspense>

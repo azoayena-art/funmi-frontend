@@ -37,9 +37,6 @@ import {
   validateIdentifier, listCountryOptions,
 } from '../config/countries';
 
-// 🔐 PERMISSIONS SÉCURISÉES
-import { getTeamPermissions } from '../utils/rowLevelPermissions';
-
 // ============================================================
 // 🌍 CONFIGURATION DEVISES
 // ============================================================
@@ -278,8 +275,7 @@ export default function CompanySettings() {
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
   
-  // ✅ CORRECTION : Récupérer appwriteTeamId
-  const { customTeamId, appwriteTeamId } = useTeam();
+  const { customTeamId } = useTeam();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -616,31 +612,13 @@ export default function CompanySettings() {
   const handleResetEInvoiceSettings = async () => {
     if (!confirm('Réinitialiser les paramètres e-facturation aux valeurs par défaut ?\n\nLe mode Simulation sera activé.')) return;
     
-    if (!currentTeamId || !appwriteTeamId) {
+    if (!currentTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
 
     try {
       if (eInvoiceSettingsId) {
-        // ✅ CORRECTION : Vérification d'accès avant suppression
-        try {
-          const doc = await databases.getDocument(DATABASE_ID, 'einvoice_settings', eInvoiceSettingsId);
-          if (!doc.teamId || doc.teamId !== currentTeamId) {
-            toast.error('Accès refusé', { description: "Ces paramètres n'appartiennent pas à votre équipe." });
-            return;
-          }
-        } catch (err: any) {
-          if (err.code === 401 || err.code === 403 || err.code === 404) {
-            toast.error('Document ancien détecté', {
-              description: 'Ces paramètres n\'ont pas les bonnes permissions. Contactez un administrateur.',
-              duration: 6000
-            });
-            return;
-          }
-          throw err;
-        }
-
         await databases.deleteDocument(DATABASE_ID, 'einvoice_settings', eInvoiceSettingsId);
         setEInvoiceSettingsId(null);
       }
@@ -660,7 +638,7 @@ export default function CompanySettings() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user?.$id || !currentTeamId || !appwriteTeamId) { 
+    if (!user?.$id || !currentTeamId) { 
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.'); 
       return; 
     }
@@ -706,27 +684,8 @@ export default function CompanySettings() {
       };
 
       if (existingDocId) {
-        // ✅ CORRECTION : Vérification d'accès avant update
-        let existingDoc;
-        try {
-          existingDoc = await databases.getDocument(DATABASE_ID, 'company_settings', existingDocId);
-        } catch (err: any) {
-          if (err.code === 401 || err.code === 403 || err.code === 404) {
-            toast.error('Document ancien détecté', {
-              description: 'Ces paramètres n\'ont pas les bonnes permissions. Contactez un administrateur.',
-              duration: 6000
-            });
-            setSaving(false);
-            return;
-          }
-          throw err;
-        }
-
-        if (!existingDoc.teamId || existingDoc.teamId !== currentTeamId) {
-          toast.error('Accès refusé', { description: "Ces paramètres n'appartiennent pas à votre équipe." });
-          setSaving(false);
-          return;
-        }
+        const existingDoc = await databases.getDocument(DATABASE_ID, 'company_settings', existingDocId);
+        if (existingDoc.teamId && existingDoc.teamId !== currentTeamId) throw new Error('Accès refusé');
         
         await databases.updateDocument(
           DATABASE_ID, 
@@ -735,16 +694,7 @@ export default function CompanySettings() {
           companyPayload
         );
       } else {
-        // ✅ CORRECTION : Permissions sécurisées pour NOUVEAU document
-        const permissions = getTeamPermissions(appwriteTeamId);
-        
-        await databases.createDocument(
-          DATABASE_ID, 
-          'company_settings', 
-          ID.unique(), 
-          companyPayload,
-          permissions  // ← 4ᵉ argument : permissions d'équipe
-        );
+        await databases.createDocument(DATABASE_ID, 'company_settings', ID.unique(), companyPayload);
       }
 
       const eInvoicePayload = {
@@ -769,38 +719,6 @@ export default function CompanySettings() {
 
       try {
         if (eInvoiceSettingsId) {
-          // ✅ CORRECTION : Vérification d'accès avant update
-          let existingDoc;
-          try {
-            existingDoc = await databases.getDocument(DATABASE_ID, 'einvoice_settings', eInvoiceSettingsId);
-          } catch (err: any) {
-            if (err.code === 401 || err.code === 403 || err.code === 404) {
-              toast.warning('Paramètres e-facturation anciens', {
-                description: 'Les paramètres entreprise ont été enregistrés, mais les paramètres e-facturation nécessitent une migration.',
-                duration: 6000
-              });
-              // On continue quand même, le company_settings est sauvegardé
-              invalidateEmailConfigCache(currentTeamId || undefined);
-              toast.success('Paramètres entreprise enregistrés avec succès !');
-              await loadSettings();
-              setSaving(false);
-              return;
-            }
-            throw err;
-          }
-
-          if (!existingDoc.teamId || existingDoc.teamId !== currentTeamId) {
-            toast.warning('Paramètres e-facturation hors équipe', {
-              description: 'Les paramètres entreprise ont été enregistrés, mais les paramètres e-facturation appartiennent à une autre équipe.',
-              duration: 6000
-            });
-            invalidateEmailConfigCache(currentTeamId || undefined);
-            toast.success('Paramètres entreprise enregistrés avec succès !');
-            await loadSettings();
-            setSaving(false);
-            return;
-          }
-
           await databases.updateDocument(
             DATABASE_ID, 
             'einvoice_settings', 
@@ -808,15 +726,11 @@ export default function CompanySettings() {
             eInvoicePayload
           );
         } else {
-          // ✅ CORRECTION : Permissions sécurisées pour NOUVEAU document
-          const eInvoicePermissions = getTeamPermissions(appwriteTeamId);
-          
           const newDoc = await databases.createDocument(
             DATABASE_ID,
             'einvoice_settings',
             ID.unique(),
-            eInvoicePayload,
-            eInvoicePermissions  // ← 4ᵉ argument : permissions d'équipe
+            eInvoicePayload
           );
           setEInvoiceSettingsId(newDoc.$id);
         }

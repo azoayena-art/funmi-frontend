@@ -1,6 +1,5 @@
-// src/pages/Prospects.tsx
 import Sidebar from '../components/Sidebar';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -11,8 +10,8 @@ import { toast } from 'sonner';
 import {
   PageHeader, Modal, ActionMenu, ActionMenuItem, StatCell, StatusIndicator,
   DotLabel, Avatar, SkeletonRow, SkeletonCard, TypeTabs, KPIGrid, Pagination,
-  toEntity, Checkbox, BulkActionBar,
-  type DotTone,
+  mapInvoiceStatusToShared, toEntity, formatDate,
+  type Entity, type DotTone,
 } from '../components/ui/SharedUI';
 import {
   Plus, Search, Edit2, Phone, Mail, Building, FileText,
@@ -20,9 +19,6 @@ import {
   Globe, Shield, MapPin, Hash, Home, FileSpreadsheet
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
-
-// 🔐 PERMISSIONS SÉCURISÉES
-import { getTeamPermissions } from '../utils/rowLevelPermissions';
 
 // ============================================================
 // 📋 INTERFACES
@@ -117,15 +113,16 @@ export default function Prospects() {
   const [converting, setConverting] = useState(false);
   const [activeStat, setActiveStat] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  
-  // ✅ NOUVEAU : État pour la sélection multiple
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  
   const searchInputRef = useRef<HTMLInputElement>(null);
+
   const ITEMS_PER_PAGE = 20;
 
   const isFrenchCompany = !!form.companyName?.trim() && form.country === 'FR';
   const isCompany = !!form.companyName?.trim();
+
+  // ✅ CORRECTION : Permissions gérées au niveau collection (RLS + rôle team)
+  // Aucune permission explicite nécessaire sur les documents
+  const getDocPerms = useCallback(() => undefined, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -148,11 +145,6 @@ export default function Prospects() {
     loadProspects();
   }, [user, viewMode, customTeamId]);
 
-  // Réinitialiser la sélection quand les filtres ou la page changent
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [search, filterStatus, viewMode, currentPage]);
-
   const loadProspects = async (background = false) => {
     if (!background) setLoading(true);
     try {
@@ -174,6 +166,7 @@ export default function Prospects() {
     }
   };
 
+  // ✅ Recherche de doublons optimisée avec Query.or()
   const checkDuplicate = async (): Promise<Prospect | null> => {
     if (!form.email && !form.phone) return null;
     if (!customTeamId) return null;
@@ -209,16 +202,9 @@ export default function Prospects() {
   };
 
   const handleOpenEdit = (prospect: Prospect) => {
-    if (!prospect.teamId) {
-      toast.error('Prospect ancien détecté', {
-        description: 'Ce prospect a été créé avant la mise à jour de sécurité. Contactez un administrateur.',
-        duration: 6000
-      });
-      return;
-    }
-
+    // ✅ Vérification de sécurité
     if (prospect.teamId !== customTeamId) {
-      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+      toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
       return;
     }
 
@@ -246,6 +232,7 @@ export default function Prospects() {
     setShowModal(true);
   };
 
+  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleSave = async () => {
     if (!form.firstName || !form.lastName) {
       toast.error('Champs requis', { description: 'Veuillez remplir le prénom et le nom.' });
@@ -263,7 +250,7 @@ export default function Prospects() {
       }
     }
 
-    if (!customTeamId || !appwriteTeamId) {
+    if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -299,30 +286,17 @@ export default function Prospects() {
       };
 
       if (editingId) {
-        let existingDoc;
-        try {
-          existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', editingId);
-        } catch (err: any) {
-          if (err.code === 401 || err.code === 403 || err.code === 404) {
-            toast.error('Document ancien détecté', { description: 'Ce prospect n\'a pas les bonnes permissions.', duration: 6000 });
-          } else {
-            toast.error('Erreur', { description: err.message });
-          }
-          setSaving(false);
-          return;
-        }
-
-        if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
-          toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
-          setSaving(false);
+        // ✅ Vérification de sécurité avant update
+        const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', editingId);
+        if (existingDoc.teamId !== customTeamId) {
+          toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
           return;
         }
 
         await databases.updateDocument(DATABASE_ID, 'prospects', editingId, data);
         toast.success('Prospect mis à jour', { description: `${form.firstName} ${form.lastName}`.trim() });
       } else {
-        const permissions = getTeamPermissions(appwriteTeamId);
-        await databases.createDocument(DATABASE_ID, 'prospects', ID.unique(), data, permissions);
+        await databases.createDocument(DATABASE_ID, 'prospects', ID.unique(), data);
         toast.success('Prospect ajouté', { description: `${form.firstName} ${form.lastName}`.trim() });
       }
       setShowModal(false);
@@ -339,23 +313,19 @@ export default function Prospects() {
     }
   };
 
+  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleConvertToClient = async () => {
     const prospect = prospectToConvert;
     if (!prospect) return;
 
-    if (!prospect.teamId) {
-      toast.error('Prospect ancien détecté', { description: 'Ce prospect a été créé avant la mise à jour de sécurité.', duration: 6000 });
-      setProspectToConvert(null);
-      return;
-    }
-
+    // ✅ Vérification de sécurité
     if (prospect.teamId !== customTeamId) {
-      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+      toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
       setProspectToConvert(null);
       return;
     }
 
-    if (!customTeamId || !appwriteTeamId) {
+    if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -392,7 +362,6 @@ export default function Prospects() {
       }
 
       const newClientId = `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
-      const clientPermissions = getTeamPermissions(appwriteTeamId);
 
       await databases.createDocument(
         DATABASE_ID, 'clients', ID.unique(),
@@ -416,8 +385,7 @@ export default function Prospects() {
           notes: prospect.notes ? `Converti depuis le prospect.\nNotes d'origine: ${prospect.notes}` : 'Converti depuis un prospect',
           status: 'active',
           prospectId: prospect.$id
-        },
-        clientPermissions
+        }
       );
 
       await databases.updateDocument(DATABASE_ID, 'prospects', prospect.$id, { status: 'won' });
@@ -436,6 +404,7 @@ export default function Prospects() {
     }
   };
 
+  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleQuickStatusChange = async (prospectId: string, newStatus: string) => {
     if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée.');
@@ -443,9 +412,10 @@ export default function Prospects() {
     }
 
     try {
+      // ✅ Vérification de sécurité avant update
       const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', prospectId);
-      if (!existingDoc.teamId || existingDoc.teamId !== customTeamId) {
-        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+      if (existingDoc.teamId !== customTeamId) {
+        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
         return;
       }
 
@@ -458,23 +428,20 @@ export default function Prospects() {
     }
   };
 
+  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleArchive = async () => {
     if (!prospectToArchive) return;
+
     if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée.');
       setProspectToArchive(null);
       return;
     }
 
-    if (!prospectToArchive.teamId) {
-      toast.error('Prospect ancien détecté', { description: 'Ce prospect a été créé avant la mise à jour.', duration: 6000 });
-      setProspectToArchive(null);
-      return;
-    }
-
     try {
+      // ✅ Vérification de sécurité
       if (prospectToArchive.teamId !== customTeamId) {
-        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
+        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
         setProspectToArchive(null);
         return;
       }
@@ -489,28 +456,19 @@ export default function Prospects() {
     }
   };
 
+  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleUnarchive = async (id: string, name: string) => {
     if (!customTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée.');
       return;
     }
 
-    const prospectInList = prospects.find(p => p.$id === id);
-    if (prospectInList && !prospectInList.teamId) {
-      toast.error('Prospect ancien détecté', { description: 'Ce prospect a été créé avant la mise à jour.', duration: 6000 });
-      return;
-    }
-    
-    if (prospectInList && prospectInList.teamId !== customTeamId) {
-      toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
-      return;
-    }
-
     try {
+      // ✅ Vérification de sécurité
       const doc = await databases.getDocument(DATABASE_ID, 'prospects', id);
-      if (!doc.teamId || doc.teamId !== customTeamId) { 
-        toast.error('Accès refusé', { description: "Ce prospect n'appartient pas à votre équipe." });
-        return; 
+      if (doc.teamId !== customTeamId) {
+        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        return;
       }
 
       await databases.updateDocument(DATABASE_ID, 'prospects', id, { status: 'new' });
@@ -523,131 +481,9 @@ export default function Prospects() {
     }
   };
 
+  // ✅ Navigation vers Import/Export
   const handleOpenImportExport = () => {
     navigate('/import-export?type=prospects');
-  };
-
-  // ✅ NOUVEAU : Handlers pour la sélection multiple
-  const toggleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedIds(new Set(paginatedProspects.map(p => p.$id)));
-    } else {
-      setSelectedIds(new Set());
-    }
-  };
-
-  const toggleSelect = (id: string, checked: boolean) => {
-    const newSet = new Set(selectedIds);
-    if (checked) {
-      newSet.add(id);
-    } else {
-      newSet.delete(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  // ✅ OPTIMISÉ : Action en masse adaptative avec traitement par lots
-  const handleBulkStatusChange = async () => {
-    if (selectedIds.size === 0) return;
-
-    const count = selectedIds.size;
-    const isArchiveAction = viewMode === 'active';
-    const actionLabel = isArchiveAction ? 'archiver' : 'désarchiver';
-    const newStatus = isArchiveAction ? 'archived' : 'new';
-
-    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} prospect(s) ?`)) {
-      return;
-    }
-
-    // ✅ Filtrer immédiatement les IDs valides (appartenance à l'équipe)
-    const idsToUpdate = Array.from(selectedIds).filter(id => {
-      const p = prospects.find(pros => pros.$id === id);
-      return p && p.teamId === customTeamId;
-    });
-
-    if (idsToUpdate.length === 0) {
-      toast.error(`Aucun prospect sélectionné n'appartient à votre équipe.`, {
-        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
-      });
-      return;
-    }
-
-    // ✅ Vider la sélection AVANT de lancer les requêtes (libère le thread UI)
-    setSelectedIds(new Set());
-
-    // ✅ Toast de chargement (style clair)
-    const toastId = toast.loading(`${isArchiveAction ? 'Archivage' : 'Désarchivage'} de ${idsToUpdate.length} prospect(s)...`, {
-      style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
-    });
-
-    // ✅ Traitement par lots de 5 pour ne pas bloquer le thread
-    const BATCH_SIZE = 5;
-    let successCount = 0;
-    let errorCount = 0;
-
-    try {
-      for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
-        const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
-
-        const results = await Promise.allSettled(
-          batch.map(async (id) => {
-            try {
-              await databases.updateDocument(
-                DATABASE_ID,
-                'prospects',
-                id,
-                { status: newStatus }
-              );
-              return { success: true, id };
-            } catch (err) {
-              console.error(`Erreur ${actionLabel} prospect ${id}:`, err);
-              return { success: false, id, error: err };
-            }
-          })
-        );
-
-        results.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            successCount++;
-          } else {
-            errorCount++;
-          }
-        });
-
-        // ✅ Petit délai entre les lots pour laisser le navigateur respirer
-        if (i + BATCH_SIZE < idsToUpdate.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      // ✅ Feedback utilisateur (styles clairs)
-      if (successCount > 0) {
-        const successMsg = isArchiveAction 
-          ? `${successCount} prospect(s) archivé(s) avec succès`
-          : `${successCount} prospect(s) désarchivé(s) avec succès`;
-        
-        toast.success(successMsg, { 
-          id: toastId,
-          style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
-        });
-        
-        await loadProspects(true);
-      }
-
-      if (errorCount > 0) {
-        toast.warning(`${errorCount} échec(s) (accès refusé ou erreur).`, { 
-          duration: 5000,
-          style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' }
-        });
-      }
-
-    } catch (error: any) {
-      console.error(`Erreur globale ${actionLabel} en masse:`, error);
-      toast.error(`Une erreur est survenue lors de l'${actionLabel} en masse.`, { 
-        id: toastId,
-        style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
-      });
-    }
   };
 
   const filtered = prospects.filter(p => {
@@ -712,10 +548,6 @@ export default function Prospects() {
   );
   if (!hasPermission('prospects.view')) return null;
 
-  // Calculs pour la checkbox "Tout sélectionner"
-  const isAllSelected = paginatedProspects.length > 0 && paginatedProspects.every(p => selectedIds.has(p.$id));
-  const isIndeterminate = selectedIds.size > 0 && !isAllSelected;
-
   return (
     <Sidebar>
       <div className="min-h-full bg-slate-50 dark:bg-slate-900">
@@ -732,6 +564,7 @@ export default function Prospects() {
           currencySymbol={currencyConfig?.symbol || '€'}
           action={
             <div className="flex gap-2 w-full sm:w-auto">
+              {/* ✅ BOUTON IMPORT/EXPORT - NOUVEAU */}
               {hasPermission('prospects.view') && (
                 <button 
                   onClick={handleOpenImportExport} 
@@ -742,6 +575,7 @@ export default function Prospects() {
                   <span>Import / Export</span>
                 </button>
               )}
+              {/* BOUTON NOUVEAU PROSPECT */}
               {viewMode === 'active' && hasPermission('prospects.create') && (
                 <button 
                   onClick={handleOpenAdd} 
@@ -804,7 +638,6 @@ export default function Prospects() {
                 <table className="w-full">
                   <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 [&>tr>th:first-child]:rounded-tl-xl [&>tr>th:last-child]:rounded-tr-xl">
                     <tr>
-                      <th className="w-12 px-6 py-4"></th>
                       <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Prospect</th>
                       <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
                       <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Localisation</th>
@@ -851,19 +684,11 @@ export default function Prospects() {
             </div>
           ) : (
             <>
-              {/* ✅ TABLEAU DESKTOP AVEC CHECKBOX */}
               <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible">
                 <div className="overflow-visible">
                   <table className="w-full">
                     <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 [&>tr>th:first-child]:rounded-tl-xl [&>tr>th:last-child]:rounded-tr-xl">
                       <tr>
-                        <th className="w-12 px-6 py-4">
-                          <Checkbox 
-                            checked={isAllSelected}
-                            indeterminate={isIndeterminate}
-                            onChange={(e) => toggleSelectAll(e.target.checked)}
-                          />
-                        </th>
                         <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Prospect</th>
                         <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
                         <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Localisation</th>
@@ -873,13 +698,7 @@ export default function Prospects() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                       {paginatedProspects.map((p) => (
-                        <tr key={p.$id} className={`group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200 last:[&>td:first-child]:rounded-bl-xl last:[&>td:last-child]:rounded-br-xl ${selectedIds.has(p.$id) ? 'bg-purple-50/30 dark:bg-purple-900/10' : ''}`}>
-                          <td className="px-6 py-4">
-                            <Checkbox 
-                              checked={selectedIds.has(p.$id)}
-                              onChange={(e) => toggleSelect(p.$id, e.target.checked)}
-                            />
-                          </td>
+                        <tr key={p.$id} className="group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200 last:[&>td:first-child]:rounded-bl-xl last:[&>td:last-child]:rounded-br-xl">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <Avatar client={toEntity(p)} />
@@ -922,19 +741,40 @@ export default function Prospects() {
                             <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200 [&:has([aria-expanded='true'])]:opacity-100">
                               <ActionMenu>
                                 {p.status === 'new' && hasPermission('prospects.edit') && (
-                                  <ActionMenuItem onClick={() => handleQuickStatusChange(p.$id, 'contacted')} icon={Phone} label="Marquer contacté" />
+                                  <ActionMenuItem
+                                    onClick={() => handleQuickStatusChange(p.$id, 'contacted')}
+                                    icon={Phone}
+                                    label="Marquer contacté"
+                                  />
                                 )}
                                 {hasPermission('prospects.edit') && (
-                                  <ActionMenuItem onClick={() => handleOpenEdit(p)} icon={Edit2} label="Modifier" />
+                                  <ActionMenuItem
+                                    onClick={() => handleOpenEdit(p)}
+                                    icon={Edit2}
+                                    label="Modifier"
+                                  />
                                 )}
                                 {hasPermission('quotes.create') && (
-                                  <ActionMenuItem onClick={() => navigate(`/quotes?prospectId=${p.$id}`)} icon={FileText} label="Créer un devis" />
+                                  <ActionMenuItem
+                                    onClick={() => navigate(`/quotes?prospectId=${p.$id}`)}
+                                    icon={FileText}
+                                    label="Créer un devis"
+                                  />
                                 )}
                                 {hasPermission('clients.create') && p.status !== 'won' && (
-                                  <ActionMenuItem onClick={() => setProspectToConvert(p)} icon={UserCheck} label="Convertir en client" />
+                                  <ActionMenuItem
+                                    onClick={() => setProspectToConvert(p)}
+                                    icon={UserCheck}
+                                    label="Convertir en client"
+                                  />
                                 )}
                                 {hasPermission('prospects.delete') && (
-                                  <ActionMenuItem onClick={() => setProspectToArchive(p)} icon={Archive} label="Archiver" danger />
+                                  <ActionMenuItem
+                                    onClick={() => setProspectToArchive(p)}
+                                    icon={Archive}
+                                    label="Archiver"
+                                    danger
+                                  />
                                 )}
                               </ActionMenu>
                             </div>
@@ -946,17 +786,11 @@ export default function Prospects() {
                 </div>
               </div>
 
-              {/* ✅ CARTES MOBILE AVEC CHECKBOX */}
               <div className="md:hidden space-y-4">
                 {paginatedProspects.map((p) => (
-                  <div key={p.$id} className={`bg-white dark:bg-slate-800 rounded-2xl border p-5 shadow-sm transition-all duration-200 hover:shadow-lg ${selectedIds.has(p.$id) ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : 'border-slate-200 dark:border-slate-700'}`}>
+                  <div key={p.$id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Checkbox 
-                          checked={selectedIds.has(p.$id)}
-                          onChange={(e) => toggleSelect(p.$id, e.target.checked)}
-                          className="mt-1"
-                        />
                         <Avatar client={toEntity(p)} size="lg" />
                         <div className="min-w-0">
                           <h3 className="font-bold text-slate-900 dark:text-white truncate text-base">{p.firstName} {p.lastName}</h3>
@@ -1024,34 +858,9 @@ export default function Prospects() {
               />
             </>
           )}
-
-          {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
-          <BulkActionBar
-            selectedCount={selectedIds.size}
-            onClear={() => setSelectedIds(new Set())}
-            actions={
-              viewMode === 'active' ? (
-                <button 
-                  onClick={handleBulkStatusChange}
-                  className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-rose-500/20 active:scale-95"
-                >
-                  <Archive size={16} /> 
-                  Archiver la sélection
-                </button>
-              ) : (
-                <button 
-                  onClick={handleBulkStatusChange}
-                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
-                >
-                  <RotateCcw size={16} /> 
-                  Désarchiver la sélection
-                </button>
-              )
-            }
-          />
         </main>
 
-        {/* Modal Ajout / Modification */}
+        {/* MODAL Création / Édition */}
         <Modal
           open={showModal}
           onClose={() => { setShowModal(false); setDuplicateFound(null); }}
@@ -1305,7 +1114,6 @@ export default function Prospects() {
           </div>
         </Modal>
 
-        {/* Modal Conversion */}
         {prospectToConvert && (
           <Modal
             open={!!prospectToConvert}
@@ -1379,7 +1187,6 @@ export default function Prospects() {
           </Modal>
         )}
 
-        {/* Modal Archivage unique */}
         {prospectToArchive && (
           <Modal
             open={!!prospectToArchive}

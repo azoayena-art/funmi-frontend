@@ -1,4 +1,5 @@
 // src/pages/Invoices.tsx
+import { useSecureDatabase } from '../hooks/useSecureDatabase';
 import { createTreasuryMovement } from '../utils/treasuryGuard';
 import {
   Search, Download, CheckCircle2, Receipt, DollarSign,
@@ -33,8 +34,10 @@ import {
 } from '../services/eInvoiceTransmissionService';
 import TransmissionHistoryModal from '../components/TransmissionHistoryModal';
 import PaymentModal from '../components/PaymentModal';
+
 // 🔐 PERMISSIONS RLS CENTRALISÉES
 import { getTeamPermissions, verifyTeamAccessStrict } from '../utils/rowLevelPermissions';
+
 // 🌍 REGISTRE INTERNATIONAL DES PAYS
 import {
   getCountryConfig, getPrimaryIdentifier, FALLBACK_COUNTRY,
@@ -120,6 +123,22 @@ const toInt = (value: any, fallback: number = 0): number => {
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
+// ✅ CORRECTION 1 : Générateur de tokens cryptographiquement sûr
+const generateSecureToken = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+};
+
+// ✅ CORRECTION 4 : Fonction de sanitization pour les PDFs
+const sanitizeForPdf = (str: string | undefined | null): string => {
+  if (!str) return '';
+  return str.replace(/[\x00-\x1F\x7F-\x9F]/g, '').substring(0, 200);
+};
+
 // ============================================================
 // 🏠 PARSER D'ADRESSE
 // ============================================================
@@ -137,24 +156,29 @@ const parseAddressRetroactive = (
       country: existingCountry || 'FR'
     };
   }
+  
   if (!address || !address.trim()) {
     return { address: '', postalCode: '', city: '', country: existingCountry || 'FR' };
   }
+  
   const postalRegex = /\b(\d{5})\b/;
   const match = address.match(postalRegex);
+  
   if (!match) {
     return { address, postalCode: '', city: '', country: existingCountry || 'FR' };
   }
+  
   const postalCode = match[1];
   const postalIndex = match.index!;
   const line1 = address.substring(0, postalIndex).replace(/,\s*$/, '').trim();
   const afterPostal = address.substring(postalIndex + 5).trim();
   const city = afterPostal.replace(/^[,\s-]+/, '').replace(/[,\s-]+$/, '').trim();
+  
   return { address: line1 || address, postalCode, city: city || '', country: existingCountry || 'FR' };
 };
 
 // ============================================================
-// 🧾 XML FACTUR-X (inchangé)
+// 🧾 XML FACTUR-X
 // ============================================================
 const escapeXml = (str: string | undefined | null): string => {
   if (!str) return '';
@@ -176,102 +200,107 @@ const getFacturXSchemeId = (countryCode: string): string => {
 const generateFacturXXml = (inv: Invoice, originalRef?: { number: string; date?: string }): string => {
   let items: InvoiceItem[] = [];
   try { items = JSON.parse(inv.items || '[]'); } catch { items = []; }
+  
   const isCredit = inv.type === 'credit';
   const typeCode = isCredit ? '381' : '380';
+  
   const sellerAddr = parseAddressRetroactive(inv.companyAddress, inv.companyPostalCode, inv.companyCity, inv.companyCountry);
   const buyerAddr = parseAddressRetroactive(inv.clientAddress, inv.clientPostalCode, inv.clientCity, inv.clientCountry);
   const sellerSchemeId = getFacturXSchemeId(sellerAddr.country);
+
   const linesXml = items.map(item => {
     const quantity = Number(item.quantity) || 0;
     const unitPrice = Number(item.unitPrice) || 0;
     const discount = Number(item.discount) || 0;
     const tvaRate = Number(item.tvaRate) || 0;
     const lineTotal = round2(quantity * unitPrice * (1 - discount / 100));
+    
     return `
 <ram:IncludedSupplyTradeLineItem>
-<ram:AssociatedDocumentLineDocument>
-<ram:LineID>${escapeXml(item.reference || item.id)}</ram:LineID>
-</ram:AssociatedDocumentLineDocument>
-<ram:SpecifiedTradeProduct>
-<ram:Name>${escapeXml(item.description)}</ram:Name>
-</ram:SpecifiedTradeProduct>
-<ram:SpecifiedLineTradeAgreement>
-<ram:NetPriceProductTradePrice>
-<ram:ChargeAmount>${unitPrice.toFixed(2)}</ram:ChargeAmount>
-<ram:BasisQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BasisQuantity>
-</ram:NetPriceProductTradePrice>
-</ram:SpecifiedLineTradeAgreement>
-<ram:SpecifiedLineTradeDelivery>
-<ram:BilledQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BilledQuantity>
-</ram:SpecifiedLineTradeDelivery>
-<ram:SpecifiedLineTradeSettlement>
-<ram:ApplicableTradeTax>
-<ram:TypeCode>VAT</ram:TypeCode>
-<ram:CategoryCode>S</ram:CategoryCode>
-<ram:RateApplicablePercent>${tvaRate}</ram:RateApplicablePercent>
-</ram:ApplicableTradeTax>
-<ram:SpecifiedTradeSettlementLineMonetarySummation>
-<ram:LineTotalAmount>${lineTotal.toFixed(2)}</ram:LineTotalAmount>
-</ram:SpecifiedTradeSettlementLineMonetarySummation>
-</ram:SpecifiedLineTradeSettlement>
+  <ram:AssociatedDocumentLineDocument>
+    <ram:LineID>${escapeXml(item.reference || item.id)}</ram:LineID>
+  </ram:AssociatedDocumentLineDocument>
+  <ram:SpecifiedTradeProduct>
+    <ram:Name>${escapeXml(item.description)}</ram:Name>
+  </ram:SpecifiedTradeProduct>
+  <ram:SpecifiedLineTradeAgreement>
+    <ram:NetPriceProductTradePrice>
+      <ram:ChargeAmount>${unitPrice.toFixed(2)}</ram:ChargeAmount>
+      <ram:BasisQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BasisQuantity>
+    </ram:NetPriceProductTradePrice>
+  </ram:SpecifiedLineTradeAgreement>
+  <ram:SpecifiedLineTradeDelivery>
+    <ram:BilledQuantity unitCode="${escapeXml(item.unit || 'C62')}">${quantity.toFixed(2)}</ram:BilledQuantity>
+  </ram:SpecifiedLineTradeDelivery>
+  <ram:SpecifiedLineTradeSettlement>
+    <ram:ApplicableTradeTax>
+      <ram:TypeCode>VAT</ram:TypeCode>
+      <ram:CategoryCode>S</ram:CategoryCode>
+      <ram:RateApplicablePercent>${tvaRate}</ram:RateApplicablePercent>
+    </ram:ApplicableTradeTax>
+    <ram:SpecifiedTradeSettlementLineMonetarySummation>
+      <ram:LineTotalAmount>${lineTotal.toFixed(2)}</ram:LineTotalAmount>
+    </ram:SpecifiedTradeSettlementLineMonetarySummation>
+  </ram:SpecifiedLineTradeSettlement>
 </ram:IncludedSupplyTradeLineItem>`;
   }).join('\n');
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
 xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
 xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
-<rsm:ExchangedDocumentContext>
-<ram:GuidelineSpecifiedDocumentContextParameter>
-<ram:ID>urn:cen.eu:en16931:2017</ram:ID>
-</ram:GuidelineSpecifiedDocumentContextParameter>
-</rsm:ExchangedDocumentContext>
-<rsm:ExchangedDocument>
-<ram:ID>${escapeXml(inv.invoiceNumber)}</ram:ID>
-<ram:TypeCode>${typeCode}</ram:TypeCode>
-<ram:IssueDateTime>
-<udt:DateTimeString format="102">${(inv.issueDate || '').replace(/-/g, '')}</udt:DateTimeString>
-</ram:IssueDateTime>
-</rsm:ExchangedDocument>
-<rsm:SupplyChainTradeTransaction>
-<ram:ApplicableHeaderTradeAgreement>
-<ram:SellerTradeParty>
-<ram:Name>${escapeXml(inv.companyName)}</ram:Name>
-<ram:PostalTradeAddress>
-<ram:PostcodeCode>${escapeXml(sellerAddr.postalCode)}</ram:PostcodeCode>
-<ram:LineOne>${escapeXml(sellerAddr.address)}</ram:LineOne>
-<ram:CityName>${escapeXml(sellerAddr.city)}</ram:CityName>
-<ram:CountryID>${escapeXml(sellerAddr.country)}</ram:CountryID>
-</ram:PostalTradeAddress>
-${inv.companySiret ? `<ram:SpecifiedTaxRegistration><ram:ID schemeID="${sellerSchemeId}">${escapeXml(inv.companySiret)}</ram:ID></ram:SpecifiedTaxRegistration>` : ''}
-</ram:SellerTradeParty>
-<ram:BuyerTradeParty>
-<ram:Name>${escapeXml(inv.clientName)}</ram:Name>
-<ram:PostalTradeAddress>
-<ram:PostcodeCode>${escapeXml(buyerAddr.postalCode)}</ram:PostcodeCode>
-<ram:LineOne>${escapeXml(buyerAddr.address)}</ram:LineOne>
-<ram:CityName>${escapeXml(buyerAddr.city)}</ram:CityName>
-<ram:CountryID>${escapeXml(buyerAddr.country)}</ram:CountryID>
-</ram:PostalTradeAddress>
-</ram:BuyerTradeParty>
-</ram:ApplicableHeaderTradeAgreement>
-<ram:ApplicableHeaderTradeDelivery/>
-<ram:ApplicableHeaderTradeSettlement>
-<ram:InvoiceCurrencyCode>${escapeXml(inv.currencyCode || 'EUR')}</ram:InvoiceCurrencyCode>
-${isCredit && originalRef ? `
-<ram:InvoiceReferencedDocument>
-<ram:IssuerAssignedID>${escapeXml(originalRef.number)}</ram:IssuerAssignedID>
-${originalRef.date ? `<ram:FormattedIssueDate format="102">${originalRef.date.replace(/-/g, '')}</ram:FormattedIssueDate>` : ''}
-</ram:InvoiceReferencedDocument>` : ''}
-<ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-<ram:LineTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:LineTotalAmount>
-<ram:TaxBasisTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:TaxBasisTotalAmount>
-<ram:TaxTotalAmount currencyID="${escapeXml(inv.currencyCode || 'EUR')}">${(inv.tax || 0).toFixed(2)}</ram:TaxTotalAmount>
-<ram:GrandTotalAmount>${(inv.total || 0).toFixed(2)}</ram:GrandTotalAmount>
-<ram:DuePayableAmount>${(inv.balance || inv.total || 0).toFixed(2)}</ram:DuePayableAmount>
-</ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-</ram:ApplicableHeaderTradeSettlement>
-${linesXml}
-</rsm:SupplyChainTradeTransaction>
+  <rsm:ExchangedDocumentContext>
+    <ram:GuidelineSpecifiedDocumentContextParameter>
+      <ram:ID>urn:cen.eu:en16931:2017</ram:ID>
+    </ram:GuidelineSpecifiedDocumentContextParameter>
+  </rsm:ExchangedDocumentContext>
+  <rsm:ExchangedDocument>
+    <ram:ID>${escapeXml(inv.invoiceNumber)}</ram:ID>
+    <ram:TypeCode>${typeCode}</ram:TypeCode>
+    <ram:IssueDateTime>
+      <udt:DateTimeString format="102">${(inv.issueDate || '').replace(/-/g, '')}</udt:DateTimeString>
+    </ram:IssueDateTime>
+  </rsm:ExchangedDocument>
+  <rsm:SupplyChainTradeTransaction>
+    <ram:ApplicableHeaderTradeAgreement>
+      <ram:SellerTradeParty>
+        <ram:Name>${escapeXml(inv.companyName)}</ram:Name>
+        <ram:PostalTradeAddress>
+          <ram:PostcodeCode>${escapeXml(sellerAddr.postalCode)}</ram:PostcodeCode>
+          <ram:LineOne>${escapeXml(sellerAddr.address)}</ram:LineOne>
+          <ram:CityName>${escapeXml(sellerAddr.city)}</ram:CityName>
+          <ram:CountryID>${escapeXml(sellerAddr.country)}</ram:CountryID>
+        </ram:PostalTradeAddress>
+        ${inv.companySiret ? `<ram:SpecifiedTaxRegistration><ram:ID schemeID="${sellerSchemeId}">${escapeXml(inv.companySiret)}</ram:ID></ram:SpecifiedTaxRegistration>` : ''}
+      </ram:SellerTradeParty>
+      <ram:BuyerTradeParty>
+        <ram:Name>${escapeXml(inv.clientName)}</ram:Name>
+        <ram:PostalTradeAddress>
+          <ram:PostcodeCode>${escapeXml(buyerAddr.postalCode)}</ram:PostcodeCode>
+          <ram:LineOne>${escapeXml(buyerAddr.address)}</ram:LineOne>
+          <ram:CityName>${escapeXml(buyerAddr.city)}</ram:CityName>
+          <ram:CountryID>${escapeXml(buyerAddr.country)}</ram:CountryID>
+        </ram:PostalTradeAddress>
+      </ram:BuyerTradeParty>
+    </ram:ApplicableHeaderTradeAgreement>
+    <ram:ApplicableHeaderTradeDelivery/>
+    <ram:ApplicableHeaderTradeSettlement>
+      <ram:InvoiceCurrencyCode>${escapeXml(inv.currencyCode || 'EUR')}</ram:InvoiceCurrencyCode>
+      ${isCredit && originalRef ? `
+      <ram:InvoiceReferencedDocument>
+        <ram:IssuerAssignedID>${escapeXml(originalRef.number)}</ram:IssuerAssignedID>
+        ${originalRef.date ? `<ram:FormattedIssueDate format="102">${originalRef.date.replace(/-/g, '')}</ram:FormattedIssueDate>` : ''}
+      </ram:InvoiceReferencedDocument>` : ''}
+      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+        <ram:LineTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:LineTotalAmount>
+        <ram:TaxBasisTotalAmount>${(inv.subtotal || 0).toFixed(2)}</ram:TaxBasisTotalAmount>
+        <ram:TaxTotalAmount currencyID="${escapeXml(inv.currencyCode || 'EUR')}">${(inv.tax || 0).toFixed(2)}</ram:TaxTotalAmount>
+        <ram:GrandTotalAmount>${(inv.total || 0).toFixed(2)}</ram:GrandTotalAmount>
+        <ram:DuePayableAmount>${(inv.balance || inv.total || 0).toFixed(2)}</ram:DuePayableAmount>
+      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+    </ram:ApplicableHeaderTradeSettlement>
+    ${linesXml}
+  </rsm:SupplyChainTradeTransaction>
 </rsm:CrossIndustryInvoice>`;
 };
 
@@ -289,6 +318,7 @@ const validateFacturXXml = (xml: string): { valid: boolean; errors: string[] } =
 // 🧩 COMPOSANT PRINCIPAL
 // ============================================================
 export default function Invoices() {
+  const secureDb = useSecureDatabase();
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
   const navigate = useNavigate();
@@ -308,10 +338,9 @@ export default function Invoices() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // ✅ NOUVEAU : État pour la sélection multiple
+  
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
+  
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [invoiceToPay, setInvoiceToPay] = useState<Invoice | null>(null);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
@@ -346,7 +375,6 @@ export default function Invoices() {
 
   // 🌍 CONFIGURATION PAYS
   const [companySettings, setCompanySettings] = useState<any>(null);
-
   useEffect(() => {
     if (!customTeamId) return;
     (async () => {
@@ -392,8 +420,7 @@ export default function Invoices() {
   }, []);
 
   useEffect(() => { setCurrentPage(1); }, [search, filterStatus, filterType, viewMode, typeTab]);
-
-  // ✅ Réinitialiser la sélection quand les filtres ou la page changent
+  
   useEffect(() => {
     setSelectedIds(new Set());
   }, [search, filterStatus, filterType, viewMode, typeTab, currentPage]);
@@ -403,7 +430,7 @@ export default function Invoices() {
     if (typeof raw === 'object') return raw;
     try { return JSON.parse(raw as string); } catch { return {}; }
   };
-
+  
   const writeJson = (obj: any): string => JSON.stringify(obj || {});
 
   const loadMetadata = async (invoiceIds: string[], teamIdOverride?: string | null): Promise<Map<string, any>> => {
@@ -447,9 +474,11 @@ export default function Invoices() {
         Query.limit(10),
       ]);
       if (res.documents.length === 0) return { creditData: {}, archiveData: {}, reconciliationData: {}, metadataVersion: 0 };
-      const doc = res.documents.reduce((a: any, b: any) =>
+      
+      const doc = res.documents.reduce((a: any, b: any) => 
         ((b.metadataVersion || 0) > (a.metadataVersion || 0) || ((b.metadataVersion || 0) === (a.metadataVersion || 0) && (b.$updatedAt || '') > (a.$updatedAt || ''))) ? b : a
       ) as any;
+      
       return {
         creditData: readJson(doc.creditData),
         archiveData: readJson(doc.archiveData),
@@ -458,7 +487,7 @@ export default function Invoices() {
       };
     } catch (e: any) {
       console.error('Erreur relecture metadata:', e);
-      throw new Error(`Impossible de vérifier l'état actuel de l'avoir (${e?.message || 'erreur inconnue'})`);
+      throw new Error(`Impossible de vérifier l'état actuel de l'avoir`);
     }
   };
 
@@ -473,6 +502,7 @@ export default function Invoices() {
       const existing = await databases.listDocuments(DATABASE_ID, 'invoice_metadata', [
         Query.equal('invoiceId', invoiceId), Query.limit(1),
       ]);
+      
       if (existing.documents.length > 0) {
         const doc = existing.documents[0] as any;
         const currentVersion = doc.metadataVersion || 0;
@@ -484,6 +514,7 @@ export default function Invoices() {
         if (patch.creditData !== undefined) update.creditData = writeJson(patch.creditData);
         if (patch.archiveData !== undefined) update.archiveData = writeJson(patch.archiveData);
         if (patch.reconciliationData !== undefined) update.reconciliationData = writeJson(patch.reconciliationData);
+        
         await databases.updateDocument(DATABASE_ID, 'invoice_metadata', doc.$id, update, permissions);
         setMetadataCache(prev => {
           const newMap = new Map(prev);
@@ -659,15 +690,17 @@ export default function Invoices() {
         return;
       }
       setCurrentTeamId(teamId);
+      
       const res = await databases.listDocuments(DATABASE_ID, 'invoices', [
         Query.equal('teamId', teamId), Query.orderDesc('$createdAt'), Query.limit(200),
       ]);
       const docs = res.documents as unknown as Invoice[];
+      
       const stuck = docs.filter(d => d && d.status !== 'paid' && d.status !== 'cancelled' && d.balance === 0 && (d.paidAt || d.receivedAt));
       let repaired = [...docs];
       for (const inv of stuck) {
         try {
-          await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, {
+          await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, {
             status: 'paid', balance: 0,
             paidAt: inv.paidAt || new Date().toISOString(),
             receivedAt: inv.receivedAt || new Date().toISOString(),
@@ -676,6 +709,7 @@ export default function Invoices() {
           if (idx >= 0) repaired[idx] = { ...repaired[idx], status: 'paid', balance: 0 };
         } catch (e) { console.warn('Réparation ignorée:', e); }
       }
+      
       setInvoices(repaired);
       const ids = repaired.map(d => d.$id);
       const meta = await loadMetadata(ids, teamId);
@@ -728,7 +762,7 @@ export default function Invoices() {
       if (user) await logAuditAction(user.$id, currentTeamId!, 'read', 'quote', quoteId);
     } catch (e: any) {
       console.error('Erreur chargement devis:', e);
-      toast.error(`Impossible de charger le devis : ${e.message}`);
+      toast.error('Impossible de charger le devis');
       setShowQuoteModal(false);
     } finally { setLoadingQuote(false); }
   };
@@ -737,6 +771,7 @@ export default function Invoices() {
     const currentYear = new Date().getFullYear();
     const fullPrefix = `${prefix}-${currentYear}-`;
     const MAX_RETRIES = 5;
+    
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       let maxNum = 0;
       try {
@@ -753,14 +788,17 @@ export default function Invoices() {
           }
         });
       } catch (e) { console.error('Erreur génération numéro:', e); }
+      
       const nextNum = maxNum + 1;
       const nextNumber = `${fullPrefix}${String(nextNum).padStart(3, '0')}`;
+      
       try {
         const check = await databases.listDocuments(DATABASE_ID, collection, [
           Query.equal('teamId', currentTeamId!), Query.equal(field, nextNumber), Query.limit(1),
         ]);
         if (check.documents.length === 0) return nextNumber;
       } catch (e) { console.warn('Vérification unicité échouée:', e); return nextNumber; }
+      
       await new Promise(r => setTimeout(r, 50 * Math.pow(2, attempt)));
     }
     return `${fullPrefix}${String(Date.now()).slice(-6)}`;
@@ -778,10 +816,12 @@ export default function Invoices() {
           originalRef = { number: original.invoiceNumber, date: original.issueDate };
         }
       }
+      
       const xmlContent = generateFacturXXml(inv, originalRef);
       const validation = validateFacturXXml(xmlContent);
+      
       if (validation.valid) {
-        await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, {
+        await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, {
           xmlContent,
           transmissionStatus: 'ready',
         });
@@ -790,12 +830,13 @@ export default function Invoices() {
       }
     } catch (error) {
       console.error(`❌ Erreur génération XML pour ${inv.invoiceNumber}:`, error);
-      toast.error(`Erreur génération XML : ${error instanceof Error ? error.message : 'Inconnue'}`);
+      toast.error('Erreur génération XML');
     }
   };
 
   const createInvoiceWithRetry = async (payload: any, maxRetries = 3): Promise<any> => {
-    const perms = getTeamPermissions(appwriteTeamId, { isPublic: !!payload.clientToken });
+    const perms = getTeamPermissions(appwriteTeamId);
+    
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const doc = await databases.createDocument(DATABASE_ID, 'invoices', ID.unique(), payload, perms);
@@ -817,7 +858,6 @@ export default function Invoices() {
     throw new Error('Impossible de créer la facture après plusieurs tentatives');
   };
 
-  // 🌍 REÇU DE PAIEMENT (inchangé - code très long, conservé tel quel)
   const generateReceiptPDF = async (inv: Invoice, payment?: Payment) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
@@ -829,14 +869,18 @@ export default function Invoices() {
     const companyAddr = parseAddressRetroactive(inv.companyAddress, inv.companyPostalCode, inv.companyCity, inv.companyCountry);
     const receiptCountryConfig = getCountryConfig(inv.companyCountry || companyCountry) || FALLBACK_COUNTRY;
     const receiptIdLabel = getPrimaryIdentifier(receiptCountryConfig)?.shortLabel || 'ID';
+    
     let logoB64: string | null = null;
     if (inv.logoFileId) {
       try {
         const u = getFilePreviewUrl('company_logos', inv.logoFileId);
         const b = await fetch(u).then(r => r.blob());
-        logoB64 = await new Promise<string>((rs, rj) => { const rd = new FileReader(); rd.onloadend = () => rs(rd.result as string); rd.onerror = rj; rd.readAsDataURL(b); });
+        logoB64 = await new Promise<string>((rs, rj) => {
+          const rd = new FileReader(); rd.onloadend = () => rs(rd.result as string); rd.onerror = rj; rd.readAsDataURL(b);
+        });
       } catch (e) { }
     }
+    
     let Y = M;
     if (logoB64) { try { doc.addImage(logoB64, logoB64.includes('image/png') ? 'PNG' : 'JPEG', M, Y, 30, 15); } catch (e) { } }
     doc.setFontSize(20); doc.setFont(undefined as any, 'bold'); doc.setTextColor(34, 197, 94);
@@ -844,21 +888,25 @@ export default function Invoices() {
     doc.setFontSize(10); doc.setFont(undefined as any, 'normal'); doc.setTextColor(100, 100, 100);
     doc.text(`N° ${receiptNumber}`, W / 2, Y + 32, { align: 'center' });
     Y = Y + 50;
+    
     doc.setDrawColor(34, 197, 94); doc.setLineWidth(1); doc.rect(M, Y, W - 2 * M, 15);
     doc.setFontSize(16); doc.setFont(undefined as any, 'bold'); doc.setTextColor(34, 197, 94);
     doc.text('ACQUITTÉ', W / 2, Y + 10, { align: 'center' });
     Y += 25;
+    
     doc.setFontSize(11); doc.setFont(undefined as any, 'normal'); doc.setTextColor(0, 0, 0);
     doc.text('Je soussigné(e), représentant de la société :', M, Y); Y += 6;
-    doc.setFont(undefined as any, 'bold'); doc.text(inv.companyName || '', M, Y); Y += 5;
+    doc.setFont(undefined as any, 'bold'); doc.text(sanitizeForPdf(inv.companyName), M, Y); Y += 5;
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-    if (companyAddr.address) { doc.text(companyAddr.address, M, Y); Y += 4; }
-    if (companyAddr.postalCode || companyAddr.city) { doc.text(`${companyAddr.postalCode} ${companyAddr.city}`.trim(), M, Y); Y += 4; }
-    if (inv.companySiret) { doc.text(`${receiptIdLabel} : ${inv.companySiret}`, M, Y); Y += 4; }
+    if (companyAddr.address) { doc.text(sanitizeForPdf(companyAddr.address), M, Y); Y += 4; }
+    if (companyAddr.postalCode || companyAddr.city) { doc.text(sanitizeForPdf(`${companyAddr.postalCode} ${companyAddr.city}`.trim()), M, Y); Y += 4; }
+    if (inv.companySiret) { doc.text(`${receiptIdLabel} : ${sanitizeForPdf(inv.companySiret)}`, M, Y); Y += 4; }
+    
     Y += 8; doc.setFontSize(11); doc.text('Reconnais avoir reçu de :', M, Y); Y += 6;
-    doc.setFont(undefined as any, 'bold'); doc.text(inv.clientName || '', M, Y); Y += 5;
+    doc.setFont(undefined as any, 'bold'); doc.text(sanitizeForPdf(inv.clientName), M, Y); Y += 5;
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-    if (inv.clientAddress) { doc.text(inv.clientAddress.substring(0, 80), M, Y); Y += 4; }
+    if (inv.clientAddress) { doc.text(sanitizeForPdf(inv.clientAddress.substring(0, 80)), M, Y); Y += 4; }
+    
     Y += 8; doc.setFontSize(11); doc.text('La somme de :', M, Y); Y += 6;
     doc.setFontSize(16); doc.setFont(undefined as any, 'bold'); doc.setTextColor(37, 99, 235);
     doc.text(`${paymentAmount.toFixed(2)} ${SYM}`, M, Y);
@@ -867,15 +915,18 @@ export default function Invoices() {
     doc.setFont(undefined as any, 'bold'); doc.text(`N° ${inv.invoiceNumber}`, M, Y); Y += 5;
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
     doc.text(`D'un montant total de ${inv.total.toFixed(2)} ${SYM} TTC`, M, Y);
+    
     Y += 10; doc.setFontSize(11); doc.text('Moyen de paiement :', M, Y); Y += 6;
-    doc.setFont(undefined as any, 'bold'); doc.text(paymentMethod, M, Y);
-    if (paymentRef) { Y += 6; doc.setFont(undefined as any, 'normal'); doc.setFontSize(10); doc.text(`Référence : ${paymentRef}`, M, Y); }
+    doc.setFont(undefined as any, 'bold'); doc.text(sanitizeForPdf(paymentMethod), M, Y);
+    if (paymentRef) { Y += 6; doc.setFont(undefined as any, 'normal'); doc.setFontSize(10); doc.text(`Référence : ${sanitizeForPdf(paymentRef)}`, M, Y); }
+    
     Y += 15; doc.setFontSize(9); doc.setFont(undefined as any, 'normal'); doc.setTextColor(100, 100, 100);
-    doc.text(`Fait à ${companyAddr.city || '...'}, le ${new Date(paymentDate).toLocaleDateString('fr-FR')}`, M, Y);
+    doc.text(`Fait à ${sanitizeForPdf(companyAddr.city || '...')}, le ${new Date(paymentDate).toLocaleDateString('fr-FR')}`, M, Y);
     Y += 10; doc.text('Signature et cachet :', M, Y); Y += 3;
     doc.setDrawColor(150); doc.setLineWidth(0.3); doc.rect(M, Y, 60, 20);
     doc.setFontSize(7); doc.setTextColor(150, 150, 150);
     doc.text('Ce reçu atteste du paiement effectif de la somme indiquée.', W / 2, 285, { align: 'center' });
+    
     try {
       const pdfBlob = doc.output('blob');
       const file = new File([pdfBlob], `receipts/${receiptNumber}.pdf`, { type: 'application/pdf' });
@@ -888,10 +939,12 @@ export default function Invoices() {
       };
       await databases.createDocument(DATABASE_ID, 'receipts', ID.unique(), receiptData, getTeamPermissions(appwriteTeamId));
       toast.success(`Reçu ${receiptNumber} généré et stocké !`);
-    } catch (e: any) { console.error('Erreur stockage reçu:', e); toast.error(`Erreur : ${e.message}`); }
+    } catch (e: any) { 
+      console.error('Erreur stockage reçu:', e); 
+      toast.error('Erreur lors de la génération du reçu');
+    }
   };
 
-  // 🌍 REÇU DE DÉCAISSEMENT (inchangé)
   const generateDebitReceiptPDF = async (creditInv: Invoice, payment?: Payment) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
@@ -905,14 +958,18 @@ export default function Invoices() {
     const companyAddr = parseAddressRetroactive(creditInv.companyAddress, creditInv.companyPostalCode, creditInv.companyCity, creditInv.companyCountry);
     const debitCountryConfig = getCountryConfig(creditInv.companyCountry || companyCountry) || FALLBACK_COUNTRY;
     const debitIdLabel = getPrimaryIdentifier(debitCountryConfig)?.shortLabel || 'ID';
+    
     let logoB64: string | null = null;
     if (creditInv.logoFileId) {
       try {
         const u = getFilePreviewUrl('company_logos', creditInv.logoFileId);
         const b = await fetch(u).then(r => r.blob());
-        logoB64 = await new Promise<string>((rs, rj) => { const rd = new FileReader(); rd.onloadend = () => rs(rd.result as string); rd.onerror = rj; rd.readAsDataURL(b); });
+        logoB64 = await new Promise<string>((rs, rj) => {
+          const rd = new FileReader(); rd.onloadend = () => rs(rd.result as string); rd.onerror = rj; rd.readAsDataURL(b);
+        });
       } catch (e) { }
     }
+    
     let Y = M;
     if (logoB64) { try { doc.addImage(logoB64, logoB64.includes('image/png') ? 'PNG' : 'JPEG', M, Y, 30, 15); } catch (e) { } }
     doc.setFontSize(20); doc.setFont(undefined as any, 'bold'); doc.setTextColor(220, 38, 38);
@@ -920,36 +977,43 @@ export default function Invoices() {
     doc.setFontSize(10); doc.setFont(undefined as any, 'normal'); doc.setTextColor(100, 100, 100);
     doc.text(`N° ${debitNumber}`, W / 2, Y + 32, { align: 'center' });
     Y = Y + 50;
+    
     doc.setDrawColor(220, 38, 38); doc.setLineWidth(1); doc.rect(M, Y, W - 2 * M, 15);
     doc.setFontSize(16); doc.setFont(undefined as any, 'bold'); doc.setTextColor(220, 38, 38);
     doc.text('REMBOURSEMENT', W / 2, Y + 10, { align: 'center' });
     Y += 25;
+    
     doc.setFontSize(11); doc.setFont(undefined as any, 'normal'); doc.setTextColor(0, 0, 0);
     doc.text('Je soussigné(e), représentant de la société :', M, Y); Y += 6;
-    doc.setFont(undefined as any, 'bold'); doc.text(creditInv.companyName || '', M, Y); Y += 5;
+    doc.setFont(undefined as any, 'bold'); doc.text(sanitizeForPdf(creditInv.companyName), M, Y); Y += 5;
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-    if (companyAddr.address) { doc.text(companyAddr.address, M, Y); Y += 4; }
-    if (companyAddr.postalCode || companyAddr.city) { doc.text(`${companyAddr.postalCode} ${companyAddr.city}`.trim(), M, Y); Y += 4; }
-    if (creditInv.companySiret) { doc.text(`${debitIdLabel} : ${creditInv.companySiret}`, M, Y); Y += 4; }
+    if (companyAddr.address) { doc.text(sanitizeForPdf(companyAddr.address), M, Y); Y += 4; }
+    if (companyAddr.postalCode || companyAddr.city) { doc.text(sanitizeForPdf(`${companyAddr.postalCode} ${companyAddr.city}`.trim()), M, Y); Y += 4; }
+    if (creditInv.companySiret) { doc.text(`${debitIdLabel} : ${sanitizeForPdf(creditInv.companySiret)}`, M, Y); Y += 4; }
+    
     Y += 8; doc.setFontSize(11); doc.text('Reconnais avoir remboursé à :', M, Y); Y += 6;
-    doc.setFont(undefined as any, 'bold'); doc.text(creditInv.clientName || '', M, Y); Y += 5;
+    doc.setFont(undefined as any, 'bold'); doc.text(sanitizeForPdf(creditInv.clientName), M, Y); Y += 5;
+    
     Y += 8; doc.setFontSize(11); doc.text('La somme de :', M, Y); Y += 6;
     doc.setFontSize(16); doc.setFont(undefined as any, 'bold'); doc.setTextColor(220, 38, 38);
     doc.text(`${debitAmount.toFixed(2)} ${SYM}`, M, Y);
+    
     Y += 10; doc.setFontSize(11); doc.setTextColor(0, 0, 0); doc.setFont(undefined as any, 'normal');
     doc.text("Au titre de la facture d'avoir :", M, Y); Y += 6;
     doc.setFont(undefined as any, 'bold'); doc.text(`N° ${creditInv.invoiceNumber}`, M, Y); Y += 5;
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-    doc.text(`Référence facture d'origine : ${originalInvoiceNumber}`, M, Y); Y += 6;
-    doc.text(`Motif : ${debitReason}`, M, Y); Y += 6;
-    doc.text(`Moyen : ${debitMethod}`, M, Y);
-    if (debitRef) { Y += 6; doc.text(`Référence : ${debitRef}`, M, Y); }
+    doc.text(`Référence facture d'origine : ${sanitizeForPdf(originalInvoiceNumber)}`, M, Y); Y += 6;
+    doc.text(`Motif : ${sanitizeForPdf(debitReason)}`, M, Y); Y += 6;
+    doc.text(`Moyen : ${sanitizeForPdf(debitMethod)}`, M, Y);
+    if (debitRef) { Y += 6; doc.text(`Référence : ${sanitizeForPdf(debitRef)}`, M, Y); }
+    
     Y += 10; doc.setFontSize(9); doc.setTextColor(100, 100, 100);
-    doc.text(`Fait à ${companyAddr.city || '...'}, le ${new Date(debitDate).toLocaleDateString('fr-FR')}`, M, Y);
+    doc.text(`Fait à ${sanitizeForPdf(companyAddr.city || '...')}, le ${new Date(debitDate).toLocaleDateString('fr-FR')}`, M, Y);
     Y += 10; doc.text('Signature et cachet :', M, Y); Y += 3;
     doc.setDrawColor(150); doc.setLineWidth(0.3); doc.rect(M, Y, 60, 20);
     doc.setFontSize(7); doc.setTextColor(150, 150, 150);
     doc.text('Ce reçu atteste du remboursement effectif de la somme indiquée.', W / 2, 285, { align: 'center' });
+    
     let fileId = '';
     try {
       if (!BUCKET_ID) throw new Error('BUCKET_ID non défini');
@@ -958,6 +1022,7 @@ export default function Invoices() {
       const uploadedFile = await storage.createFile(BUCKET_ID, ID.unique(), file);
       fileId = uploadedFile.$id;
     } catch (e: any) { console.error('⚠️ Upload Storage du reçu DEC impossible :', e?.message || e); }
+    
     const debitData: any = {
       teamId: currentTeamId, userId: user.$id, receiptNumber: debitNumber,
       invoiceId: creditInv.$id, invoiceNumber: creditInv.invoiceNumber,
@@ -967,6 +1032,7 @@ export default function Invoices() {
       status: 'active',
     };
     if (fileId) debitData.fileId = fileId;
+    
     try {
       await databases.createDocument(DATABASE_ID, 'receipts', ID.unique(), debitData, getTeamPermissions(appwriteTeamId));
     } catch (e: any) {
@@ -1019,6 +1085,7 @@ export default function Invoices() {
     if (failedEvents.length === 0) { toast.info('Aucun événement en attente.'); return; }
     let successCount = 0; let failCount = 0;
     const successIndexes = new Set<number>();
+    
     for (let i = 0; i < failedEvents.length; i++) {
       const event = failedEvents[i];
       try {
@@ -1029,6 +1096,7 @@ export default function Invoices() {
         successIndexes.add(i); successCount++;
       } catch (e) { console.error(`❌ Retry échoué pour index ${i}:`, e); failCount++; }
     }
+    
     setFailedEvents(prev => prev.filter((_, idx) => !successIndexes.has(idx)));
     if (failCount === 0) toast.success(`${successCount} événement(s) régularisé(s)`);
     else toast.warning(`${successCount} régularisé(s), ${failCount} toujours en échec`);
@@ -1043,11 +1111,12 @@ export default function Invoices() {
         toast.error('⚠️ Accès refusé');
         return;
       }
+      
       if (doc.status === 'draft') {
         if (!confirm(`Annuler le brouillon ${num} ?`)) return;
         const reason = prompt("Motif de l'annulation (obligatoire) :");
         if (!reason || !reason.trim()) { toast.info('Annulation abandonnée : motif requis.'); return; }
-        await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'cancelled' });
+        await secureDb.updateDocument('invoices.edit', 'invoices', id, { status: 'cancelled' });
         await saveMetadata(id, { archiveData: { cancelReason: reason.trim(), cancelledAt: new Date().toISOString(), cancelledBy: user.$id } });
       } else {
         const reason = prompt(`Archivage administratif de ${num} (motif obligatoire) :\n⚠️ Une facture émise ne peut pas être annulée : utilisez un avoir référencé.`);
@@ -1061,7 +1130,10 @@ export default function Invoices() {
         await saveMetadata(id, { archiveData: { archived: true, archivedAt: new Date().toISOString(), archivedBy: user.$id, archiveReason: reason.trim() } });
       }
       loadInvoices();
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
+    } catch (e: any) { 
+      console.error('Erreur archivage:', e);
+      toast.error('Erreur lors de l\'archivage');
+    }
   };
 
   const handleUnarchive = async (id: string, num: string) => {
@@ -1073,20 +1145,23 @@ export default function Invoices() {
         toast.error('⚠️ Accès refusé');
         return;
       }
+      
       const meta = getArchiveData(doc);
       if (meta.archived === true) {
         await saveMetadata(id, { archiveData: {} });
       } else if (doc.status === 'cancelled') {
-        await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'draft' });
+        await secureDb.updateDocument('invoices.edit', 'invoices', id, { status: 'draft' });
         await saveMetadata(id, { archiveData: {} });
       }
       loadInvoices();
       setViewMode('active');
       toast.success(`Facture ${num} restaurée`);
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
+    } catch (e: any) { 
+      console.error('Erreur désarchivage:', e);
+      toast.error('Erreur lors de la restauration');
+    }
   };
 
-  // ✅ NOUVEAU : Handlers pour la sélection multiple
   const toggleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedIds(new Set(paginatedInvoices.filter(i => i).map(i => i!.$id)));
@@ -1105,19 +1180,16 @@ export default function Invoices() {
     setSelectedIds(newSet);
   };
 
-  // ✅ OPTIMISÉ : Action en masse adaptative avec traitement par lots
   const handleBulkStatusChange = async () => {
     if (selectedIds.size === 0) return;
-
     const count = selectedIds.size;
     const isArchiveAction = viewMode === 'active';
     const actionLabel = isArchiveAction ? 'archiver' : 'désarchiver';
-
-    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} facture(s) ?\n\n${isArchiveAction ? '⚠️ Les factures seront marquées comme annulées.' : 'Les factures seront restaurées en brouillon.'}`)) {
+    
+    if (!window.confirm(`Êtes-vous sûr de vouloir ${actionLabel} ${count} facture(s) ?\n${isArchiveAction ? '⚠️ Les factures seront marquées comme annulées.' : 'Les factures seront restaurées en brouillon.'}`)) {
       return;
     }
-
-    // ✅ Filtrer les IDs valides (appartenance à l'équipe + pas déjà dans l'état cible)
+    
     const idsToUpdate = Array.from(selectedIds).filter(id => {
       const inv = invoices.find(i => i && i.$id === id);
       if (!inv || !inv.teamId || inv.teamId !== currentTeamId) return false;
@@ -1127,48 +1199,43 @@ export default function Invoices() {
         return isDocArchived(inv);
       }
     });
-
+    
     if (idsToUpdate.length === 0) {
       toast.error(`Aucune facture sélectionnée ne peut être ${isArchiveAction ? 'archivée' : 'désarchivée'}.`, {
         style: { background: '#ffffff', color: '#dc2626', border: '1px solid #fee2e2' }
       });
       return;
     }
-
-    // ✅ Vider la sélection AVANT de lancer les requêtes
+    
     setSelectedIds(new Set());
-
     const toastId = toast.loading(`${isArchiveAction ? 'Archivage' : 'Désarchivage'} de ${idsToUpdate.length} facture(s)...`, {
       style: { background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }
     });
-
+    
     const BATCH_SIZE = 5;
     let successCount = 0;
     let errorCount = 0;
-
+    
     try {
       for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
         const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
-
         const results = await Promise.allSettled(
           batch.map(async (id) => {
             try {
               if (isArchiveAction) {
-                // Archivage : marquer comme cancelled + metadata
-                await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'cancelled' });
-                await saveMetadata(id, { 
-                  archiveData: { 
-                    archived: true, 
-                    archivedAt: new Date().toISOString(), 
-                    archivedBy: user?.$id || 'unknown', 
-                    archiveReason: 'Archivage en masse' 
-                  } 
+                await secureDb.updateDocument('invoices.edit', 'invoices', id, { status: 'cancelled' });
+                await saveMetadata(id, {
+                  archiveData: {
+                    archived: true,
+                    archivedAt: new Date().toISOString(),
+                    archivedBy: user?.$id || 'unknown',
+                    archiveReason: 'Archivage en masse'
+                  }
                 });
               } else {
-                // Désarchivage : restaurer en draft + effacer metadata archive
                 const inv = invoices.find(i => i && i.$id === id);
                 if (inv && inv.status === 'cancelled') {
-                  await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'draft' });
+                  await secureDb.updateDocument('invoices.edit', 'invoices', id, { status: 'draft' });
                 }
                 await saveMetadata(id, { archiveData: {} });
               }
@@ -1179,7 +1246,7 @@ export default function Invoices() {
             }
           })
         );
-
+        
         results.forEach((result) => {
           if (result.status === 'fulfilled' && result.value.success) {
             successCount++;
@@ -1187,33 +1254,29 @@ export default function Invoices() {
             errorCount++;
           }
         });
-
-        // ✅ Petit délai entre les lots
+        
         if (i + BATCH_SIZE < idsToUpdate.length) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
-
+      
       if (successCount > 0) {
         const successMsg = isArchiveAction
           ? `${successCount} facture(s) archivée(s) avec succès`
           : `${successCount} facture(s) désarchivée(s) avec succès`;
-
         toast.success(successMsg, {
           id: toastId,
           style: { background: '#ffffff', color: '#059669', border: '1px solid #d1fae5' }
         });
-
         await loadInvoices(true);
       }
-
+      
       if (errorCount > 0) {
         toast.warning(`${errorCount} échec(s) (accès refusé ou erreur).`, {
           duration: 5000,
           style: { background: '#ffffff', color: '#d97706', border: '1px solid #fef3c7' }
         });
       }
-
     } catch (error: any) {
       console.error(`Erreur globale ${actionLabel} en masse:`, error);
       toast.error(`Une erreur est survenue lors de l'${actionLabel} en masse.`, {
@@ -1230,7 +1293,6 @@ export default function Invoices() {
     setShowAdvanceModal(true);
   };
 
-  // ✅ MODIF 2 : facture d'acompte créée avec statut "invoiced" (Facturé)
   const handleGenerateAdvanceInvoice = async () => {
     const invoice = invoices.find(i => i && i.$id === advanceForm.invoiceId);
     if (!invoice || !currentTeamId) return;
@@ -1240,6 +1302,7 @@ export default function Invoices() {
       const realPercent = invoice.total > 0 ? ((advanceAmount / invoice.total) * 100).toFixed(2) : '0.00';
       const advanceNumber = await generateNextNumber('ACO', 'invoices', 'invoiceNumber');
       const ratio = invoice.total > 0 ? (advanceAmount / invoice.total) : 0;
+      
       let invoiceVatRate = toInt(invoice.vatRate, 20);
       if (invoiceVatRate === 20) {
         try {
@@ -1257,8 +1320,10 @@ export default function Invoices() {
           }
         } catch { }
       }
+      
       let originalItems: InvoiceItem[] = [];
       try { originalItems = JSON.parse(invoice.items || '[]'); } catch { originalItems = []; }
+      
       let advanceHT = 0; let advanceTVA = 0;
       const advanceItems: InvoiceItem[] = originalItems.map((item, idx) => {
         const itemVatRate = toInt(item.tvaRate, invoiceVatRate);
@@ -1273,6 +1338,7 @@ export default function Invoices() {
           unitPrice: itemAdvanceHT, tvaRate: itemVatRate, total: itemAdvanceHT, discount: 0,
         };
       });
+      
       if (advanceItems.length > 0) {
         const ecart = round2(advanceAmount - round2(advanceHT + advanceTVA));
         if (ecart !== 0) {
@@ -1282,16 +1348,18 @@ export default function Invoices() {
           advanceHT += ecart;
         }
       }
+      
       if (advanceItems.length === 0) {
         advanceHT = Math.round((invoice.subtotal || 0) * ratio * 100) / 100;
         advanceTVA = Math.round((invoice.tax || 0) * ratio * 100) / 100;
       }
+      
       const advanceInvoice = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: advanceNumber, type: 'advance',
         originalQuoteId: invoice.originalQuoteId || invoice.quoteId || '',
         originalInvoiceId: invoice.$id, advancePercent: realPercent,
         currencyCode: currency,
-        clientToken: Math.random().toString(36).substring(2, 15), status: 'invoiced',
+        clientToken: generateSecureToken(), status: 'invoiced',
         issueDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         subtotal: advanceHT, vatRate: invoiceVatRate, vatAmount: advanceTVA, tax: advanceTVA,
@@ -1315,14 +1383,17 @@ export default function Invoices() {
         specialConditions: `Facture d'acompte - Référence facture d'origine : ${invoice.invoiceNumber}`,
         notes: `Acompte de ${realPercent}% sur la facture ${invoice.invoiceNumber}`,
       };
+      
       await createInvoiceWithRetry(advanceInvoice);
       setShowAdvanceModal(false);
       await loadInvoices(true);
       toast.success(`Facture d'acompte ${advanceNumber} créée !`, { description: `Montant : ${fm(advanceAmount)}` });
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } finally { setSavingAdvance(false); }
+    } catch (e: any) { 
+      console.error('Erreur génération acompte:', e);
+      toast.error('Erreur lors de la création de la facture d\'acompte');
+    } finally { setSavingAdvance(false); }
   };
 
-  // ✅ MODIF 3 : facture finale créée avec statut "invoiced" (Facturé)
   const handleGenerateFinalFromAdvance = async (advanceInvoice: Invoice) => {
     const quoteIdToFetch = advanceInvoice.originalQuoteId || advanceInvoice.quoteId;
     if (!currentTeamId || !quoteIdToFetch) {
@@ -1339,13 +1410,14 @@ export default function Invoices() {
       const totalAmount = quote.total || 0;
       const remainingAmount = Math.max(0, totalAmount - advanceAmount);
       const quoteVatRate = toInt(quote.vatRate, 20);
+      
       const finalInvoice = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: finalNumber, type: 'standard',
         originalQuoteId: quoteIdToFetch,
         originalInvoiceId: advanceInvoice.$id,
         quoteId: quoteIdToFetch,
         currencyCode: currency,
-        clientToken: Math.random().toString(36).substring(2, 15), status: 'invoiced',
+        clientToken: generateSecureToken(), status: 'invoiced',
         issueDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         subtotal: quote.subtotal || 0, vatRate: quoteVatRate, vatAmount: quote.tax || 0,
@@ -1365,6 +1437,7 @@ export default function Invoices() {
         specialConditions: quote.specialConditions,
         notes: `Facture finale - Acompte de ${advanceAmount.toFixed(2)} ${SYM} déjà versé via ${advanceInvoice.invoiceNumber}`,
       };
+      
       const createdDoc = await createInvoiceWithRetry(finalInvoice);
       await saveMetadata(createdDoc.$id, {
         reconciliationData: {
@@ -1374,12 +1447,14 @@ export default function Invoices() {
           jobTotalTVA: quote.tax || 0, reconciliation: 'recap',
         },
       });
+      
       await databases.updateDocument(DATABASE_ID, 'quotes', quoteIdToFetch, { status: 'Facturé' });
+      
       await loadInvoices(true);
       toast.success(`Facture finale ${finalNumber} créée !`, { description: `Total : ${fm(totalAmount)} • Acompte : -${fm(advanceAmount)} • Net : ${fm(remainingAmount)}` });
     } catch (e: any) {
       console.error('Erreur génération facture finale:', e);
-      toast.error(`Erreur : ${e.message}`);
+      toast.error('Erreur lors de la création de la facture finale');
     } finally { setGeneratingFinal(false); }
   };
 
@@ -1402,6 +1477,7 @@ export default function Invoices() {
     try { items = JSON.parse(original.items || '[]'); } catch { items = []; }
     const invTTC = original.total || 0;
     const originalVatRate = toInt(original.vatRate, 20);
+    
     const toBreakdown = (lines: { tvaRate: number; ht: number; tva: number }[]) => {
       const map = new Map<number, { rate: number; baseHT: number; taxAmount: number }>();
       lines.forEach(l => {
@@ -1413,6 +1489,7 @@ export default function Invoices() {
       });
       return Array.from(map.values());
     };
+    
     if (round2(creditTTC) === round2(invTTC)) {
       const lines = items.map(i => {
         const rate = toInt(i.tvaRate, 0);
@@ -1421,12 +1498,14 @@ export default function Invoices() {
       });
       return { items, subtotal: original.subtotal || 0, tax: original.tax || 0, breakdown: toBreakdown(lines) };
     }
+    
     if (items.length === 0 || invTTC <= 0) {
       const ratio = invTTC > 0 ? creditTTC / invTTC : 0;
       const subtotal = round2((original.subtotal || 0) * ratio);
       const tax = round2(creditTTC - subtotal);
       return { items: [], subtotal, tax, breakdown: toBreakdown([{ tvaRate: originalVatRate, ht: subtotal, tva: tax }]) };
     }
+    
     const linesTTC = items.map(i => {
       const ht = i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100);
       return ht * (1 + toInt(i.tvaRate, 0) / 100);
@@ -1443,6 +1522,7 @@ export default function Invoices() {
       creditLines.push({ tvaRate: rate, ht, tva });
       return { ...i, discount: 0, quantity: 1, unitPrice: ht, total: ht, tvaRate: rate };
     });
+    
     let subtotal = round2(creditLines.reduce((s, l) => s + l.ht, 0));
     let tax = round2(creditLines.reduce((s, l) => s + l.tva, 0));
     const ecart = round2(creditTTC - round2(subtotal + tax));
@@ -1463,10 +1543,12 @@ export default function Invoices() {
     const creditAmount = parseFloat(creditForm.amount);
     const existingCreditsTotal = getTotalCreditsForInvoice(creditInvoice.$id);
     const maxCreditAllowed = Math.max(0, (creditInvoice.total || 0) - existingCreditsTotal);
+    
     if (maxCreditAllowed <= 0) { toast.warning('Cette facture est déjà entièrement couverte par des avoirs.'); return; }
     if (creditForm.type === 'total' && existingCreditsTotal > 0) { toast.warning(`Cette facture a déjà ${fm(existingCreditsTotal)} d'avoirs. Utilisez "Avoir Partiel".`); return; }
     if (creditForm.type === 'partial' && (isNaN(creditAmount) || creditAmount <= 0 || creditAmount > maxCreditAllowed)) { toast.warning(`Montant invalide (max : ${fm(maxCreditAllowed)})`); return; }
     if (!creditForm.reason.trim()) { toast.error("Veuillez indiquer un motif pour l'avoir (obligatoire légalement)."); return; }
+    
     setSavingCredit(true);
     try {
       const creditIdStr = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
@@ -1477,6 +1559,7 @@ export default function Invoices() {
       const creditNumber = await generateNextNumber('AV', 'invoices', 'invoiceNumber');
       const creditTotal = creditForm.type === 'total' ? (creditInvoice.total || 0) : creditAmount;
       const { items: creditItems, subtotal: creditSubtotal, tax: creditTax, breakdown } = buildCreditLines(creditInvoice, creditTotal);
+      
       let allocatedAmount: number; let toRefund: number; let initialCreditStatus: string;
       if (creditForm.refundChoice === 'refund') {
         allocatedAmount = 0; toRefund = creditTotal; initialCreditStatus = 'to_refund';
@@ -1486,12 +1569,13 @@ export default function Invoices() {
         toRefund = round2(creditTotal - allocatedAmount);
         initialCreditStatus = allocatedAmount >= creditTotal - 0.001 ? 'allocated' : toRefund >= creditTotal - 0.001 ? 'to_refund' : 'partial_refund';
       }
+      
       const creditVatRate = toInt(creditInvoice.vatRate, 20);
       const creditPayload: any = {
         teamId: currentTeamId, userId: user.$id, invoiceNumber: creditNumber, type: 'credit',
         originalInvoiceId: creditInvoice.$id, originalQuoteId: creditInvoice.originalQuoteId || creditInvoice.quoteId || '',
         currencyCode: currency,
-        clientToken: Math.random().toString(36).substring(2, 15), status: 'sent',
+        clientToken: generateSecureToken(), status: 'sent',
         issueDate: new Date().toISOString().split('T')[0], dueDate: new Date().toISOString().split('T')[0],
         subtotal: creditSubtotal, vatRate: creditVatRate, vatAmount: creditTax, tax: creditTax,
         discount: 0, total: creditTotal, deposit: 0, balance: 0,
@@ -1512,12 +1596,20 @@ export default function Invoices() {
         einvoicePlatform: creditInvoice.isElectronic ? (creditInvoice.einvoicePlatform || 'simulation') : null,
         einvoiceFormat: creditInvoice.isElectronic ? (creditInvoice.einvoiceFormat || 'factur-x') : null,
       };
+      
       try {
-        await databases.createDocument(DATABASE_ID, 'invoices', deterministicInvoiceId, creditPayload, getTeamPermissions(appwriteTeamId, { isPublic: !!creditPayload.clientToken }));
+        await databases.createDocument(
+          DATABASE_ID,
+          'invoices',
+          deterministicInvoiceId,
+          creditPayload,
+          getTeamPermissions(appwriteTeamId)
+        );
       } catch (invoiceError) {
         console.error('Échec création facture:', invoiceError);
-        throw new Error(`Impossible de créer la facture d'avoir : ${(invoiceError as Error).message}`);
+        throw new Error(`Impossible de créer la facture d'avoir`);
       }
+      
       try {
         await saveMetadata(invoiceIdStr, {
           creditData: { creditStatus: initialCreditStatus, allocatedAmount, refundedAmount: 0, refundPayments: [], taxBreakdown: breakdown },
@@ -1525,6 +1617,7 @@ export default function Invoices() {
       } catch (metaError) {
         console.warn('⚠️ Erreur métadonnées avoir (non bloquant):', metaError);
       }
+      
       if (creditInvoice.isElectronic) {
         try {
           const createdCredit = await databases.getDocument(DATABASE_ID, 'invoices', invoiceIdStr) as unknown as Invoice;
@@ -1533,6 +1626,7 @@ export default function Invoices() {
           console.warn('⚠️ XML E-Avoir non généré (non bloquant):', xmlError);
         }
       }
+      
       setShowCreditModal(false);
       setCreditInvoice(null);
       await loadInvoices(true);
@@ -1541,7 +1635,10 @@ export default function Invoices() {
         description: `HT : ${fm(creditSubtotal)} | TVA : ${fm(creditTax)} • Imputé : ${fm(allocatedAmount)} • À rembourser : ${fm(toRefund)} • Solde restant : ${fm(remainingOnInvoice)}`,
         duration: 6000,
       });
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } finally { setSavingCredit(false); }
+    } catch (e: any) { 
+      console.error('Erreur génération avoir:', e);
+      toast.error('Erreur lors de la création de l\'avoir');
+    } finally { setSavingCredit(false); }
   };
 
   const acquireRefundLock = async (creditInvoiceId: string, userId: string): Promise<'ok' | 'missing' | 'locked'> => {
@@ -1599,16 +1696,20 @@ export default function Invoices() {
         setSavingRefund(false);
         return;
       }
+      
       try {
         const freshMetadata = await loadMetadataForInvoice(refundCredit.$id);
         const freshCreditData = freshMetadata.creditData;
         const currentVersion = freshMetadata.metadataVersion || 0;
+        
         let freshRefunds: any[] = [];
         try { if (Array.isArray(freshCreditData.refundPayments)) freshRefunds = freshCreditData.refundPayments; } catch { freshRefunds = []; }
+        
         const freshRefunded = round2(freshRefunds.reduce((s, p) => s + (p.amount || 0), 0));
         const freshAllocated = round2(freshCreditData.allocatedAmount || 0);
         const total = refundCredit.total || 0;
         const freshRefundable = round2(Math.max(0, total - freshAllocated - freshRefunded));
+        
         if (amount > freshRefundable + 0.01) {
           toast.warning(`Montant invalide (remboursable : ${fm(freshRefundable)})`);
           await releaseRefundLock(refundCredit.$id);
@@ -1616,13 +1717,16 @@ export default function Invoices() {
           await loadInvoices(true);
           return;
         }
+        
         const payment = { id: `refund-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, amount, date: refundForm.date, method: refundForm.method, reference: refundForm.reference || '' };
         const updatedRefunds = [...freshRefunds, payment];
         const refundedAmount = round2(updatedRefunds.reduce((s, p) => s + (p.amount || 0), 0));
         const newStatus = refundedAmount >= total - 0.001 ? 'refunded' : (freshAllocated > 0 ? 'partial_refund' : 'to_refund');
+        
         const saveResult = await saveMetadata(refundCredit.$id, {
           creditData: { ...freshCreditData, refundPayments: updatedRefunds, refundedAmount, creditStatus: newStatus, lastRefundAt: new Date().toISOString(), lastRefundBy: user.$id, refundLock: null },
         }, currentVersion);
+        
         if (saveResult.conflict) {
           toast.warning('Conflit de concurrence détecté. Veuillez réessayer.');
           await releaseRefundLock(refundCredit.$id);
@@ -1631,9 +1735,11 @@ export default function Invoices() {
           return;
         }
         if (!saveResult.success) throw new Error("Impossible d'enregistrer le remboursement");
-        await databases.updateDocument(DATABASE_ID, 'invoices', refundCredit.$id, {
+        
+        await secureDb.updateDocument('invoices.edit', 'invoices', refundCredit.$id, {
           paidAt: refundedAmount + freshAllocated >= total - 0.01 ? (refundCredit.paidAt || refundForm.date) : refundCredit.paidAt,
         });
+        
         const movementResult = await createTreasuryMovement({
           teamId: currentTeamId, appwriteTeamId, userId: user.$id,
           type: 'out', category: 'client_refund', amount, date: refundForm.date,
@@ -1644,6 +1750,7 @@ export default function Invoices() {
           reference: refundForm.reference || null,
         });
         if (!movementResult.success) console.warn('⚠️ Mouvement trésorerie non créé :', movementResult.error);
+        
         let eventSuccess = false;
         try {
           await databases.createDocument(DATABASE_ID, 'accounting_events', ID.unique(), {
@@ -1658,10 +1765,12 @@ export default function Invoices() {
             data: { type: 'credit_refund', documentType: 'credit', documentId: refundCredit.$id, documentNumber: refundCredit.invoiceNumber, amount, eventDate: refundForm.date, method: refundForm.method, reference: refundForm.reference || '' },
           }]);
         }
+        
         setShowRefundModal(false);
         await loadInvoices(true);
         if (!eventSuccess) toast.warning('Remboursement enregistré mais NON TRACÉ. Utilisez "Réessayer les événements".');
         else toast.success(`Remboursement de ${fm(amount)} enregistré`);
+        
         try {
           const updatedCredit = await databases.getDocument(DATABASE_ID, 'invoices', refundCredit.$id) as unknown as Invoice;
           await generateDebitReceiptPDF(updatedCredit, payment);
@@ -1673,7 +1782,8 @@ export default function Invoices() {
         await releaseRefundLock(refundCredit.$id);
       }
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur remboursement:', e);
+      toast.error('Erreur lors du remboursement');
       await releaseRefundLock(refundCredit.$id);
     } finally {
       setSavingRefund(false);
@@ -1681,12 +1791,12 @@ export default function Invoices() {
     }
   };
 
-  // 🌍 GÉNÉRATION PDF FACTURE (inchangé - très long)
   const generatePDF = async (inv: Invoice) => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = 210, M = 20;
     let items: InvoiceItem[] = [];
     try { items = JSON.parse(inv.items || '[]'); } catch (e) { }
+    
     const pdfSubtotal = inv.subtotal || 0;
     const pdfDiscount = inv.discount || 0;
     const pdfTax = inv.tax || 0;
@@ -1695,15 +1805,18 @@ export default function Invoices() {
     const pdfBalance = inv.balance || 0;
     const pdfDiscountAmount = pdfSubtotal * (pdfDiscount / 100);
     const pdfTaxableAmount = pdfSubtotal - pdfDiscountAmount;
+    
     const companyAddr = parseAddressRetroactive(inv.companyAddress, inv.companyPostalCode, inv.companyCity, inv.companyCountry);
     const clientAddr = parseAddressRetroactive(inv.clientAddress, inv.clientPostalCode, inv.clientCity, inv.clientCountry);
     const fullCompanyAddress = [companyAddr.address, `${companyAddr.postalCode} ${companyAddr.city}`.trim()].filter(Boolean).join(', ');
     const fullClientAddress = [clientAddr.address, `${clientAddr.postalCode} ${clientAddr.city}`.trim()].filter(Boolean).join(', ');
+    
     const pdfCountryConfig = getCountryConfig(inv.companyCountry || companyCountry) || FALLBACK_COUNTRY;
     const pdfIdLabel = getPrimaryIdentifier(pdfCountryConfig)?.shortLabel || 'ID';
     const pdfVatLabel = pdfCountryConfig?.vat?.label || 'TVA';
     const pdfVatEnabled = pdfCountryConfig?.vat?.enabled ?? true;
     const pdfIsTvaApplicable = pdfVatEnabled && !(inv.companyTva || '').toLowerCase().includes('non applicable') && !(inv.companyTva || '').toLowerCase().includes('non assujetti');
+    
     let logoB64: string | null = null;
     if (inv.logoFileId) {
       try {
@@ -1712,21 +1825,24 @@ export default function Invoices() {
         logoB64 = await new Promise<string>((rs, rj) => { const rd = new FileReader(); rd.onloadend = () => rs(rd.result as string); rd.onerror = rj; rd.readAsDataURL(b); });
       } catch (e) { }
     }
+    
     let Y = M;
     if (logoB64) { try { doc.addImage(logoB64, logoB64.includes('image/png') ? 'PNG' : 'JPEG', M, Y, 30, 15); } catch (e) { } }
     doc.setFontSize(14); doc.setFont(undefined as any, 'bold');
-    doc.text(inv.companyName || '', M, Y + 22);
+    doc.text(sanitizeForPdf(inv.companyName), M, Y + 22);
     doc.setFontSize(8); doc.setFont(undefined as any, 'normal');
     let infoY = Y + 27;
-    if (fullCompanyAddress) { doc.text(fullCompanyAddress.substring(0, 60), M, infoY); infoY += 4; }
-    if (inv.companyPhone) { doc.text(`Tél: ${inv.companyPhone}`, M, infoY); infoY += 4; }
-    if (inv.companyEmail) { doc.text(`Email: ${inv.companyEmail}`, M, infoY); infoY += 4; }
-    if (inv.companySiret) { doc.text(`${pdfIdLabel}: ${inv.companySiret}`, M, infoY); infoY += 4; }
-    if (inv.companyTva && !inv.companyTva.toLowerCase().includes('non')) { doc.text(`${pdfVatLabel}: ${inv.companyTva}`, M, infoY); infoY += 4; }
+    if (fullCompanyAddress) { doc.text(sanitizeForPdf(fullCompanyAddress.substring(0, 60)), M, infoY); infoY += 4; }
+    if (inv.companyPhone) { doc.text(`Tél: ${sanitizeForPdf(inv.companyPhone)}`, M, infoY); infoY += 4; }
+    if (inv.companyEmail) { doc.text(`Email: ${sanitizeForPdf(inv.companyEmail)}`, M, infoY); infoY += 4; }
+    if (inv.companySiret) { doc.text(`${pdfIdLabel}: ${sanitizeForPdf(inv.companySiret)}`, M, infoY); infoY += 4; }
+    if (inv.companyTva && !inv.companyTva.toLowerCase().includes('non')) { doc.text(`${pdfVatLabel}: ${sanitizeForPdf(inv.companyTva)}`, M, infoY); infoY += 4; }
+    
     const rX = W - M;
     const pdfType = inv.type || 'standard';
     const isCredit = pdfType === 'credit';
     const pdfTitle = isCredit ? "FACTURE D'AVOIR" : (pdfType === 'advance' ? "FACTURE D'ACOMPTE" : pdfType === 'balance' ? 'FACTURE DE SOLDE' : 'FACTURE');
+    
     doc.setFontSize(16); doc.setFont(undefined as any, 'bold');
     if (isCredit) doc.setTextColor(220, 38, 38); else doc.setTextColor(0, 0, 0);
     doc.text(`${pdfTitle} N° ${inv.invoiceNumber}`, rX, Y + 5, { align: 'right' });
@@ -1734,19 +1850,22 @@ export default function Invoices() {
     doc.setFontSize(8); doc.setFont(undefined as any, 'normal');
     doc.text(`Date: ${inv.issueDate ? new Date(inv.issueDate).toLocaleDateString('fr-FR') : '-'}`, rX, Y + 10, { align: 'right' });
     if (inv.dueDate && !isCredit) doc.text(`Échéance: ${new Date(inv.dueDate).toLocaleDateString('fr-FR')}`, rX, Y + 14, { align: 'right' });
+    
     const clientBoxX = rX - 60; const clientBoxY = Y + 18;
     doc.setDrawColor(150); doc.setLineWidth(0.3); doc.rect(clientBoxX, clientBoxY, 60, 22);
     doc.setFontSize(8); doc.setFont(undefined as any, 'bold'); doc.text('CLIENT', clientBoxX + 2, clientBoxY + 4);
     doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-    doc.text(inv.clientName || '', clientBoxX + 2, clientBoxY + 9);
-    if (fullClientAddress) doc.text(fullClientAddress.substring(0, 50), clientBoxX + 2, clientBoxY + 13);
-    if (inv.clientEmail) doc.text(inv.clientEmail, clientBoxX + 2, clientBoxY + 17);
+    doc.text(sanitizeForPdf(inv.clientName), clientBoxX + 2, clientBoxY + 9);
+    if (fullClientAddress) doc.text(sanitizeForPdf(fullClientAddress.substring(0, 50)), clientBoxX + 2, clientBoxY + 13);
+    if (inv.clientEmail) doc.text(sanitizeForPdf(inv.clientEmail), clientBoxX + 2, clientBoxY + 17);
+    
     Y = Math.max(infoY, clientBoxY + 25) + 5;
     const tableData = items.map(i => {
       const ld = i.discount || 0;
       const lt = i.quantity * i.unitPrice * (1 - ld / 100);
-      return [i.reference || '-', i.description, i.quantity.toFixed(2), i.unit, `${i.unitPrice.toFixed(2)} ${SYM}`, ld + '%', `${lt.toFixed(2)} ${SYM}`, i.tvaRate + '%'];
+      return [i.reference || '-', sanitizeForPdf(i.description), i.quantity.toFixed(2), i.unit, `${i.unitPrice.toFixed(2)} ${SYM}`, ld + '%', `${lt.toFixed(2)} ${SYM}`, i.tvaRate + '%'];
     });
+    
     autoTable(doc, {
       startY: Y, head: [['Réf.', 'Désignation', 'Qté', 'Unité', 'Prix U HT', 'Remise', 'Total HT', pdfVatLabel]],
       body: tableData, theme: 'grid', margin: { left: M, right: M },
@@ -1754,6 +1873,7 @@ export default function Invoices() {
       styles: { fontSize: 8, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2 },
       columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 60 }, 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 12, halign: 'center' }, 4: { cellWidth: 18, halign: 'right' }, 5: { cellWidth: 12, halign: 'right' }, 6: { cellWidth: 18, halign: 'right', fontStyle: 'bold' }, 7: { cellWidth: 12, halign: 'right' } },
     });
+    
     let ty = (doc as any).lastAutoTable.finalY + 8;
     const totalsX = W - M - 60;
     doc.setFontSize(8); doc.setFont(undefined as any, 'normal'); doc.setTextColor(0, 0, 0);
@@ -1762,6 +1882,7 @@ export default function Invoices() {
       doc.text(label, totalsX, ty); doc.text(value, W - M, ty, { align: 'right' });
       doc.setDrawColor(200); doc.setLineWidth(0.2); doc.line(totalsX, ty + 1, W - M, ty + 1); ty += 5;
     };
+    
     totalLine('Total HT', `${pdfSubtotal.toFixed(2)} ${SYM}`);
     if (pdfDiscount > 0) totalLine(`Remise ${pdfDiscount}%`, `- ${pdfDiscountAmount.toFixed(2)} ${SYM}`, false, [220, 38, 38]);
     totalLine('Total HT après remise', `${pdfTaxableAmount.toFixed(2)} ${SYM}`);
@@ -1769,6 +1890,7 @@ export default function Invoices() {
     doc.setFont(undefined as any, 'bold'); doc.setTextColor(0, 0, 0);
     doc.text('Total TTC', totalsX, ty); doc.text(`${pdfTotal.toFixed(2)} ${SYM}`, W - M, ty, { align: 'right' });
     doc.setDrawColor(0); doc.setLineWidth(0.5); doc.line(totalsX, ty + 1.5, W - M, ty + 1.5); ty += 6;
+    
     if (pdfDeposit > 0) {
       ty += 2; doc.setFontSize(9); doc.setFont(undefined as any, 'bold'); doc.setTextColor(37, 99, 235);
       doc.text('ACOMPTE DÉJÀ VERSÉ', totalsX, ty); ty += 5;
@@ -1779,14 +1901,15 @@ export default function Invoices() {
       doc.text('NET À PAYER', totalsX, ty); doc.text(`${pdfBalance.toFixed(2)} ${SYM}`, W - M, ty, { align: 'right' }); ty += 6;
       doc.setDrawColor(200); doc.setLineWidth(0.2);
     }
+    
     if (inv.paymentMethods || inv.paymentConditions) {
       ty += 5; doc.setFontSize(10); doc.setFont(undefined as any, 'bold'); doc.setTextColor(0, 0, 0);
       doc.text('Conditions de règlement', M, ty);
       doc.setDrawColor(150); doc.setLineWidth(0.3); doc.line(M, ty + 1, W - M, ty + 1); ty += 6;
       doc.setFontSize(8); doc.setFont(undefined as any, 'normal');
-      if (inv.paymentMethods) { doc.text(`Mode: ${inv.paymentMethods}`, M, ty); ty += 4; }
-      if (inv.paymentConditions) { doc.text(`Conditions: ${inv.paymentConditions}`, M, ty); ty += 4; }
-      if (inv.executionDelay) { doc.text(`Délai: ${inv.executionDelay}`, M, ty); ty += 4; }
+      if (inv.paymentMethods) { doc.text(`Mode: ${sanitizeForPdf(inv.paymentMethods)}`, M, ty); ty += 4; }
+      if (inv.paymentConditions) { doc.text(`Conditions: ${sanitizeForPdf(inv.paymentConditions)}`, M, ty); ty += 4; }
+      if (inv.executionDelay) { doc.text(`Délai: ${sanitizeForPdf(inv.executionDelay)}`, M, ty); ty += 4; }
       if ((inv.companyCountry || companyCountry) === 'FR') {
         ty += 2; doc.setFont(undefined as any, 'italic'); doc.setTextColor(100, 100, 100);
         doc.text('Pénalités de retard : 3x le taux d\'intérêt légal (loi 2008-776).', M, ty);
@@ -1794,10 +1917,12 @@ export default function Invoices() {
         ty += 4;
       }
     }
+    
     if (!pdfIsTvaApplicable && inv.companyTva) {
       doc.setFontSize(7); doc.setFont(undefined as any, 'italic'); doc.setTextColor(100, 100, 100);
-      doc.text(inv.companyTva, M, 285);
+      doc.text(sanitizeForPdf(inv.companyTva), M, 285);
     }
+    
     if (inv.isElectronic) {
       toast.info('⏳ Génération du PDF Factur-X (XML embarqué)...');
       try {
@@ -1824,9 +1949,10 @@ export default function Invoices() {
         }
       } catch (e: any) {
         console.error('Erreur embarquement XML:', e);
-        toast.warning('PDF classique téléchargé (embarquement XML échoué)', { description: e.message });
+        toast.warning('PDF classique téléchargé (embarquement XML échoué)');
       }
     }
+    
     doc.save(`${pdfTitle}_${inv.invoiceNumber}.pdf`);
     toast.success('PDF téléchargé');
   };
@@ -1835,8 +1961,13 @@ export default function Invoices() {
     let target = inv;
     if (!target.xmlContent && target.isElectronic) {
       toast.info('⏳ Génération du XML Factur-X...');
-      await generateAndStoreXml(target);
-      target = await databases.getDocument(DATABASE_ID, 'invoices', inv.$id) as unknown as Invoice;
+      try {
+        await generateAndStoreXml(target);
+        target = await databases.getDocument(DATABASE_ID, 'invoices', inv.$id) as unknown as Invoice;
+      } catch (e) {
+        toast.error('Erreur génération XML');
+        return;
+      }
     }
     if (!target.xmlContent) {
       toast.warning('Cette facture n\'a pas de contenu XML Factur-X.');
@@ -1854,7 +1985,8 @@ export default function Invoices() {
       URL.revokeObjectURL(url);
       toast.success('XML Factur-X téléchargé', { description: `Facture ${target.invoiceNumber} — prêt pour dépôt PPF/PDP` });
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur téléchargement XML:', e);
+      toast.error('Erreur lors du téléchargement du XML');
     }
   };
 
@@ -1886,7 +2018,8 @@ export default function Invoices() {
         toast.error('❌ Échec de transmission', { description: result.errorMessage || 'Erreur inconnue', duration: 6000 });
       }
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message || 'Erreur lors de la transmission'}`);
+      console.error('Erreur transmission:', e);
+      toast.error('Erreur lors de la transmission');
     } finally {
       setTransmitting(false);
     }
@@ -1904,7 +2037,7 @@ export default function Invoices() {
     const reference = ref.trim();
     setTransmitting(true);
     try {
-      await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, {
+      await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, {
         transmissionStatus: 'transmitted', transmissionReference: reference,
         einvoicePlatform: inv.einvoicePlatform || 'ppf',
       });
@@ -1917,7 +2050,8 @@ export default function Invoices() {
       await loadInvoices(true);
       toast.success(`📤 ${isCredit ? 'E-Avoir' : 'Facture'} marqué(e) transmis(e)`, { description: `Référence : ${reference}`, duration: 6000 });
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur marquage transmission:', e);
+      toast.error('Erreur lors du marquage de la transmission');
     } finally {
       setTransmitting(false);
     }
@@ -1929,11 +2063,12 @@ export default function Invoices() {
     if (!confirm(`Marquer ${isCredit ? "l'E-Avoir" : 'la facture'} ${inv.invoiceNumber} comme ACCEPTÉ(E) ?`)) return;
     setTransmitting(true);
     try {
-      await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, { transmissionStatus: 'accepted' });
+      await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, { transmissionStatus: 'accepted' });
       await loadInvoices(true);
       toast.success(`✅ ${isCredit ? 'E-Avoir' : 'Facture'} marqué(e) accepté(e)`, { duration: 6000 });
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur acceptation manuelle:', e);
+      toast.error('Erreur lors de l\'acceptation manuelle');
     } finally {
       setTransmitting(false);
     }
@@ -1945,7 +2080,7 @@ export default function Invoices() {
     if (!reason || !reason.trim()) { toast.info('Rejet abandonné : motif requis.'); return; }
     setTransmitting(true);
     try {
-      await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, {
+      await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, {
         transmissionStatus: 'rejected', rejectionReason: reason.trim(),
       });
       await loadInvoices(true);
@@ -1953,7 +2088,8 @@ export default function Invoices() {
       const fresh = await databases.getDocument(DATABASE_ID, 'invoices', inv.$id) as unknown as Invoice;
       handleOpenCorrectionModal(fresh);
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur rejet manuel:', e);
+      toast.error('Erreur lors du rejet manuel');
     } finally {
       setTransmitting(false);
     }
@@ -1972,7 +2108,8 @@ export default function Invoices() {
         toast.error(`Erreur : ${result.errorMessage}`);
       }
     } catch (e: any) {
-      toast.error(`Erreur : ${e.message}`);
+      console.error('Erreur simulation réponse:', e);
+      toast.error('Erreur lors de la simulation');
     } finally {
       setTransmitting(false);
     }
@@ -2045,7 +2182,7 @@ export default function Invoices() {
     setCorrecting(true);
     try {
       const totals = calculateTotals();
-      await databases.updateDocument(DATABASE_ID, 'invoices', invoiceToCorrect.$id, {
+      await secureDb.updateDocument('invoices.edit', 'invoices', invoiceToCorrect.$id, {
         clientName: correctionForm.clientName, clientAddress: correctionForm.clientAddress,
         clientEmail: correctionForm.clientEmail, invoiceNumber: correctionForm.invoiceNumber,
         issueDate: correctionForm.issueDate, dueDate: correctionForm.dueDate,
@@ -2071,16 +2208,22 @@ export default function Invoices() {
       } else {
         toast.success(`🔧 Facture corrigée — prête pour un nouveau dépôt`, { duration: 8000 });
       }
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } finally { setCorrecting(false); }
+    } catch (e: any) { 
+      console.error('Erreur correction:', e);
+      toast.error('Erreur lors de la correction');
+    } finally { setCorrecting(false); }
   };
 
   const handleCancelTransmission = async (inv: Invoice) => {
     if (!confirm(`Annuler la transmission de la facture ${inv.invoiceNumber} ?`)) return;
     try {
-      await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, { transmissionStatus: 'draft', transmissionReference: null });
+      await secureDb.updateDocument('invoices.edit', 'invoices', inv.$id, { transmissionStatus: 'draft', transmissionReference: null });
       await loadInvoices(true);
       toast.info(`Transmission annulée pour ${inv.invoiceNumber}`);
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
+    } catch (e: any) { 
+      console.error('Erreur annulation transmission:', e);
+      toast.error('Erreur lors de l\'annulation');
+    }
   };
 
   const isSubjectToVAT = useMemo(() => {
@@ -2128,6 +2271,7 @@ export default function Invoices() {
     return true;
   });
   const creditInvoices = invoices.filter(i => i && i.type === 'credit' && !isDocArchived(i));
+  
   const caFacture = revenueInvoices.reduce((sum, i) => sum + amountOf(i), 0);
   const paidFraction = (i: Invoice | null | undefined): number => {
     if (!i) return 0;
@@ -2150,9 +2294,11 @@ export default function Invoices() {
   const caEncaisseHT = round2(caEncaisse - tvaExigible);
   const totalDecaisseHT = round2(totalDecaisse - tvaRegulariseeRemboursee);
   const caNetHT = round2(caNet - tvaNette);
+  
   const overdueInvoices = revenueInvoices.filter(i => getDaysOverdue(i.dueDate, i.status) > 0 && getNetRemaining(i) > 0);
   const overdueCount = overdueInvoices.length;
   const overdueAmount = overdueInvoices.reduce((sum, i) => sum + getNetRemaining(i), 0);
+  
   const advanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'advance').map(i => i.originalInvoiceId));
   const balanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.originalInvoiceId));
   const finalInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.$id));
@@ -2182,9 +2328,11 @@ export default function Invoices() {
     const hasBalance = balanceInvoiceIds.has(inv.$id);
     const isFinal = finalInvoiceIds.has(inv.$id);
     const isCredit = inv.type === 'credit';
+    
     if (viewMode === 'archived') {
       return (<ActionMenuItem onClick={() => handleUnarchive(inv.$id, inv.invoiceNumber)} icon={RotateCcw} label="Désarchiver" />);
     }
+    
     return (
       <>
         {inv.clientToken && (<ActionMenuItem onClick={() => handleCopyLink(inv)} icon={copiedToken === inv.clientToken ? CheckCircle2 : Link2} label={copiedToken === inv.clientToken ? 'Lien copié !' : 'Copier le lien client'} />)}
@@ -2257,7 +2405,6 @@ export default function Invoices() {
   }
   if (!hasPermission('invoices.view')) return null;
 
-  // ✅ Calculs pour la checkbox "Tout sélectionner"
   const isAllSelected = paginatedInvoices.length > 0 && paginatedInvoices.every(i => i && selectedIds.has(i.$id));
   const isIndeterminate = selectedIds.size > 0 && !isAllSelected;
 
@@ -2276,7 +2423,7 @@ export default function Invoices() {
             </button>
           ) : undefined}
         />
-
+        
         {isFrenchEInvoiceRegime && (
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-2 text-sm">
@@ -2288,7 +2435,7 @@ export default function Invoices() {
             </div>
           </main>
         )}
-
+        
         {!isFrenchEInvoiceRegime && countryConfig.code !== 'XX' && (
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 flex items-start gap-2 text-sm">
@@ -2314,14 +2461,14 @@ export default function Invoices() {
             <StatCell label="Reste à encaisser" value={fm(resteAEncaisser)} sublabel="Créances en cours" trend={0} />
             <StatCell label="En retard" value={fm(overdueAmount)} sublabel={`${overdueCount} facture${overdueCount > 1 ? 's' : ''}`} trend={overdueCount > 0 ? -1 : 0} />
           </KPIGrid>
-
+          
           <TypeTabs tabs={typeTabs} activeTab={typeTab} onTabChange={(key) => setTypeTab(key as any)} color="purple" />
-
+          
           <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
             <button onClick={() => setViewMode('active')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'active' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Actives ({invoices.filter(i => i && !isDocArchived(i)).length})</button>
             <button onClick={() => setViewMode('archived')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'archived' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Archivées ({invoices.filter(i => i && isDocArchived(i)).length})</button>
           </div>
-
+          
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <div className="relative flex-1">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2343,7 +2490,7 @@ export default function Invoices() {
               </>
             )}
           </div>
-
+          
           {loading ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <table className="w-full"><tbody>{[...Array(8)].map((_, i) => <SkeletonRow key={i} />)}</tbody></table>
@@ -2356,7 +2503,6 @@ export default function Invoices() {
             </div>
           ) : (
             <>
-              {/* ✅ TABLEAU DESKTOP AVEC CHECKBOX */}
               <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible relative">
                 <table className="w-full text-left border-separate border-spacing-0">
                   <thead className="relative z-20 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
@@ -2389,6 +2535,7 @@ export default function Invoices() {
                       const mappedStatus = mapInvoiceStatusToShared(inv.status, inv.type, creditStatus);
                       const alert = isRowAlert(inv);
                       const isSelected = selectedIds.has(inv.$id);
+                      
                       return (
                         <tr key={inv.$id} className={`transition-colors group ${isSelected ? 'bg-purple-50/40 dark:bg-purple-900/10' : ''} ${alert ? 'bg-rose-50/80 hover:bg-rose-100/80 dark:bg-rose-900/15 dark:hover:bg-rose-900/25' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}>
                           <td className="px-4 py-3">
@@ -2464,10 +2611,8 @@ export default function Invoices() {
                 </table>
                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} startItem={startItem} endItem={endItem} totalItems={filtered.length} itemName="facture" />
               </div>
-
-              {/* ✅ CARTES MOBILE AVEC CHECKBOX */}
+              
               <div className="md:hidden space-y-3">
-                {/* Barre de sélection mobile */}
                 {paginatedInvoices.length > 0 && (
                   <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
                     <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -2494,6 +2639,7 @@ export default function Invoices() {
                   const mappedStatus = mapInvoiceStatusToShared(inv.status, inv.type, creditStatus);
                   const alert = isRowAlert(inv);
                   const isSelected = selectedIds.has(inv.$id);
+                  
                   return (
                     <div key={inv.$id} className={`rounded-2xl border p-4 shadow-sm transition-all ${isSelected ? 'ring-2 ring-purple-500 dark:ring-purple-400 border-purple-200' : ''} ${alert ? 'bg-rose-50/80 dark:bg-rose-900/15 border-rose-300 dark:border-rose-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
                       <div className="flex items-start justify-between gap-3 mb-3">
@@ -2536,8 +2682,7 @@ export default function Invoices() {
                 })}
                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
               </div>
-
-              {/* ✅ BARRE D'ACTIONS FLOTTANTE ADAPTATIVE */}
+              
               <BulkActionBar
                 selectedCount={selectedIds.size}
                 onClear={() => setSelectedIds(new Set())}
@@ -2565,7 +2710,6 @@ export default function Invoices() {
           )}
         </main>
 
-        {/* Tous les modals restent inchangés */}
         <Modal open={showQuoteModal} onClose={() => { setShowQuoteModal(false); setQuoteDetails(null); }} title="Devis d'origine" icon={<FileText className="text-emerald-600" size={20} />}>
           {loadingQuote ? (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Chargement du devis...</div>) : quoteDetails ? (
             <div className="space-y-4">
@@ -2585,7 +2729,7 @@ export default function Invoices() {
             </div>
           ) : (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Aucune donnée de devis trouvée.</div>)}
         </Modal>
-
+        
         <PaymentModal
           isOpen={showPaymentModal}
           onClose={() => { setShowPaymentModal(false); setInvoiceToPay(null); }}
@@ -2593,7 +2737,7 @@ export default function Invoices() {
           type="client"
           onSuccess={handlePaymentSuccess}
         />
-
+        
         <Modal open={showAdvanceModal} onClose={() => setShowAdvanceModal(false)} title="Générer une facture d'acompte" icon={<FileText className="text-violet-600" size={20} />}>
           <div className="space-y-4">
             <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Pourcentage d'acompte (%) *</label><input type="number" min="1" max="99" step="0.01" value={advanceForm.percent} onChange={e => setAdvanceForm({ ...advanceForm, percent: e.target.value })} className="w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg p-3 text-sm focus:ring-2 focus:ring-violet-500 outline-none" /><p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">Montant : {(() => { const inv = invoices.find(i => i && i.$id === advanceForm.invoiceId); return inv ? fm(inv.deposit || 0) : fm(0); })()}</p></div>
@@ -2608,7 +2752,7 @@ export default function Invoices() {
             </div>
           </div>
         </Modal>
-
+        
         <Modal open={showCreditModal && !!creditInvoice} onClose={() => setShowCreditModal(false)} title="Créer un avoir" icon={<FileMinus className="text-rose-600" size={20} />}>
           {creditInvoice && (() => {
             const existingCreditsTotal = getTotalCreditsForInvoice(creditInvoice.$id);
@@ -2664,7 +2808,7 @@ export default function Invoices() {
             );
           })()}
         </Modal>
-
+        
         <Modal open={showRefundModal && !!refundCredit} onClose={() => setShowRefundModal(false)} title="Remboursement d'avoir" icon={<Banknote className="text-rose-600" size={20} />}>
           {refundCredit && (
             <div className="space-y-4">
@@ -2685,7 +2829,7 @@ export default function Invoices() {
             </div>
           )}
         </Modal>
-
+        
         <Modal open={showCorrectionModal && !!invoiceToCorrect} onClose={() => { setShowCorrectionModal(false); setInvoiceToCorrect(null); }} title={`🔧 Corriger ${invoiceToCorrect?.invoiceNumber}`} icon={<FileText className="text-amber-600" size={20} />} maxWidth="sm:max-w-5xl">
           {invoiceToCorrect && (
             <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2">
@@ -2754,7 +2898,7 @@ export default function Invoices() {
             </div>
           )}
         </Modal>
-
+        
         <TransmissionHistoryModal
           open={showHistoryModal}
           onClose={() => { setShowHistoryModal(false); setHistoryInvoice(null); }}

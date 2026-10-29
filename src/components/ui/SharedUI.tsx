@@ -1,11 +1,7 @@
 // src/components/ui/SharedUI.tsx
-import { 
-  TrendingUp, TrendingDown, Minus, Inbox, X, Receipt, FileText, 
-  UserCheck, Users, Package, AlertCircle, Search, Filter, MoreHorizontal, 
-  ChevronLeft, ChevronRight, Lock 
-} from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Inbox, X, Receipt, FileText, UserCheck, Users, Package, AlertCircle, Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import type { ReactNode, ReactElement, ComponentType } from 'react';
-import { useState, useRef, useEffect, forwardRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 // ============================================================
 // 🌐 TYPES & INTERFACES GÉNÉRIQUES
@@ -24,6 +20,7 @@ export type DotTone =
   | 'sky' | 'teal' | 'violet' | 'amber' | 'emerald'
   | 'rose' | 'orange' | 'slate' | 'pink' | 'indigo' | 'red';
 
+// ✅ MODIF 1 : ajout de 'invoiced' dans les statuts partagés
 export type SharedStatus =
   | 'active' | 'inactive' | 'archived'
   | 'new' | 'contacted' | 'quote_sent' | 'pending' | 'followup' | 'won' | 'lost'
@@ -34,6 +31,7 @@ export type SharedStatus =
 // 🏷️ LIBELLÉS CENTRALISÉS
 // ============================================================
 
+// ✅ MODIF 2 : ajout du libellé "Facturé" pour invoiced
 export const statusLabels: Record<string, string> = {
   active: 'Actif', inactive: 'Inactif', archived: 'Archivé',
   new: 'Nouveau', contacted: 'Contacté', quote_sent: 'Devis envoyé',
@@ -54,6 +52,7 @@ export const typeLabels: Record<string, string> = {
 // 🎨 CONFIGURATION VISUELLE DES STATUTS
 // ============================================================
 
+// ✅ MODIF 3 : configuration visuelle violette pour invoiced (distinct de sent/sky)
 const statusConfig: Record<string, { text: string; bg: string; ring: string; dot: string }> = {
   active: { text: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', ring: 'ring-emerald-600/10 dark:ring-emerald-500/20', dot: 'bg-emerald-500' },
   inactive: { text: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-500/10', ring: 'ring-slate-500/10 dark:ring-slate-500/20', dot: 'bg-slate-400 dark:bg-slate-500' },
@@ -114,14 +113,17 @@ export const typeTones: Record<string, DotTone> = {
 // 🔄 HELPERS DE MAPPING
 // ============================================================
 
+// ✅ MODIF 4 : mapInvoiceStatusToShared gère maintenant invoiced nativement
 export const mapInvoiceStatusToShared = (
   status: string,
   type?: string,
   creditStatus?: string
 ): string => {
+  // Priorité au statut de crédit s'il existe
   if (type === 'credit' && creditStatus) {
     return creditStatus;
   }
+  // invoiced est maintenant un statut partagé natif
   return status;
 };
 
@@ -907,7 +909,7 @@ export const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode;
 };
 
 // ============================================================
-// 🎛️ TOGGLE SWITCH
+// 🎛️ TOGGLE SWITCH (NOUVEAU)
 // ============================================================
 
 export const Toggle = ({
@@ -964,7 +966,7 @@ export const Toggle = ({
 };
 
 // ============================================================
-// 📊 PROGRESS BAR
+// 📊 PROGRESS BAR (NOUVEAU)
 // ============================================================
 
 export const ProgressBar = ({
@@ -1026,74 +1028,6 @@ export const ProgressBar = ({
           aria-valuemax={max}
         />
       </div>
-    </div>
-  );
-};
-
-// ============================================================
-// ✅ SELECTION MULTIPLE (NOUVEAU)
-// ============================================================
-
-export const Checkbox = forwardRef<
-  HTMLInputElement,
-  React.InputHTMLAttributes<HTMLInputElement> & { indeterminate?: boolean }
->(({ className = '', indeterminate, ...props }, ref) => {
-  const innerRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (innerRef.current) {
-      innerRef.current.indeterminate = !!indeterminate;
-    }
-  }, [indeterminate]);
-
-  return (
-    <input
-      type="checkbox"
-      ref={(node) => {
-        innerRef.current = node;
-        if (typeof ref === 'function') ref(node);
-        else if (ref) (ref as any).current = node;
-      }}
-      className={`w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-purple-600 focus:ring-purple-500 dark:focus:ring-purple-600 dark:bg-slate-700 dark:checked:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors ${className}`}
-      {...props}
-    />
-  );
-});
-Checkbox.displayName = 'Checkbox';
-
-export const BulkActionBar = ({
-  selectedCount,
-  onClear,
-  actions,
-}: {
-  selectedCount: number;
-  onClear: () => void;
-  actions: ReactNode;
-}) => {
-  if (selectedCount === 0) return null;
-
-  return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 dark:bg-slate-800 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-4 animate-slideUp border border-slate-700 dark:border-slate-600">
-      <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-xs font-bold">
-          {selectedCount}
-        </div>
-        <span className="text-sm font-medium text-slate-200">sélectionné(s)</span>
-      </div>
-      
-      <div className="h-6 w-px bg-slate-700" />
-      
-      <div className="flex items-center gap-2">
-        {actions}
-      </div>
-
-      <button
-        onClick={onClear}
-        className="ml-2 p-2 hover:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-        title="Effacer la sélection"
-      >
-        <X size={16} />
-      </button>
     </div>
   );
 };

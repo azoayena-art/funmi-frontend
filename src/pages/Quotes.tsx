@@ -176,13 +176,10 @@ export default function Quotes() {
   const { hasPermission, permissions, loading: permLoading } = usePermissions();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  
-  // ✅ CORRECTION : Extraire companyCountry du hook
   const {
     fm,
     currency,
     currencyConfig,
-    companyCountry: hookCompanyCountry,
     loading: settingsLoading
   } = useCompanySettings();
   
@@ -210,9 +207,8 @@ export default function Quotes() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ CORRECTION : Pays dynamique avec fallback sur le hook et companySettings
-  const companyCountry = hookCompanyCountry || companySettings?.country || 'FR';
-  
+  // 🌍 CONFIGURATION PAYS DYNAMIQUE
+  const companyCountry = companySettings?.country || 'FR';
   const countryConfig: CountryConfig = useMemo(
     () => getCountryConfig(companyCountry) || FALLBACK_COUNTRY,
     [companyCountry]
@@ -462,11 +458,10 @@ export default function Quotes() {
     return `${fullPrefix}${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // ✅ CORRECTION : Utiliser le pays du client avec fallback
   const isEInvoiceRequiredForQuote = (quote: Quote): boolean => {
     if (!isFrenchEInvoiceRegime) return false;
     return isEInvoiceRequired(companyCountry, {
-      country: quote.clientCountry || companyCountry,
+      country: quote.clientCountry,
       type: (quote.clientType || 'entreprise') as 'entreprise' | 'particulier',
       companyName: quote.clientName,
     });
@@ -515,6 +510,7 @@ export default function Quotes() {
     }
   };
 
+  // 🚀 NOUVEAU : Envoi du lien par email via le client mail de l'utilisateur
   const handleSendEmail = (quote: Quote) => {
     if (!quote.clientToken) { 
       toast.warning("Ce devis n'a pas encore de lien de partage. Veuillez l'enregistrer d'abord."); 
@@ -542,6 +538,7 @@ export default function Quotes() {
       `Cordialement,\n${companySettings?.name || 'Notre équipe'}`
     );
 
+    // Ouvre le client mail par défaut avec les champs pré-remplis
     window.open(`mailto:${clientEmail}?subject=${subject}&body=${body}`, '_blank');
     
     if (user && user.$id && currentTeamId) {
@@ -612,9 +609,6 @@ export default function Quotes() {
     }
   };
 
-  // ============================================================
-  // ✅ CONVERSION EN FACTURE FINALE — STATUT 'sent' (TRANSMISE)
-  // ============================================================
   const handleChooseFinal = async () => {
     if (!selectedQuoteForInvoice || !currentTeamId || !user || !user.$id) return;
     setGenerating(true);
@@ -629,13 +623,13 @@ export default function Quotes() {
         quote.clientAddress,
         quote.clientPostalCode,
         quote.clientCity,
-        quote.clientCountry || companyCountry
+        quote.clientCountry
       );
       const companyAddr = parseAddressRetroactive(
         quote.companyAddress,
         quote.companyPostalCode,
         quote.companyCity,
-        quote.companyCountry || companyCountry
+        quote.companyCountry
       );
 
       const payload = {
@@ -643,8 +637,7 @@ export default function Quotes() {
         type: 'standard', originalQuoteId: quote.$id,
         currencyCode: currency,
         clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
-        status: 'sent', // ✅ CORRECTION CRITIQUE : Devis accepté → Facture TRANSMISE (pas brouillon) pour réconciliation bancaire
-        issueDate: today, dueDate: dueDate,
+        status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: Math.round((quote.subtotal || 0) * 100) / 100,
         vatRate: Math.round(vatRate), vatAmount: Math.round((quote.tax || 0) * 100) / 100,
         total: Math.round((quote.total || 0) * 100) / 100, discount: quote.discount || 0,
@@ -656,7 +649,7 @@ export default function Quotes() {
         companyAddress: companyAddr.address,
         companyPostalCode: companyAddr.postalCode,
         companyCity: companyAddr.city,
-        companyCountry: quote.companyCountry || companyCountry,
+        companyCountry: companyAddr.country,
         companySiret: quote.companySiret || '',
         companyRcs: quote.companyRcs || '', 
         companyTva: quote.companyTva || '',
@@ -669,7 +662,7 @@ export default function Quotes() {
         clientAddress: clientAddr.address,
         clientPostalCode: clientAddr.postalCode,
         clientCity: clientAddr.city,
-        clientCountry: quote.clientCountry || companyCountry,
+        clientCountry: clientAddr.country,
         clientBillingAddress: quote.clientBillingAddress || '',
         clientEmail: quote.clientEmail || '', 
         clientPhone: quote.clientPhone || '',
@@ -705,7 +698,7 @@ export default function Quotes() {
       
       setShowChoiceModal(false);
       setSelectedQuoteForInvoice(null);
-      toast.success(`Facture finale ${invoiceNumber} créée et transmise !`, { description: `Montant : ${fm(quote.total || 0)}` });
+      toast.success(`Facture finale ${invoiceNumber} créée avec succès !`, { description: `Montant : ${fm(quote.total || 0)}` });
       navigate('/invoices');
     } catch (e: any) {
       console.error('Erreur génération facture finale:', e);
@@ -715,9 +708,6 @@ export default function Quotes() {
     }
   };
 
-  // ============================================================
-  // ✅ FACTURE D'ACOMPTE — STATUT 'sent' (TRANSMISE)
-  // ============================================================
   const handleGenerateAdvanceInvoice = async () => {
     if (!selectedQuoteForInvoice || !currentTeamId || !user || !user.$id) return;
     const amount = parseFloat(advanceForm.amount);
@@ -739,13 +729,13 @@ export default function Quotes() {
         quote.clientAddress,
         quote.clientPostalCode,
         quote.clientCity,
-        quote.clientCountry || companyCountry
+        quote.clientCountry
       );
       const companyAddr = parseAddressRetroactive(
         quote.companyAddress,
         quote.companyPostalCode,
         quote.companyCity,
-        quote.companyCountry || companyCountry
+        quote.companyCountry
       );
 
       const payload = {
@@ -754,8 +744,7 @@ export default function Quotes() {
         currencyCode: currency,
         advancePercent: ((amount / (quote.total || 0)) * 100).toFixed(2),
         clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
-        status: 'sent', // ✅ CORRECTION CRITIQUE : Devis accepté → Facture d'acompte TRANSMISE
-        issueDate: today, dueDate: dueDate,
+        status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: advanceHT, vatRate: parseFloat(companySettings?.defaultTvaRate || '20'),
         vatAmount: advanceTVA, total: amount, discount: 0, tax: advanceTVA, deposit: 0, balance: amount,
         
@@ -764,7 +753,7 @@ export default function Quotes() {
         companyAddress: companyAddr.address,
         companyPostalCode: companyAddr.postalCode,
         companyCity: companyAddr.city,
-        companyCountry: quote.companyCountry || companyCountry,
+        companyCountry: companyAddr.country,
         companySiret: quote.companySiret || '',
         companyRcs: quote.companyRcs || '', 
         companyTva: quote.companyTva || '',
@@ -777,7 +766,7 @@ export default function Quotes() {
         clientAddress: clientAddr.address,
         clientPostalCode: clientAddr.postalCode,
         clientCity: clientAddr.city,
-        clientCountry: quote.clientCountry || companyCountry,
+        clientCountry: clientAddr.country,
         clientBillingAddress: quote.clientBillingAddress || '',
         clientEmail: quote.clientEmail || '', 
         clientPhone: quote.clientPhone || '',
@@ -807,7 +796,7 @@ export default function Quotes() {
       
       setShowAdvanceModal(false);
       setSelectedQuoteForInvoice(null);
-      toast.success(`Facture d'acompte ${invoiceNumber} créée et transmise !`, { description: `Montant : ${fm(amount)}` });
+      toast.success(`Facture d'acompte ${invoiceNumber} créée avec succès !`, { description: `Montant : ${fm(amount)}` });
       navigate('/invoices');
     } catch (e: any) {
       console.error('Erreur génération acompte:', e);
@@ -817,9 +806,6 @@ export default function Quotes() {
     }
   };
 
-  // ============================================================
-  // ✅ CONVERSION EN E-FACTURE — STATUT 'sent' (TRANSMISE)
-  // ============================================================
   const handleConvertToEInvoice = async (quote: Quote) => {
     if (!isFrenchEInvoiceRegime) {
       toast.error('E-facturation non disponible', {
@@ -834,10 +820,9 @@ export default function Quotes() {
     const eInvoiceRequired = isEInvoiceRequiredForQuote(quote);
     
     if (!eInvoiceRequired) {
-      const clientCountryForCheck = quote.clientCountry || companyCountry;
-      if (clientCountryForCheck && clientCountryForCheck !== 'FR') {
+      if (quote.clientCountry && quote.clientCountry !== 'FR') {
         toast.error('Client étranger (export)', {
-          description: `Votre client est basé en ${clientCountryForCheck}. L'e-facturation française ne s'applique pas aux exports. Utilisez la facture classique.`,
+          description: `Votre client est basé en ${quote.clientCountry}. L'e-facturation française ne s'applique pas aux exports. Utilisez la facture classique.`,
           duration: 6000,
         });
         return;
@@ -853,7 +838,7 @@ export default function Quotes() {
     }
     
     const validation = validateEInvoiceFields(companyCountry, {
-      country: quote.clientCountry || companyCountry,
+      country: quote.clientCountry,
       type: (quote.clientType || 'entreprise') as 'entreprise' | 'particulier',
       companyName: quote.clientName,
       siren: quote.clientSiren,
@@ -898,13 +883,13 @@ export default function Quotes() {
         quote.clientAddress,
         quote.clientPostalCode,
         quote.clientCity,
-        quote.clientCountry || companyCountry
+        quote.clientCountry
       );
       const companyAddr = parseAddressRetroactive(
         quote.companyAddress,
         quote.companyPostalCode,
         quote.companyCity,
-        quote.companyCountry || companyCountry
+        quote.companyCountry
       );
 
       const payload = {
@@ -912,8 +897,7 @@ export default function Quotes() {
         type: 'standard', originalQuoteId: quote.$id,
         currencyCode: currency,
         clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
-        status: 'sent', // ✅ CORRECTION CRITIQUE : Devis accepté → E-Facture TRANSMISE
-        issueDate: today, dueDate: dueDate,
+        status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: Math.round((quote.subtotal || 0) * 100) / 100,
         vatRate: Math.round(vatRate), vatAmount: Math.round((quote.tax || 0) * 100) / 100,
         total: Math.round((quote.total || 0) * 100) / 100, discount: quote.discount || 0,
@@ -925,7 +909,7 @@ export default function Quotes() {
         companyAddress: companyAddr.address,
         companyPostalCode: companyAddr.postalCode,
         companyCity: companyAddr.city,
-        companyCountry: quote.companyCountry || companyCountry,
+        companyCountry: companyAddr.country,
         companySiret: quote.companySiret || '',
         companyRcs: quote.companyRcs || '', 
         companyTva: quote.companyTva || '',
@@ -938,7 +922,7 @@ export default function Quotes() {
         clientAddress: clientAddr.address,
         clientPostalCode: clientAddr.postalCode,
         clientCity: clientAddr.city,
-        clientCountry: quote.clientCountry || companyCountry,
+        clientCountry: clientAddr.country,
         clientBillingAddress: quote.clientBillingAddress || '',
         clientEmail: quote.clientEmail || '', 
         clientPhone: quote.clientPhone || '',

@@ -7,12 +7,6 @@
 // ✅ VALIDATION HUMAINE : justificatif créé en statut "pending" (à valider)
 // ✅ CORRIGÉ : Permissions storage compatibles avec le bucket (Role.any() pour read)
 
-// 🔐 SÉCURITÉ MULTI-TENANT :
-// - Tous les documents créés ont Role.team(appwriteTeamId) via getTeamPermissions()
-// - Les fichiers storage ont Role.any() pour lecture (aperçus) mais Role.team() pour modif/suppression
-// - La détection de doublons se fait par hash SHA-256 au niveau de l'équipe
-// - Le chargement filtre par Query.equal('teamId', customTeamId)
-
 import { useState, useMemo, useEffect } from 'react';
 import { databases, storage, DATABASE_ID, BUCKET_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -702,12 +696,10 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
   };
 
   const handleValidateFile = async () => {
-    // ✅ CORRECTION : Vérification complète de l'équipe
-    if (!parsedPreview || !selectedFile || !user?.$id || !customTeamId || !appwriteTeamId) {
-      toast.error('Session expirée ou équipe non résolue');
+    if (!parsedPreview || !selectedFile || !user?.$id || !customTeamId) {
+      toast.error('Données incomplètes');
       return;
     }
-    
     setUploading(true);
     try {
       let pdfFileId = '';
@@ -741,41 +733,33 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
       const typeCode = parsedPreview.xmlContent?.includes('<ram:TypeCode>381</ram:TypeCode>') ? '381' : '380';
       const isElectronic = ['factur-x', 'cii', 'ubl'].includes((parsedPreview.format || '').toLowerCase());
 
-      const doc = await databases.createDocument(
-        DATABASE_ID, 
-        'received_invoices', 
-        ID.unique(), 
-        {
-          teamId: customTeamId, 
-          userId: user.$id,
-          invoiceNumber: parsedPreview.invoiceNumber,
-          supplierName: parsedPreview.supplierName,
-          supplierSiret: parsedPreview.supplierSiret || '',
-          issueDate: parsedPreview.issueDate,
-          dueDate: parsedPreview.dueDate || '',
-          subtotal: parsedPreview.subtotal,
-          tax: parsedPreview.tax,
-          total: parsedPreview.total,
-          currencyCode: parsedPreview.currencyCode,
-          status: 'validated',
-          format: parsedPreview.format,
-          xmlContent: parsedPreview.xmlContent || '',
-          pdfFileId, 
-          originalFileId: pdfFileId,
-          fileHash,
-          source: 'manual_upload',
-          ocrConfidence: null,
-          isElectronic,
-          einvoiceStatus: isElectronic ? 'received' : null,
-          extractedAt: new Date().toISOString(),
-          validatedBy: user.$id,
-          validatedAt: new Date().toISOString(),
-          type: typeCode,
-          paidAmount: 0,
-          payments: JSON.stringify([]),
-        }, 
-        getTeamPermissions(appwriteTeamId)
-      );
+      const doc = await databases.createDocument(DATABASE_ID, 'received_invoices', ID.unique(), {
+        teamId: customTeamId, userId: user.$id,
+        invoiceNumber: parsedPreview.invoiceNumber,
+        supplierName: parsedPreview.supplierName,
+        supplierSiret: parsedPreview.supplierSiret || '',
+        issueDate: parsedPreview.issueDate,
+        dueDate: parsedPreview.dueDate || '',
+        subtotal: parsedPreview.subtotal,
+        tax: parsedPreview.tax,
+        total: parsedPreview.total,
+        currencyCode: parsedPreview.currencyCode,
+        status: 'validated',
+        format: parsedPreview.format,
+        xmlContent: parsedPreview.xmlContent || '',
+        pdfFileId, originalFileId: pdfFileId,
+        fileHash,
+        source: 'manual_upload',
+        ocrConfidence: null,
+        isElectronic,
+        einvoiceStatus: isElectronic ? 'received' : null,
+        extractedAt: new Date().toISOString(),
+        validatedBy: user.$id,
+        validatedAt: new Date().toISOString(),
+        type: typeCode,
+        paidAmount: 0,
+        payments: JSON.stringify([]),
+      }, getTeamPermissions(appwriteTeamId));
 
       if (pdfFileId && selectedFile) {
         await createJustificationRecord({
@@ -790,7 +774,7 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
           amount: parsedPreview.total,
           userId: user.$id,
           teamId: customTeamId,
-          appwriteTeamId: appwriteTeamId,
+          appwriteTeamId: appwriteTeamId || '',
         });
       }
 
@@ -988,12 +972,7 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
   };
 
   const handleSaveEntry = async (source: 'photo_ocr' | 'manual_entry') => {
-    // ✅ CORRECTION : Vérification complète de l'équipe
-    if (!user?.$id || !customTeamId || !appwriteTeamId) { 
-      toast.error('Session expirée ou équipe non résolue'); 
-      return; 
-    }
-    
+    if (!user?.$id || !customTeamId) { toast.error('Session expirée'); return; }
     const err = validate();
     if (err) { toast.error(err); return; }
 
@@ -1081,13 +1060,7 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
       };
       if (form.iban.trim()) payload.iban = form.iban.trim();
 
-      const doc = await databases.createDocument(
-        DATABASE_ID, 
-        'received_invoices', 
-        ID.unique(), 
-        payload, 
-        perms
-      );
+      const doc = await databases.createDocument(DATABASE_ID, 'received_invoices', ID.unique(), payload, perms);
 
       if (originalFileId && photoFile) {
         await createJustificationRecord({
@@ -1102,7 +1075,7 @@ export default function SupplierInvoiceImportModal({ isOpen, onClose, onSuccess 
           amount: total,
           userId: user.$id,
           teamId: customTeamId,
-          appwriteTeamId: appwriteTeamId,
+          appwriteTeamId: appwriteTeamId || '',
         });
       }
 
