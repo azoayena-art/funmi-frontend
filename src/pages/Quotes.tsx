@@ -1,3 +1,4 @@
+// src/pages/Quotes.tsx
 import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -114,6 +115,16 @@ const parseAddressRetroactive = (
     city: city || '',
     country: existingCountry || 'FR'
   };
+};
+
+// ✅ GÉNÉRATEUR DE TOKEN SÉCURISÉ (remplace Math.random)
+const generateSecureToken = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 };
 
 // ✅ INSTANCE CLIENT POUR LE REALTIME
@@ -272,25 +283,43 @@ export default function Quotes() {
     }
   }, [clients, searchParams]);
 
+  // 🔄 REALTIME AMÉLIORÉ + POLLING DE SECOURS
   useEffect(() => {
-    if (!currentTeamId) return;
+    if (!currentTeamId || !user) return;
 
+    let isActive = true;
+    let pollingInterval: NodeJS.Timeout;
+
+    // ✅ Subscription Realtime
     const unsubscribe = realtimeClient.subscribe(
       `databases.${DATABASE_ID}.collections.quotes.documents`,
       (response) => {
-        const isUpdate = response.events.some((event: string) => event.includes('update'));
+        if (!isActive) return;
+
+        console.log('📡 Realtime event reçu:', response.events);
+        
+        const isUpdate = response.events.some((event: string) => 
+          event.includes('update') || event.includes('.update')
+        );
         
         if (isUpdate) {
           const updatedQuote = response.payload as unknown as Quote;
+          console.log('📄 Devis mis à jour via Realtime:', updatedQuote.quoteNumber, updatedQuote.status);
 
-          if (updatedQuote.teamId === currentTeamId) {
+          const shouldUpdate = updatedQuote.teamId === currentTeamId || 
+                              quotes.some(q => q.$id === updatedQuote.$id);
+
+          if (shouldUpdate) {
             setQuotes((prevQuotes) => {
-              const quoteExists = prevQuotes.find((q) => q.$id === updatedQuote.$id);
+              const existingIndex = prevQuotes.findIndex((q) => q.$id === updatedQuote.$id);
               
-              if (quoteExists) {
-                return prevQuotes.map((q) => 
-                  q.$id === updatedQuote.$id ? { ...q, ...updatedQuote } : q
-                );
+              if (existingIndex >= 0) {
+                const newQuotes = [...prevQuotes];
+                newQuotes[existingIndex] = { ...newQuotes[existingIndex], ...updatedQuote };
+                return newQuotes;
+              }
+              if (updatedQuote.teamId === currentTeamId) {
+                return [updatedQuote, ...prevQuotes];
               }
               return prevQuotes;
             });
@@ -299,16 +328,77 @@ export default function Quotes() {
               toast.success(`🎉 Le devis ${updatedQuote.quoteNumber} a été accepté par le client !`, {
                 duration: 5000,
               });
+            } else if (updatedQuote.status === 'Refusé') {
+              toast.warning(`❌ Le devis ${updatedQuote.quoteNumber} a été refusé`, {
+                duration: 5000,
+              });
             }
           }
         }
       }
     );
 
-    return () => {
-      unsubscribe();
+    // ✅ Polling de secours (toutes les 10 secondes)
+    pollingInterval = setInterval(async () => {
+      if (!isActive || !currentTeamId) return;
+      
+      try {
+        const res = await databases.listDocuments(DATABASE_ID, 'quotes', [
+          Query.equal('teamId', currentTeamId),
+          Query.orderDesc('$createdAt'),
+          Query.limit(100)
+        ]);
+        
+        const freshQuotes = res.documents as unknown as Quote[];
+        
+        setQuotes(prevQuotes => {
+          let hasChanges = false;
+          const updated = prevQuotes.map(prev => {
+            const fresh = freshQuotes.find(f => f.$id === prev.$id);
+            if (fresh && fresh.status !== prev.status) {
+              hasChanges = true;
+              if (fresh.status === 'Accepté' && prev.status !== 'Accepté') {
+                toast.success(`🎉 Le devis ${fresh.quoteNumber} a été accepté par le client !`, {
+                  duration: 5000,
+                });
+              } else if (fresh.status === 'Refusé' && prev.status !== 'Refusé') {
+                toast.warning(`❌ Le devis ${fresh.quoteNumber} a été refusé`, {
+                  duration: 5000,
+                });
+              }
+              return fresh;
+            }
+            return prev;
+          });
+          
+          if (hasChanges) {
+            console.log('🔄 Polling: devis mis à jour');
+            return updated;
+          }
+          return prevQuotes;
+        });
+      } catch (e) {
+        console.warn('⚠️ Polling devis échoué:', e);
+      }
+    }, 10000);
+
+    // ✅ Rechargement quand la fenêtre redevient visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isActive) {
+        console.log('👁️ Fenêtre visible → rechargement des devis');
+        loadData(true);
+      }
     };
-  }, [currentTeamId]);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+      clearInterval(pollingInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentTeamId, user?.$id]);
 
   const loadCompanySettings = async () => {
     if (!user) return;
@@ -510,7 +600,6 @@ export default function Quotes() {
     }
   };
 
-  // 🚀 NOUVEAU : Envoi du lien par email via le client mail de l'utilisateur
   const handleSendEmail = (quote: Quote) => {
     if (!quote.clientToken) { 
       toast.warning("Ce devis n'a pas encore de lien de partage. Veuillez l'enregistrer d'abord."); 
@@ -538,7 +627,6 @@ export default function Quotes() {
       `Cordialement,\n${companySettings?.name || 'Notre équipe'}`
     );
 
-    // Ouvre le client mail par défaut avec les champs pré-remplis
     window.open(`mailto:${clientEmail}?subject=${subject}&body=${body}`, '_blank');
     
     if (user && user.$id && currentTeamId) {
@@ -636,7 +724,7 @@ export default function Quotes() {
         invoiceNumber, quoteId: quote.$id, userId: user.$id, teamId: currentTeamId,
         type: 'standard', originalQuoteId: quote.$id,
         currencyCode: currency,
-        clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+        clientToken: generateSecureToken(), // ✅ Token sécurisé
         status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: Math.round((quote.subtotal || 0) * 100) / 100,
         vatRate: Math.round(vatRate), vatAmount: Math.round((quote.tax || 0) * 100) / 100,
@@ -682,12 +770,13 @@ export default function Quotes() {
         notes: `Facture générée depuis le devis ${quote.quoteNumber}`
       };
       
+      // ✅ Suppression de isPublic
       await databases.createDocument(
         DATABASE_ID,
         'invoices',
         AppwriteID.unique(),
         payload,
-        getTeamPermissions(appwriteTeamId, { isPublic: !!payload.clientToken })
+        getTeamPermissions(appwriteTeamId)
       );
       
       if (user.$id && currentTeamId) {
@@ -743,7 +832,7 @@ export default function Quotes() {
         type: 'advance', originalQuoteId: quote.$id,
         currencyCode: currency,
         advancePercent: ((amount / (quote.total || 0)) * 100).toFixed(2),
-        clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+        clientToken: generateSecureToken(), // ✅ Token sécurisé
         status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: advanceHT, vatRate: parseFloat(companySettings?.defaultTvaRate || '20'),
         vatAmount: advanceTVA, total: amount, discount: 0, tax: advanceTVA, deposit: 0, balance: amount,
@@ -786,12 +875,13 @@ export default function Quotes() {
         notes: `Acompte sur devis ${quote.quoteNumber}`
       };
       
+      // ✅ Suppression de isPublic
       await databases.createDocument(
         DATABASE_ID,
         'invoices',
         AppwriteID.unique(),
         payload,
-        getTeamPermissions(appwriteTeamId, { isPublic: !!payload.clientToken })
+        getTeamPermissions(appwriteTeamId)
       );
       
       setShowAdvanceModal(false);
@@ -896,7 +986,7 @@ export default function Quotes() {
         invoiceNumber, quoteId: quote.$id, userId: user.$id, teamId: currentTeamId,
         type: 'standard', originalQuoteId: quote.$id,
         currencyCode: currency,
-        clientToken: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+        clientToken: generateSecureToken(), // ✅ Token sécurisé
         status: 'draft', issueDate: today, dueDate: dueDate,
         subtotal: Math.round((quote.subtotal || 0) * 100) / 100,
         vatRate: Math.round(vatRate), vatAmount: Math.round((quote.tax || 0) * 100) / 100,
@@ -942,12 +1032,13 @@ export default function Quotes() {
         notes: `E-Facture générée depuis le devis ${quote.quoteNumber}`
       };
 
+      // ✅ Suppression de isPublic
       const createdInvoice = await databases.createDocument(
         DATABASE_ID,
         'invoices',
         AppwriteID.unique(),
         payload,
-        getTeamPermissions(appwriteTeamId, { isPublic: !!payload.clientToken })
+        getTeamPermissions(appwriteTeamId)
       );
 
       const eInvoiceData = convertInvoiceToEInvoiceData(createdInvoice);
