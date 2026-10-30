@@ -1,37 +1,71 @@
-// src/services/recaptchaService.ts
 
-// 🚨 MODE TEST : On court-circuite l'appel réseau pour éviter l'erreur CORS
+import { functions } from '../appwrite';
+import { ExecutionMethod } from 'appwrite';
+
+interface RecaptchaValidation {
+  success: boolean;
+  score?: number;
+  action?: string;
+  hostname?: string;
+  actionMatch?: boolean;
+  scoreOk?: boolean;
+  minScore?: number;
+  error?: string;
+}
+
 export const validateRecaptchaToken = async (
   token: string,
   action: string,
   minScore: number = 0.5
-) => {
-  console.warn('⚠️ [MODE TEST] reCAPTCHA validé automatiquement (CORS bypass)');
-  
-  // On retourne un succès simulé sans appeler Appwrite
-  return {
-    success: true,
-    score: 0.9,
-    action: action,
-    actionMatch: true,
-    scoreOk: true,
-    minScore: minScore,
-    degraded: false
-  };
+): Promise<RecaptchaValidation> => {
+  if (!token || !action) {
+    return {
+      success: false,
+      error: 'Token ou action manquant',
+    };
+  }
 
-  /* 
-  // --- ANCIEN CODE (mis en commentaire pour plus tard) ---
-  // try {
-  //   const response = await functions.createExecution(
-  //     'validate-recaptcha',
-  //     JSON.stringify({ token, expectedAction: action, minScore }),
-  //     false,
-  //     'POST'
-  //   );
-  //   return JSON.parse(response.responseBody);
-  // } catch (error) {
-  //   console.error('❌ Erreur appel fonction:', error);
-  //   return { success: false, error: 'Failed to fetch' };
-  // }
-  */
+  try {
+    const execution = await functions.createExecution(
+      'validate-recaptcha',
+      JSON.stringify({
+        token,
+        expectedAction: action,
+        minScore,
+      }),
+      false,
+      '/',
+      ExecutionMethod.POST
+    );
+
+    if (execution.responseStatusCode < 200 ||
+        execution.responseStatusCode >= 300) {
+      return {
+        success: false,
+        error: `Erreur serveur reCAPTCHA (${execution.responseStatusCode})`,
+      };
+    }
+
+    let result: RecaptchaValidation;
+
+    try {
+      result = JSON.parse(execution.responseBody);
+    } catch {
+      return {
+        success: false,
+        error: 'Réponse JSON invalide de la fonction reCAPTCHA',
+      };
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Erreur appel fonction reCAPTCHA:', error);
+
+    return {
+      success: false,
+      error: error instanceof Error
+        ? error.message
+        : 'Erreur de communication avec Appwrite',
+    };
+  }
 };

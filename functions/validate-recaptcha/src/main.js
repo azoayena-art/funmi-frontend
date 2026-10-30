@@ -1,118 +1,174 @@
 export default async ({ req, res, log, error: logError }) => {
-  // 🛡️ 1. CONFIGURATION CORS (Obligatoire pour les appels depuis le frontend Vercel)
   const corsHeaders = {
-    'Access-Control-Allow-Origin': '*', // En production, remplacez '*' par 'https://funmi-ten.vercel.app'
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-appwrite-project, x-appwrite-key',
+    'Access-Control-Allow-Origin': 'https://funmi-frontend-g3nb.vercel.app',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, x-appwrite-project, x-appwrite-key',
+    'Vary': 'Origin',
   };
 
-  // 🛡️ 2. Gérer la requête "preflight" OPTIONS du navigateur
   if (req.method === 'OPTIONS') {
     return res.send('', 204, corsHeaders);
-.  }
-
-  log('=== Début validation reCAPTCHA v3 ===');
-  log('Headers:', JSON.stringify(req.headers));
-  log('Method:', req.method);
-  log('Raw body type:', typeof req.body);
-  log('Raw body:', typeof req.body === 'string' ? req.body.substring(0, 200) : JSON.stringify(req.body));
-
-  const SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
-  if (!SECRET_KEY) {
-    logError('❌ RECAPTCHA_SECRET_KEY manquante !');
-    return res.json({
-      success: false,
-      error: 'Secret key not configured',
-      debug: 'Missing RECAPTCHA_SECRET_KEY env var',
-    }, 500, corsHeaders); // Ajout des headers CORS
   }
-  log('✅ Secret key présente:', SECRET_KEY.substring(0, 10) + '...');
 
-  // Parsing robuste du body (Appwrite peut l'envoyer en string ou objet)
-  let body = {};
+  if (req.method !== 'POST') {
+    return res.json(
+      { success: false, error: 'Méthode non autorisée' },
+      405,
+      corsHeaders
+    );
+  }
+
+  const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+
+  if (!secretKey) {
+    logError('Configuration RECAPTCHA_SECRET_KEY manquante.');
+    return res.json(
+      { success: false, error: 'Configuration serveur manquante' },
+      500,
+      corsHeaders
+    );
+  }
+
+  let body;
+
   try {
     if (typeof req.body === 'string') {
-      body = req.body.trim() ? JSON.parse(req.body) : {};
+      body = JSON.parse(req.body);
     } else if (req.body && typeof req.body === 'object') {
       body = req.body;
     } else if (req.bodyRaw) {
       body = JSON.parse(Buffer.from(req.bodyRaw).toString());
+    } else {
+      body = {};
     }
-  } catch (e) {
-    logError('❌ Erreur parsing body:', e.message);
-    return res.json({ success: false, error: 'Invalid body: ' + e.message }, 400, corsHeaders);
+  } catch {
+    return res.json(
+      { success: false, error: 'Corps de requête invalide' },
+      400,
+      corsHeaders
+    );
   }
-
-  log('Body parsé:', JSON.stringify(body));
 
   const { token, expectedAction, minScore = 0.5 } = body;
 
-  if (!token) {
-    return res.json({ success: false, error: 'Token manquant dans le body' }, 400, corsHeaders);
+  const allowedActions = [
+    'login',
+    'register',
+    'submit_form',
+    'reset_password',
+    'verify_email',
+  ];
+
+  if (
+    typeof token !== 'string' ||
+    token.length === 0 ||
+    token.length > 10000
+  ) {
+    return res.json(
+      { success: false, error: 'Token invalide' },
+      400,
+      corsHeaders
+    );
   }
 
-  log('🔄 Appel Google siteverify pour action:', expectedAction);
+  if (
+    typeof expectedAction !== 'string' ||
+    !allowedActions.includes(expectedAction)
+  ) {
+    return res.json(
+      { success: false, error: 'Action invalide' },
+      400,
+      corsHeaders
+    );
+  }
+
+  if (
+    typeof minScore !== 'number' ||
+    !Number.isFinite(minScore) ||
+    minScore < 0 ||
+    minScore > 1
+  ) {
+    return res.json(
+      { success: false, error: 'Score minimum invalide' },
+      400,
+      corsHeaders
+    );
+  }
 
   try {
     const params = new URLSearchParams({
-      secret: SECRET_KEY,
+      secret: secretKey,
       response: token,
     });
 
-    const verifyResponse = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-
-    log('Google HTTP status:', verifyResponse.status);
+    const verifyResponse = await fetch(
+      'https://www.google.com/recaptcha/api/siteverify',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params,
+      }
+    );
 
     if (!verifyResponse.ok) {
-      const errorText = await verifyResponse.text();
-      logError('❌ Erreur HTTP Google:', errorText);
-      return res.json({
-        success: false,
-        error: `Google HTTP ${verifyResponse.status}`,
-        details: errorText,
-      }, 502, corsHeaders);
+      logError('Erreur HTTP lors de la vérification Google.');
+      return res.json(
+        { success: false, error: 'Service de vérification indisponible' },
+        502,
+        corsHeaders
+      );
     }
 
     const data = await verifyResponse.json();
-    log('✅ Réponse Google:', JSON.stringify(data));
 
     if (!data.success) {
-      logError('❌ Google a rejeté le token:', data['error-codes']);
-      return res.json({
-        success: false,
-        error: (data['error-codes'] || []).join(', '),
-        errorCodes: data['error-codes'],
-      }, 200, corsHeaders); // 200 car c'est une réponse valide de l'API, même si le captcha échoue
+      return res.json(
+        {
+          success: false,
+          error: 'Token reCAPTCHA rejeté',
+          errorCodes: data['error-codes'] || [],
+        },
+        200,
+        corsHeaders
+      );
     }
 
-    // Calcul du résultat
-    const actionMatch = !expectedAction || data.action === expectedAction;
-    const score = data.score ?? 1.0;
-    const scoreOk = score >= minScore;
+    const actionMatch = data.action === expectedAction;
+
+    const score =
+      typeof data.score === 'number' && Number.isFinite(data.score)
+        ? data.score
+        : null;
+
+    const hostnameMatch =
+      data.hostname === 'funmi-frontend-g3nb.vercel.app';
+
+    const scoreOk = score !== null && score >= minScore;
 
     const result = {
-      success: actionMatch && scoreOk,
+      success: actionMatch && hostnameMatch && scoreOk,
       score,
       action: data.action,
       hostname: data.hostname,
-      challengeTs: data.challenge_ts,
       actionMatch,
+      hostnameMatch,
       scoreOk,
       minScore,
     };
 
-    log('✅ Résultat final:', JSON.stringify(result));
+    log('Validation reCAPTCHA terminée.');
+
     return res.json(result, 200, corsHeaders);
   } catch (e) {
-    logError('❌ Exception lors de la vérification:', e.message);
-    return res.json({
-      success: false,
-      error: e.message,
-      stack: e.stack,
-    }, 500, corsHeaders);
+    logError('Erreur lors de la vérification reCAPTCHA.');
+
+    return res.json(
+      { success: false, error: 'Échec de la vérification reCAPTCHA' },
+      500,
+      corsHeaders
+    );
   }
 };
