@@ -1,10 +1,14 @@
-// src/components/ui/SharedUI.tsx
-import { TrendingUp, TrendingDown, Minus, Inbox, X, Receipt, FileText, UserCheck, Users, Package, AlertCircle, Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+﻿// src/components/ui/SharedUI.tsx
+import { 
+  TrendingUp, TrendingDown, Minus, Inbox, X, Receipt, FileText, 
+  UserCheck, Users, Package, AlertCircle, Search, Filter, MoreHorizontal, 
+  ChevronLeft, ChevronRight, Lock 
+} from 'lucide-react';
 import type { ReactNode, ReactElement, ComponentType } from 'react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, forwardRef } from 'react';
 
 // ============================================================
-// 🌐 TYPES & INTERFACES GÉNÉRIQUES
+// ðŸŒ TYPES & INTERFACES GÃ‰NÃ‰RIQUES
 // ============================================================
 
 export interface Entity {
@@ -20,7 +24,6 @@ export type DotTone =
   | 'sky' | 'teal' | 'violet' | 'amber' | 'emerald'
   | 'rose' | 'orange' | 'slate' | 'pink' | 'indigo' | 'red';
 
-// ✅ MODIF 1 : ajout de 'invoiced' dans les statuts partagés
 export type SharedStatus =
   | 'active' | 'inactive' | 'archived'
   | 'new' | 'contacted' | 'quote_sent' | 'pending' | 'followup' | 'won' | 'lost'
@@ -28,18 +31,17 @@ export type SharedStatus =
   | 'refunded' | 'partial_refund' | 'to_refund' | 'allocated';
 
 // ============================================================
-// 🏷️ LIBELLÉS CENTRALISÉS
+// ðŸ·ï¸ LIBELLÃ‰S CENTRALISÃ‰S
 // ============================================================
 
-// ✅ MODIF 2 : ajout du libellé "Facturé" pour invoiced
 export const statusLabels: Record<string, string> = {
-  active: 'Actif', inactive: 'Inactif', archived: 'Archivé',
-  new: 'Nouveau', contacted: 'Contacté', quote_sent: 'Devis envoyé',
-  pending: 'En attente', followup: 'Relance', won: 'Gagné', lost: 'Perdu',
-  draft: 'Brouillon', invoiced: 'Facturé', sent: 'Envoyée', near_due: 'Bientôt échue',
-  overdue: 'En retard', paid: 'Payée', partial: 'Partielle', cancelled: 'Archivée',
-  refunded: 'Remboursé', partial_refund: 'Remb. partiel',
-  to_refund: 'À rembourser', allocated: 'Avoir imputé',
+  active: 'Actif', inactive: 'Inactif', archived: 'ArchivÃ©',
+  new: 'Nouveau', contacted: 'ContactÃ©', quote_sent: 'Devis envoyÃ©',
+  pending: 'En attente', followup: 'Relance', won: 'GagnÃ©', lost: 'Perdu',
+  draft: 'Brouillon', invoiced: 'FacturÃ©', sent: 'EnvoyÃ©e', near_due: 'BientÃ´t Ã©chue',
+  overdue: 'En retard', paid: 'PayÃ©e', partial: 'Partielle', cancelled: 'ArchivÃ©e',
+  refunded: 'RemboursÃ©', partial_refund: 'Remb. partiel',
+  to_refund: 'Ã€ rembourser', allocated: 'Avoir imputÃ©',
 };
 
 export const typeLabels: Record<string, string> = {
@@ -49,10 +51,9 @@ export const typeLabels: Record<string, string> = {
 };
 
 // ============================================================
-// 🎨 CONFIGURATION VISUELLE DES STATUTS
+// ðŸŽ¨ CONFIGURATION VISUELLE DES STATUTS
 // ============================================================
 
-// ✅ MODIF 3 : configuration visuelle violette pour invoiced (distinct de sent/sky)
 const statusConfig: Record<string, { text: string; bg: string; ring: string; dot: string }> = {
   active: { text: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', ring: 'ring-emerald-600/10 dark:ring-emerald-500/20', dot: 'bg-emerald-500' },
   inactive: { text: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-500/10', ring: 'ring-slate-500/10 dark:ring-slate-500/20', dot: 'bg-slate-400 dark:bg-slate-500' },
@@ -86,7 +87,7 @@ const fallbackConfig = {
 };
 
 // ============================================================
-// 🎯 TONS POUR DOTLABEL
+// ðŸŽ¯ TONS POUR DOTLABEL
 // ============================================================
 
 const toneMap: Record<DotTone, { text: string; dot: string; bg?: string; ring?: string }> = {
@@ -110,20 +111,17 @@ export const typeTones: Record<string, DotTone> = {
 };
 
 // ============================================================
-// 🔄 HELPERS DE MAPPING
+// ðŸ”„ HELPERS DE MAPPING
 // ============================================================
 
-// ✅ MODIF 4 : mapInvoiceStatusToShared gère maintenant invoiced nativement
 export const mapInvoiceStatusToShared = (
   status: string,
   type?: string,
   creditStatus?: string
 ): string => {
-  // Priorité au statut de crédit s'il existe
   if (type === 'credit' && creditStatus) {
     return creditStatus;
   }
-  // invoiced est maintenant un statut partagé natif
   return status;
 };
 
@@ -157,7 +155,7 @@ export const formatDate = (d?: string | null): string => {
 };
 
 // ============================================================
-// ✨ COMPOSANTS UI DE BASE
+// âœ¨ COMPOSANTS UI DE BASE
 // ============================================================
 
 export const StatusIndicator = ({ status }: { status: string }) => {
@@ -224,7 +222,7 @@ export const StatCell = ({
 );
 
 // ============================================================
-// 📦 COMPOSANTS RÉUTILISABLES
+// ðŸ“¦ COMPOSANTS RÃ‰UTILISABLES
 // ============================================================
 
 export const EmptyState = ({
@@ -321,7 +319,7 @@ export const PageHeader = ({
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   {description}
                   {currency && currencySymbol && (
-                    <> • Devise : <strong className={colors.text}>{currencySymbol} {currency}</strong></>
+                    <> â€¢ Devise : <strong className={colors.text}>{currencySymbol} {currency}</strong></>
                   )}
                 </p>
               )}
@@ -359,7 +357,7 @@ export const TabButton = ({
 };
 
 // ============================================================
-// 🎯 ACTION MENU
+// ðŸŽ¯ ACTION MENU
 // ============================================================
 
 export interface ActionMenuItemProps {
@@ -428,7 +426,7 @@ export const ActionMenu = ({ children }: { children: ReactNode }) => {
 };
 
 // ============================================================
-// 🆕 COMPOSANTS UI/UX (extraits depuis Invoices.tsx)
+// ðŸ†• COMPOSANTS UI/UX (extraits depuis Invoices.tsx)
 // ============================================================
 
 export const TypeTabs = ({
@@ -474,7 +472,7 @@ export const TypeTabs = ({
 };
 
 export const SearchFilter = ({
-  value, onChange, placeholder = 'Rechercher...', shortcut = '⌘K', inputRef,
+  value, onChange, placeholder = 'Rechercher...', shortcut = 'âŒ˜K', inputRef,
 }: {
   value: string; onChange: (value: string) => void; placeholder?: string; shortcut?: string;
   inputRef?: React.RefObject<HTMLInputElement>;
@@ -586,7 +584,7 @@ export const KPIGrid = ({ children, columns = 7 }: { children: ReactNode; column
 };
 
 export const Pagination = ({
-  currentPage, totalPages, onPageChange, startItem, endItem, totalItems, itemName = 'élément',
+  currentPage, totalPages, onPageChange, startItem, endItem, totalItems, itemName = 'Ã©lÃ©ment',
 }: {
   currentPage: number;
   totalPages: number;
@@ -617,7 +615,7 @@ export const Pagination = ({
       <p className="text-sm text-slate-500 dark:text-slate-400">
         {typeof startItem === 'number' && typeof endItem === 'number' && typeof totalItems === 'number' ? (
           <>
-            Affichage de <span className="font-semibold text-slate-900 dark:text-white">{startItem}</span> à{' '}
+            Affichage de <span className="font-semibold text-slate-900 dark:text-white">{startItem}</span> Ã {' '}
             <span className="font-semibold text-slate-900 dark:text-white">{endItem}</span> sur{' '}
             <span className="font-semibold text-slate-900 dark:text-white">{totalItems}</span> {itemName}{totalItems > 1 ? 's' : ''}
           </>
@@ -631,11 +629,11 @@ export const Pagination = ({
           disabled={currentPage === 1}
           className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          <ChevronLeft size={16} /> <span className="hidden sm:inline">Précédent</span>
+          <ChevronLeft size={16} /> <span className="hidden sm:inline">PrÃ©cÃ©dent</span>
         </button>
         {getPages().map((page, idx) =>
           typeof page === 'string' ? (
-            <span key={`ellipsis-${idx}`} className="w-9 h-9 flex items-center justify-center text-slate-400">…</span>
+            <span key={`ellipsis-${idx}`} className="w-9 h-9 flex items-center justify-center text-slate-400">â€¦</span>
           ) : (
             <button
               key={page}
@@ -663,7 +661,7 @@ export const Pagination = ({
 };
 
 // ============================================================
-// ⏳ SKELETON LOADERS
+// â³ SKELETON LOADERS
 // ============================================================
 
 export const SkeletonRow = () => (
@@ -707,7 +705,7 @@ export const SkeletonCard = () => (
 );
 
 // ============================================================
-// 🆕 COMPOSANTS AJOUTÉS (Extraits des pages legacy pour migration)
+// ðŸ†• COMPOSANTS AJOUTÃ‰S (Extraits des pages legacy pour migration)
 // ============================================================
 
 export const Alert = ({
@@ -823,7 +821,7 @@ export const ViewTabs = ({
         onClick={() => onChange('archived')}
         className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${active === 'archived' ? activeClass : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
       >
-        Archivés {counts && <span className="ml-1.5 text-xs text-slate-400 tabular-nums">({counts.archived})</span>}
+        ArchivÃ©s {counts && <span className="ml-1.5 text-xs text-slate-400 tabular-nums">({counts.archived})</span>}
       </button>
     </div>
   );
@@ -881,7 +879,7 @@ export const SectionTitle = ({ children, icon: Icon, action }: { children: React
 );
 
 // ============================================================
-// 🏷️ BADGE (version unifiée - UNIQUE DÉFINITION)
+// ðŸ·ï¸ BADGE (version unifiÃ©e - UNIQUE DÃ‰FINITION)
 // ============================================================
 export const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?: string }) => {
   const tones: Record<string, string> = {
@@ -909,7 +907,7 @@ export const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode;
 };
 
 // ============================================================
-// 🎛️ TOGGLE SWITCH (NOUVEAU)
+// ðŸŽ›ï¸ TOGGLE SWITCH
 // ============================================================
 
 export const Toggle = ({
@@ -954,7 +952,7 @@ export const Toggle = ({
       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       <span className="sr-only">
-        {checked ? 'Activé' : 'Désactivé'}
+        {checked ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
       </span>
       <span
         className={`inline-block ${s.knob} transform rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out ${
@@ -966,7 +964,7 @@ export const Toggle = ({
 };
 
 // ============================================================
-// 📊 PROGRESS BAR (NOUVEAU)
+// ðŸ“Š PROGRESS BAR
 // ============================================================
 
 export const ProgressBar = ({
@@ -1031,3 +1029,75 @@ export const ProgressBar = ({
     </div>
   );
 };
+
+// ============================================================
+// âœ… SELECTION MULTIPLE (NOUVEAU)
+// ============================================================
+
+export const Checkbox = forwardRef<
+  HTMLInputElement,
+  React.InputHTMLAttributes<HTMLInputElement> & { indeterminate?: boolean }
+>(({ className = '', indeterminate, ...props }, ref) => {
+  const innerRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (innerRef.current) {
+      innerRef.current.indeterminate = !!indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <input
+      type="checkbox"
+      ref={(node) => {
+        innerRef.current = node;
+        if (typeof ref === 'function') ref(node);
+        else if (ref) (ref as any).current = node;
+      }}
+      className={`w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-purple-600 focus:ring-purple-500 dark:focus:ring-purple-600 dark:bg-slate-700 dark:checked:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors ${className}`}
+      {...props}
+    />
+  );
+});
+Checkbox.displayName = 'Checkbox';
+
+
+  // ... (tout le reste du fichier SharedUI.tsx reste inchangÃ©)
+
+export const BulkActionBar = ({
+  selectedCount,
+  onClear,
+  actions,
+}: {
+  selectedCount: number;
+  onClear: () => void;
+  actions: ReactNode;
+}) => {
+  if (selectedCount === 0) return null;
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 dark:bg-slate-800 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-4 animate-slideUp border border-slate-700 dark:border-slate-600">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-xs font-bold">
+          {selectedCount}
+        </div>
+        <span className="text-sm font-medium text-slate-200">sÃ©lectionnÃ©(s)</span>
+      </div>
+      
+      <div className="h-6 w-px bg-slate-700" />
+      
+      <div className="flex items-center gap-2">
+        {actions}
+      </div>
+
+      <button
+        onClick={onClear}
+        className="ml-2 p-2 hover:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+        title="Effacer la sÃ©lection"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+};
+
