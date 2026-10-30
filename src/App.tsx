@@ -1,10 +1,4 @@
 // src/App.tsx
-// ✅ Lazy Loading : Chargement à la demande des pages pour optimiser le bundle initial
-// 🍪 Intégration du bandeau cookies RGPD
-// 📄 Pages légales : PrivacyPolicy + LegalNotices
-// 🛡️ reCAPTCHA v3 : Protection anti-bot invisible
-// 🔐 Routes de récupération et vérification de mot de passe
-
 import { lazy, Suspense } from 'react';
 import { Toaster } from "sonner";
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -25,14 +19,14 @@ const RECAPTCHA_SITE_KEY =
 // ============================================================
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Dashboard from './pages/Dashboard'; // Page d'accueil : doit être rapide
+import Dashboard from './pages/Dashboard';
 
 // ============================================================
 // ⚡ IMPORTS DYNAMIQUES (lazy loading)
-// Chargés uniquement quand l'utilisateur visite la route
 // ============================================================
 
 // Pages publiques
+const LandingPage = lazy(() => import('./pages/LandingPage')); // ✅ AJOUTÉ
 const PublicQuoteView = lazy(() => import('./pages/PublicQuoteView'));
 const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView'));
 const PublicRequest = lazy(() => import('./pages/PublicRequest'));
@@ -62,7 +56,7 @@ const Reminders = lazy(() => import('./pages/Reminders'));
 const Treasury = lazy(() => import('./pages/Treasury'));
 const CashOperations = lazy(() => import('./pages/CashOperations'));
 
-// Pages Stats & Exports (pages lourdes, chargées à la demande)
+// Pages Stats & Exports
 const Statistics = lazy(() => import('./pages/Statistics'));
 const ExportComptable = lazy(() => import('./pages/ExportComptable'));
 const AccountMapping = lazy(() => import('./pages/AccountMapping'));
@@ -128,6 +122,7 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
     );
   }
 
+  // ✅ Si l'utilisateur est déjà connecté, on le redirige vers le dashboard
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -136,7 +131,7 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
 }
 
 // ============================================================
-// ⏳ LOADING FALLBACK (affiché pendant le chargement d'une page lazy)
+// ⏳ LOADING FALLBACK
 // ============================================================
 function PageLoadingFallback() {
   return (
@@ -156,7 +151,10 @@ function AppRoutes() {
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        {/* ===== ROUTES PUBLIQUES (Accessibles à tous) ===== */}
+        {/* ===== ROUTE D'ACCUEIL (Landing Page) ===== */}
+        <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} /> {/* ✅ MODIFIÉ */}
+        
+        {/* ===== AUTRES ROUTES PUBLIQUES ===== */}
         <Route path="/v/:token" element={<PublicQuoteView />} />
         <Route path="/f/:token" element={<PublicInvoiceView />} />
         <Route path="/demande/:slug" element={<PublicRequest />} />
@@ -175,9 +173,6 @@ function AppRoutes() {
         {/* ===== 📄 PAGES LÉGALES ===== */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
-
-        {/* ===== REDIRECTION RACINE ===== */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
         {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -211,7 +206,7 @@ function AppRoutes() {
         <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
         <Route path="/admin/security-migration" element={<ProtectedRoute><SecurityMigration /></ProtectedRoute>} />
 
-        {/* ===== ROUTES UTILITAIRES (À protéger si nécessaire en prod) ===== */}
+        {/* ===== ROUTES UTILITAIRES ===== */}
         <Route path="/setup" element={<SetupAttributes />} />
         <Route path="/backup" element={<BackupUtility />} />
         
