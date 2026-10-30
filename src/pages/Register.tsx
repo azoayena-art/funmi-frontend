@@ -75,6 +75,9 @@ export default function Register() {
     e.preventDefault();
     setRecaptchaDegraded(false);
 
+    // ✅ GARDE 1 : Empêche les soumissions multiples (anti-doublon)
+    if (loading) return;
+
     if (isBlocked) {
       toast.error('Inscription temporairement bloquée', {
         description: `Trop de tentatives. Réessayez dans ${remainingTimeFormatted}.`,
@@ -120,9 +123,38 @@ export default function Register() {
     let createdDocs: Array<{ collection: string; id: string }> = [];
 
     try {
-      // 🚨 BYPASS TOTAL : On saute complètement la vérification reCAPTCHA pour contourner le bug CORS Vercel
-      console.log("⚠️ [BYPASS] reCAPTCHA désactivé pour contourner le bug CORS Vercel");
-      const validation = { success: true, score: 0.9, degraded: false };
+      // 🛡️ ÉTAPE 1 : Vérification reCAPTCHA (Rétablie)
+      const recaptchaToken = await getToken('register');
+      if (!recaptchaToken) {
+        toast.error('Vérification anti-bot impossible', {
+          description: 'Rechargez la page et réessayez.',
+        });
+        setLoading(false);
+        return;
+      }
+
+      const validation = await validateRecaptchaToken(recaptchaToken, 'register', 0.5);
+
+      if (validation.degraded) {
+        console.warn('⚠️ [MODE DÉGRADÉ] reCAPTCHA non validé côté serveur:', validation.error);
+        setRecaptchaDegraded(true);
+        toast.warning('⚠️ Vérification anti-bot désactivée', {
+          description: `La fonction serveur n'est pas configurée (${validation.error}). L'inscription fonctionne mais sans protection reCAPTCHA.`,
+          duration: 8000,
+        });
+      } else if (!validation.success) {
+        console.warn('🛡️ reCAPTCHA v3 rejeté:', validation);
+        toast.error('Vérification anti-bot échouée', {
+          description: validation.score !== undefined
+            ? `Score: ${validation.score.toFixed(2)} — comportement suspect détecté.`
+            : validation.error || 'Réessayez.',
+          duration: 6000,
+        });
+        setLoading(false);
+        return;
+      } else {
+        console.log(`✅ reCAPTCHA v3 OK (score: ${validation.score?.toFixed(2)})`);
+      }
 
       // 🛡️ ÉTAPE 2 : Créer le compte Appwrite
       try {
@@ -145,7 +177,7 @@ export default function Register() {
         Permission.delete(Role.user(createdAccount.$id)),
       ];
 
-      // 🛡️ ÉTAPE 3 : Créer le document users (SANS créer l'équipe pour l'instant)
+      // 🛡️ ÉTAPE 3 : Créer le document users
       await databases.createDocument(
         DATABASE_ID,
         'users',
@@ -155,7 +187,7 @@ export default function Register() {
           firstName: firstName,
           lastName: lastName,
           email: email,
-          companyName: '', // Sera rempli après vérification de l'email
+          companyName: isInvitation ? '' : companyName, // ✅ FIX : on garde le nom si ce n'est pas une invitation
           createdAt: new Date().toISOString(),
         },
         userPerms
