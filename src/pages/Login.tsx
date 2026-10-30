@@ -170,22 +170,31 @@ export default function Login() {
       }
 
       // 🛡️ ÉTAPE 2 : Valider côté serveur (Cloud Function Appwrite)
-      const validation = await validateRecaptchaToken(recaptchaToken, 'login', 0.5);
+      // ✅ BYPASS LOCAL : Désactive reCAPTCHA uniquement sur localhost/127.0.0.1 pour éviter les blocages de dev
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-      // ✅ Mode dégradé : la fonction serveur n'est pas disponible
+      let validation;
+      if (isDev) {
+        console.warn('⚠️ [DEV MODE] reCAPTCHA bypassé pour développement local');
+        validation = { success: true, score: 0.9, action: 'login', degraded: true };
+      } else {
+        validation = await validateRecaptchaToken(recaptchaToken, 'login', 0.5);
+      }
+
+      // ✅ Gestion des réponses
       if (validation.degraded) {
         console.warn('⚠️ [MODE DÉGRADÉ] reCAPTCHA non validé côté serveur:', validation.error);
         setRecaptchaDegraded(true);
         toast.warning('⚠️ Vérification anti-bot désactivée', {
-          description: `La fonction serveur n'est pas configurée (${validation.error}). Le login fonctionne mais sans protection reCAPTCHA.`,
+          description: 'Mode développement ou erreur serveur. La connexion est autorisée.',
           duration: 8000,
         });
       } else if (!validation.success) {
-        // ❌ Validation échouée (score trop faible ou action mismatch)
+        // ❌ Validation échouée
         console.warn('🛡️ reCAPTCHA v3 rejeté:', validation);
         toast.error('Vérification anti-bot échouée', {
           description: validation.score !== undefined
-            ? `Score: ${validation.score.toFixed(2)} — comportement suspect détecté.`
+            ? `Score: ${validation.score.toFixed(2)} — comportement suspect.`
             : validation.error || 'Réessayez.',
           duration: 6000,
         });

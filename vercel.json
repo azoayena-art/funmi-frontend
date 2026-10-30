@@ -31,7 +31,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://www.recaptcha.net/recaptcha/ https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.cloud.appwrite.io https://cloud.appwrite.io https://fra.cloud.appwrite.io https://*.appwrite.io https://www.google.com/recaptcha/ https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://www.google.com/recaptcha/ https://www.recaptcha.net/recaptcha/ https://recaptcha.google.com https://challenges.cloudflare.com; worker-src 'self' blob:;"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://www.recaptcha.net/recaptcha/ https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.cloud.appwrite.io https://cloud.appwrite.io https://fra.cloud.appwrite.io https://*.appwrite.io https://www.google.com/recaptcha/ https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://www.google.com/recaptcha/ https://www.recaptcha.net/recaptcha/ https://recaptcha.google.com https://challenges.cloudflare.com; worker-src 'self' blob:; http://localhost:5173/login;"
         }
       ]
     }
