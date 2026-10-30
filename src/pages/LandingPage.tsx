@@ -427,6 +427,7 @@ export default function LandingPage() {
       </section>
 
       {/* 🦶 FOOTER */}
+            {/* 🦶 FOOTER */}
       <footer className="relative z-10 border-t border-white/5 bg-slate-950 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
@@ -438,10 +439,11 @@ export default function LandingPage() {
           <div className="text-sm text-slate-500">
             © {new Date().getFullYear()} RelancePro. Tous droits réservés.
           </div>
-          <div className="flex gap-6 text-sm text-slate-400">
+          <div className="flex flex-wrap justify-center gap-6 text-sm text-slate-400">
             <a href="/privacy" className="hover:text-white transition-colors">Confidentialité</a>
             <a href="/legal" className="hover:text-white transition-colors">Mentions légales</a>
-            <a href="#" className="hover:text-white transition-colors">CGV</a>
+            <a href="/terms" className="hover:text-white transition-colors">Conditions d'utilisation</a>
+            <a href="/refund" className="hover:text-white transition-colors">Remboursement</a>
           </div>
         </div>
       </footer>

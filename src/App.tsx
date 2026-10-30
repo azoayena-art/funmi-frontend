@@ -73,6 +73,8 @@ const TestPaymentModal = lazy(() => import('./pages/TestPaymentModal'));
 // 📄 Pages légales (publiques)
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const LegalNotices = lazy(() => import('./pages/LegalNotices'));
+const RefundPolicy = lazy(() => import('./pages/RefundPolicy')); // ✅ AJOUTÉ
+const TermsOfService = lazy(() => import('./pages/TermsOfService')); // ✅ AJOUTÉ
 
 // ============================================================
 // 🍪 COMPOSANTS GLOBAUX
@@ -173,6 +175,8 @@ function AppRoutes() {
         {/* ===== 📄 PAGES LÉGALES ===== */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
+       <Route path="/refund" element={<RefundPolicy />} />       {/* ✅ AJOUTÉ */}
+        <Route path="/terms" element={<TermsOfService />} />      {/* ✅ AJOUTÉ */}
 
         {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
