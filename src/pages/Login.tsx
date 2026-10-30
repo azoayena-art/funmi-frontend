@@ -1,4 +1,5 @@
 // src/pages/Login.tsx
+import { account } from '../appwrite';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, AlertCircle, Receipt, Users, Loader2, Shield, Clock, AlertTriangle } from 'lucide-react';
@@ -234,7 +235,6 @@ export default function Login() {
           await new Promise(resolve => setTimeout(resolve, 500));
           
           // Tenter de récupérer la session actuelle
-          const { account } = await import('../appwrite');
           const currentSession = await account.get();
           
           if (currentSession && currentSession.$id) {
