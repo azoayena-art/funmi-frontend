@@ -1,10 +1,14 @@
 // src/pages/LandingPage.tsx
+import { useTeam } from '../context/TeamContext';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner'; // ✅ AJOUTEZ CETTE LIGNE
 import { 
   Check, Zap, Shield, BarChart3, Menu, X as XIcon, 
-  ArrowRight, Star, Building2, Clock, Users, ChevronDown
+  ArrowRight, Star, Building2, Clock, Users, ChevronDown, Loader2
 } from 'lucide-react';
+import { usePaddle } from '../hooks/usePaddle';
+import { useAuth } from '../context/AuthContext';
 
 // ============================================================
 // ⚙️ CONFIGURATION MODIFIABLE DES PLANS TARIFAIRES
@@ -16,6 +20,8 @@ const PRICING_PLANS = [
     description: 'Idéal pour les indépendants qui démarrent.',
     priceMonthly: 0,
     priceYearly: 0,
+    priceIdMonthly: null,
+    priceIdYearly: null,
     features: [
       'Jusqu\'à 5 clients actifs',
       '10 devis & factures / mois',
@@ -32,6 +38,8 @@ const PRICING_PLANS = [
     description: 'Pour les artisans et TPE en croissance.',
     priceMonthly: 29,
     priceYearly: 290,
+    priceIdMonthly: 'pri_01m695yhc4yeqf0j7gy5v076jv', // 🔑 REMPLACEZ par votre Price ID mensuel
+    priceIdYearly: 'pri_01m695zh3rjbc576vxdv7wb672', // 🔑 REMPLACEZ par votre Price ID annuel
     features: [
       'Clients & devis illimités',
       'Relances automatiques par email',
@@ -50,6 +58,8 @@ const PRICING_PLANS = [
     description: 'Pour les équipes et les besoins avancés.',
     priceMonthly: 79,
     priceYearly: 790,
+    priceIdMonthly: 'pri_01m695yhc4yeqf0j7gy5v076jv', // 🔑 REMPLACEZ par votre Price ID mensuel Business
+    priceIdYearly: 'pri_01m695zh3rjbc576vxdv7wb672', // 🔑 REMPLACEZ par votre Price ID annuel Business
     features: [
       'Tout du plan Professionnel',
       'Jusqu\'à 5 utilisateurs',
@@ -65,7 +75,7 @@ const PRICING_PLANS = [
 ];
 
 // ============================================================
-// 💬 DONNÉES DES TÉMOIGNAGES (Facilement modifiable)
+// 💬 DONNÉES DES TÉMOIGNAGES
 // ============================================================
 const TESTIMONIALS = [
   {
@@ -89,7 +99,7 @@ const TESTIMONIALS = [
 ];
 
 // ============================================================
-// ❓ DONNÉES DE LA FAQ (Facilement modifiable)
+// ❓ DONNÉES DE LA FAQ
 // ============================================================
 const FAQ_ITEMS = [
   {
@@ -118,17 +128,70 @@ const FAQ_ITEMS = [
 // 🎨 COMPOSANT PRINCIPAL
 // ============================================================
 export default function LandingPage() {
+const { customTeamId } = useTeam();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { openCheckout, loading: paddleLoading } = usePaddle();
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [processingPlan, setProcessingPlan] = useState<string | null>(null);
 
   const handleRegister = () => navigate('/register');
   const handleLogin = () => navigate('/login');
 
-  return (
+ const handleSubscribe = async (planId: string) => {
+  const plan = PRICING_PLANS.find(p => p.id === planId);
+  if (!plan) return;
+
+  if (plan.priceMonthly === 0) {
+    handleRegister();
+    return;
+  }
+
+  // Si l'utilisateur n'est pas connecté, rediriger vers l'inscription
+  if (!user) {
+    toast.info('Veuillez créer un compte pour souscrire');
+    handleRegister();
+    return;
+  }
+
+  const priceId = billingCycle === 'monthly' ? plan.priceIdMonthly : plan.priceIdYearly;
+  
+  if (!priceId) {
+    console.error('❌ Price ID manquant pour le plan', planId);
+    toast.error('Configuration du plan invalide.');
+    return;
+  }
+
+  setProcessingPlan(planId);
+
+  try {
+    // ✅ Récupérer le teamId de l'utilisateur
+    // Vous devrez importer useTeam depuis votre contexte
+    const teamId = /* votre teamId ici */ '';
+    
+    // ✅ Passer les données au webhook Paddle
+    const customData = {
+      user_id: user.$id,
+      team_id: teamId
+    };
+
+    await openCheckout(priceId, user.email, customData);
+  } catch (error) {
+    console.error('Erreur ouverture checkout:', error);
+    toast.error('Impossible d\'ouvrir le paiement.');
+  } finally {
+    setProcessingPlan(null);
+  }
+};
+
+
+
+
+ return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-indigo-500/30">
       
-      {/* 🌌 ARRIÈRE-PLAN SUBTIL (Effet Premium) */}
+      {/* 🌌 ARRIÈRE-PLAN SUBTIL */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-[128px]" />
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[128px]" />
@@ -295,6 +358,7 @@ export default function LandingPage() {
             {PRICING_PLANS.map((plan) => {
               const price = billingCycle === 'monthly' ? plan.priceMonthly : plan.priceYearly;
               const period = billingCycle === 'monthly' ? '/mois' : '/an';
+              const isProcessing = processingPlan === plan.id;
               
               return (
                 <div 
@@ -327,14 +391,22 @@ export default function LandingPage() {
                   </div>
 
                   <button 
-                    onClick={handleRegister}
-                    className={`w-full py-3 rounded-lg font-semibold transition-all mb-8 ${
+                    onClick={() => handleSubscribe(plan.id)}
+                    disabled={isProcessing || paddleLoading}
+                    className={`w-full py-3 rounded-lg font-semibold transition-all mb-8 flex items-center justify-center gap-2 ${
                       plan.popular
                         ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25'
                         : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'
-                    }`}
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    {plan.cta}
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        Ouverture...
+                      </>
+                    ) : (
+                      plan.cta
+                    )}
                   </button>
 
                   <ul className="space-y-4">
@@ -352,7 +424,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ⭐ TÉMOIGNAGES CLIENTS (Nouveau) */}
+      {/* ⭐ TÉMOIGNAGES CLIENTS */}
       <section id="testimonials" className="relative z-10 py-24 bg-slate-900/50 border-y border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
@@ -384,7 +456,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ❓ FAQ EN ACCORDÉON (Nouveau) */}
+      {/* ❓ FAQ EN ACCORDÉON */}
       <section id="faq" className="relative z-10 py-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-12">
@@ -427,7 +499,6 @@ export default function LandingPage() {
       </section>
 
       {/* 🦶 FOOTER */}
-            {/* 🦶 FOOTER */}
       <footer className="relative z-10 border-t border-white/5 bg-slate-950 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">

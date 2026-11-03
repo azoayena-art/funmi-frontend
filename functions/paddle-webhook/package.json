@@ -1,0 +1,17 @@
+{
+  "name": "paddle-webhook",
+  "version": "1.0.0",
+  "description": "Webhook Paddle pour RelancePro - Gère les paiements et abonnements",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'No build step required'"
+  },
+  "dependencies": {
+    "node-appwrite": "^13.0.0"
+  },
+  "devDependencies": {},
+  "keywords": ["paddle", "webhook", "appwrite", "relancepro"],
+  "author": "RelancePro",
+  "license": "MIT"
+}

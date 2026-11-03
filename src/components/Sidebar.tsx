@@ -1,17 +1,17 @@
-// src/components/Sidebar.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { databases, DATABASE_ID } from '../appwrite';
-import { Query } from 'appwrite';
+import { Query, Models } from 'appwrite';
 import {
   LayoutDashboard, Users, UserCheck, Package, FileText, Receipt,
   Bell, Wallet, FileCheck, LogOut, ChevronLeft,
   ChevronRight, Moon, Sun, Menu, X, Building2, Shield,
   BarChart3, FileOutput, FileInput, BookOpen, ArrowRightLeft,
-  Save, // ✅ AJOUTÉ
+  Save, CreditCard,
+  LucideIcon,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,7 +21,7 @@ interface SidebarProps {
 interface NavItem {
   path: string;
   label: string;
-  icon: any;
+  icon: LucideIcon; // ✅ Typage strict au lieu de 'any'
   permissions: string[];
   badge?: number;
   color: string;
@@ -66,7 +66,7 @@ export default function Sidebar({ children }: SidebarProps) {
     if (location.pathname === '/received-invoices') setReceivedInvoicesCount(0);
   }, [location.pathname]);
 
-  // Compteurs (inchangés)
+  // Compteurs optimisés
   useEffect(() => {
     const loadRemindersCount = async () => {
       if (!user || !hasPermission('invoices.view') || !customTeamId) return;
@@ -86,7 +86,7 @@ export default function Sidebar({ children }: SidebarProps) {
         const now = new Date();
         let count = 0;
 
-        quotesRes.documents.forEach((q: any) => {
+        quotesRes.documents.forEach((q: Models.Document) => {
           if (!q.issueDate) return;
           const issueDate = new Date(q.issueDate);
           if (isNaN(issueDate.getTime())) return;
@@ -101,7 +101,7 @@ export default function Sidebar({ children }: SidebarProps) {
           else if (daysSinceSent >= 3) count++;
         });
 
-        invoicesRes.documents.forEach((inv: any) => {
+        invoicesRes.documents.forEach((inv: Models.Document) => {
           if (inv.status === 'paid' || inv.status === 'cancelled' || inv.type === 'credit') return;
           if (inv.isElectronic && inv.transmissionStatus === 'transmitted') {
             const dateStr = inv.$updatedAt || inv.issueDate || '';
@@ -122,7 +122,7 @@ export default function Sidebar({ children }: SidebarProps) {
 
         setPendingRemindersCount(count);
       } catch (e) {
-        console.warn('Erreur chargement compteur relances:', e);
+        // Erreur silencieuse en production pour ne pas polluer la console
       }
     };
     loadRemindersCount();
@@ -142,7 +142,7 @@ export default function Sidebar({ children }: SidebarProps) {
         ]);
         setPendingPublicRequestsCount(res.documents.length);
       } catch (e) {
-        console.warn('Erreur chargement demandes publiques:', e);
+        // Erreur silencieuse
       }
     };
     loadPublicRequestsCount();
@@ -161,7 +161,7 @@ export default function Sidebar({ children }: SidebarProps) {
         ]);
         setPendingQuotesActionCount(res.documents.length);
       } catch (e) {
-        console.warn('Erreur chargement devis à traiter:', e);
+        // Erreur silencieuse
       }
     };
     loadPendingQuotesActionCount();
@@ -194,13 +194,16 @@ export default function Sidebar({ children }: SidebarProps) {
   };
 
   const handleNavigation = (path: string) => {
-    console.log('🧭 Navigation vers:', path, 'depuis:', location.pathname);
     navigate(path);
     setMobileOpen(false);
   };
 
-  const displayName = (user as any)?.profile?.firstName || (user as any)?.name || 'Utilisateur';
-  const initials = String(displayName).split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
+  // ✅ Typage sécurisé sans 'as any' global
+  const safeUser = user as { name?: string; email?: string; profile?: { firstName?: string } } | null;
+  const displayName = safeUser?.profile?.firstName || safeUser?.name || 'Utilisateur';
+  const userEmail = safeUser?.email || '';
+  const initials = displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
+  
   const isActive = (path: string) => location.pathname === path;
 
   const hasAnyPermission = (permissions: string[]): boolean => {
@@ -239,27 +242,9 @@ export default function Sidebar({ children }: SidebarProps) {
     {
       title: 'Finance',
       items: [
-        { 
-          path: '/treasury', 
-          label: 'Trésorerie', 
-          icon: Wallet, 
-          permissions: ['treasury.view', 'invoices.view', 'reports.view', 'dashboard'], 
-          color: 'text-purple-600',
-        },
-        { 
-          path: '/cash-operations', 
-          label: 'Entrées & Sorties', 
-          icon: ArrowRightLeft, 
-          permissions: ['treasury.view', 'invoices.view', 'dashboard'], 
-          color: 'text-emerald-600',
-        },
-        { 
-          path: '/export-comptable', 
-          label: 'Export comptable', 
-          icon: BookOpen, 
-          permissions: ['reports.export', 'reports.view', 'dashboard'], 
-          color: 'text-indigo-600',
-        },
+        { path: '/treasury', label: 'Trésorerie', icon: Wallet, permissions: ['treasury.view', 'invoices.view', 'reports.view', 'dashboard'], color: 'text-purple-600' },
+        { path: '/cash-operations', label: 'Entrées & Sorties', icon: ArrowRightLeft, permissions: ['treasury.view', 'invoices.view', 'dashboard'], color: 'text-emerald-600' },
+        { path: '/export-comptable', label: 'Export comptable', icon: BookOpen, permissions: ['reports.export', 'reports.view', 'dashboard'], color: 'text-indigo-600' },
       ],
     },
   ];
@@ -268,42 +253,30 @@ export default function Sidebar({ children }: SidebarProps) {
     { path: '/team-settings', label: 'Équipe & Rôles', icon: Shield, permissions: ['team.view'], color: 'text-indigo-600' },
     { path: '/company-settings', label: 'Mon Entreprise', icon: Building2, permissions: ['settings.view'], color: 'text-slate-600' },
     { path: '/account-mapping', label: 'Plan Comptable', icon: BookOpen, permissions: ['settings.edit', 'settings.view'], color: 'text-purple-600' },
-    
-    // ✅ AJOUTÉ : Utilitaire de sauvegarde
-    { 
-      path: '/backup', 
-      label: 'Sauvegardes', 
-      icon: Save, 
-      permissions: ['settings.edit', 'settings.view'], 
-      color: 'text-emerald-600' 
-    },
+    { path: '/backup', label: 'Sauvegardes', icon: Save, permissions: ['settings.edit', 'settings.view'], color: 'text-emerald-600' },
+    { path: '/billing', label: 'Mon Abonnement', icon: CreditCard, permissions: ['settings.view'], color: 'text-amber-600' },
   ];
 
   const renderNavItem = (item: NavItem) => {
     const active = isActive(item.path);
-    const showBadge = item.badge && item.badge > 0;
+    const showBadge = item.badge !== undefined && item.badge > 0;
     const hasAccess = hasAnyPermission(item.permissions);
-
-    if (item.path === '/treasury' && !hasAccess) {
-      console.warn('⚠️ Trésorerie NON accessible - Permissions requises:', item.permissions);
-    }
 
     let tooltipText: string | undefined;
     if (collapsed) {
       if (item.path === '/quotes' && showBadge) {
-        tooltipText = `${item.label} (${item.badge} à traiter : Acceptés ou Refusés)`;
+        tooltipText = `${item.label} (${item.badge} à traiter)`;
       } else if (item.path === '/received-invoices' && showBadge) {
         tooltipText = `${item.label} (${item.badge} à valider)`;
       } else if (item.path === '/reminders' && showBadge) {
         tooltipText = `${item.label} (${item.badge} à relancer)`;
       } else if (item.path === '/cash-operations') {
-        tooltipText = 'Entrées & Sorties particulières (salaires, loyers, abonnements...)';
-      } 
-      // ✅ AJOUTÉ
-      else if (item.path === '/backup') {
-        tooltipText = 'Sauvegardes & Restaurations de vos données';
-      }
-      else {
+        tooltipText = 'Entrées & Sorties particulières';
+      } else if (item.path === '/backup') {
+        tooltipText = 'Sauvegardes & Restaurations';
+      } else if (item.path === '/billing') {
+        tooltipText = 'Gérer mon abonnement';
+      } else {
         tooltipText = item.label;
       }
     }
@@ -311,28 +284,28 @@ export default function Sidebar({ children }: SidebarProps) {
     return (
       <button
         key={item.path}
-        onClick={() => handleNavigation(item.path)}
+        onClick={() => hasAccess && handleNavigation(item.path)}
         disabled={!hasAccess}
-        className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${
+        className={`relative w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-200 group ${
           !hasAccess
             ? 'opacity-40 cursor-not-allowed'
             : active
-            ? 'bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/40 dark:to-indigo-900/40 text-purple-700 dark:text-purple-300 font-semibold shadow-sm ring-1 ring-purple-200/50 dark:ring-purple-700/50'
+            ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-medium shadow-sm ring-1 ring-purple-200/50 dark:ring-purple-700/50'
             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-slate-200'
-        } ${collapsed ? 'justify-center' : ''}`}
+        } ${collapsed ? 'justify-center px-2' : ''}`}
         title={tooltipText}
         aria-label={item.label}
         aria-current={active ? 'page' : undefined}
       >
-        <div className={`flex-shrink-0 p-1.5 rounded-lg ${active ? 'bg-white dark:bg-slate-800 shadow-sm' : ''}`}>
-          <item.icon size={20} className={`transition-transform group-hover:scale-110 ${active ? item.color : ''}`} />
+        <div className={`flex-shrink-0 p-1.5 rounded-md ${active ? 'bg-white dark:bg-slate-800 shadow-sm' : ''}`}>
+          <item.icon size={18} className={`transition-transform group-hover:scale-105 ${active ? item.color : ''}`} />
         </div>
 
         {!collapsed && (
           <>
             <span className="text-sm flex-1 text-left truncate">{item.label}</span>
             {showBadge && (
-              <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold bg-red-500 text-white rounded-full shadow-sm animate-pulse">
+              <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold bg-red-500 text-white rounded-full shadow-sm">
                 {item.badge! > 99 ? '99+' : item.badge}
               </span>
             )}
@@ -340,7 +313,9 @@ export default function Sidebar({ children }: SidebarProps) {
         )}
 
         {collapsed && showBadge && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white dark:border-slate-800 shadow-sm animate-pulse" />
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-[9px] flex items-center justify-center text-white rounded-full border-2 border-white dark:border-slate-800 shadow-sm">
+            {item.badge! > 9 ? '9+' : item.badge}
+          </span>
         )}
       </button>
     );
@@ -348,39 +323,38 @@ export default function Sidebar({ children }: SidebarProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-5 border-b border-slate-200 dark:border-slate-700 flex-shrink-0`}>
+      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0`}>
         {!collapsed && (
-          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-            Funmi
+          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+            RelancePro
           </h1>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-all hover:scale-110"
+          className="hidden lg:flex items-center justify-center w-7 h-7 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-all"
           aria-label={collapsed ? 'Étendre la sidebar' : 'Réduire la sidebar'}
         >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-4 px-3" role="navigation" aria-label="Menu principal">
-        <div className="space-y-5">
+      <nav className="flex-1 overflow-y-auto py-3 px-2.5 custom-scrollbar" role="navigation" aria-label="Menu principal">
+        <div className="space-y-3"> {/* ✅ Réduit de space-y-5 à space-y-3 */}
           {navSections.map((section, idx) => {
             const filteredItems = section.items.filter(item => hasAnyPermission(item.permissions));
-            
             if (filteredItems.length === 0) return null;
 
             return (
-              <div key={section.title} className="space-y-1">
+              <div key={section.title} className="space-y-0.5"> {/* ✅ Interligne réduit entre les items */}
                 {!collapsed && (
-                  <p className="px-3 pb-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                  <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                     {section.title}
                   </p>
                 )}
                 {collapsed && idx > 0 && (
                   <div className="my-2 border-t border-slate-200 dark:border-slate-700"></div>
                 )}
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {filteredItems.map(renderNavItem)}
                 </div>
               </div>
@@ -388,11 +362,11 @@ export default function Sidebar({ children }: SidebarProps) {
           })}
         </div>
 
-        <div className="my-5 border-t border-slate-200 dark:border-slate-700"></div>
+        <div className="my-3 border-t border-slate-200 dark:border-slate-700"></div> {/* ✅ Réduit de my-5 à my-3 */}
 
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {!collapsed && (
-            <p className="px-3 pb-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+            <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
               Paramètres
             </p>
           )}
@@ -400,35 +374,33 @@ export default function Sidebar({ children }: SidebarProps) {
         </div>
       </nav>
 
-      <div className="border-t border-slate-200 dark:border-slate-700 p-3 space-y-1 flex-shrink-0">
+      <div className="border-t border-slate-200 dark:border-slate-700 p-2.5 space-y-2 flex-shrink-0">
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-all ${collapsed ? 'justify-center' : ''}`}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-all ${collapsed ? 'justify-center' : ''}`}
           title={collapsed ? (darkMode ? 'Mode clair' : 'Mode sombre') : undefined}
-          aria-label={darkMode ? 'Activer le mode clair' : 'Activer le mode sombre'}
         >
-          <div className="flex-shrink-0 p-1.5 rounded-lg">
+          <div className="flex-shrink-0 p-1.5 rounded-md">
             {darkMode ? <Sun size={18} className="text-amber-500" /> : <Moon size={18} />}
           </div>
           {!collapsed && <span className="text-sm font-medium">{darkMode ? 'Mode clair' : 'Mode sombre'}</span>}
         </button>
 
-        <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-700/50 dark:to-slate-800/50 ring-1 ring-slate-200/50 dark:ring-slate-700/50 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-md ring-2 ring-white dark:ring-slate-800">
+        <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/30 ring-1 ring-slate-200/50 dark:ring-slate-700/50 ${collapsed ? 'justify-center' : ''}`}>
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-800">
             {initials}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{displayName}</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{(user as any)?.email}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{userEmail}</p>
             </div>
           )}
           {!collapsed && (
             <button
               onClick={handleLogout}
-              className="flex-shrink-0 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-all hover:scale-110"
+              className="flex-shrink-0 p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-all"
               title="Déconnexion"
-              aria-label="Se déconnecter"
             >
               <LogOut size={16} />
             </button>
@@ -445,13 +417,13 @@ export default function Sidebar({ children }: SidebarProps) {
       </aside>
 
       {mobileOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden animate-fadeIn" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
       )}
 
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-out lg:hidden flex flex-col shadow-2xl ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`} aria-label="Menu mobile">
-        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Funmi</h1>
-          <button onClick={() => setMobileOpen(false)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-all hover:scale-110" aria-label="Fermer le menu">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-purple-50/50 dark:bg-purple-900/20">
+          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">RelancePro</h1>
+          <button onClick={() => setMobileOpen(false)} className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-all" aria-label="Fermer le menu">
             <X size={20} />
           </button>
         </div>
@@ -462,11 +434,11 @@ export default function Sidebar({ children }: SidebarProps) {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="lg:hidden bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-all hover:scale-110" aria-label="Ouvrir le menu">
-            <Menu size={24} />
+          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-all" aria-label="Ouvrir le menu">
+            <Menu size={22} />
           </button>
-          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Funmi</h1>
-          <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md ring-2 ring-white dark:ring-slate-800">
+          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">RelancePro</h1>
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white dark:ring-slate-800">
             {initials}
           </div>
         </header>

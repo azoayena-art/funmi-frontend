@@ -65,10 +65,9 @@ const ImportExport = lazy(() => import('./pages/ImportExport'));
 // Pages Admin & Configuration
 const TeamSettings = lazy(() => import('./pages/TeamSettings'));
 const CompanySettings = lazy(() => import('./pages/CompanySettings'));
-const SecurityMigration = lazy(() => import('./pages/SecurityMigration'));
 const BackupUtility = lazy(() => import('./pages/BackupUtility'));
-const SetupAttributes = lazy(() => import('./pages/SetupAttributes'));
-const TestPaymentModal = lazy(() => import('./pages/TestPaymentModal'));
+const Billing = lazy(() => import('./pages/Billing')); // ✅ AJOUTÉ
+const Pricing = lazy(() => import('./pages/Pricing'));
 
 // 📄 Pages légales (publiques)
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -202,16 +201,18 @@ function AppRoutes() {
         <Route path="/cash-operations" element={<ProtectedRoute><CashOperations /></ProtectedRoute>} />
         <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
         <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
-        <Route path="/test-payment" element={<ProtectedRoute><TestPaymentModal /></ProtectedRoute>} />
+        
         
         {/* Paramètres & Admin */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
         <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
-        <Route path="/admin/security-migration" element={<ProtectedRoute><SecurityMigration /></ProtectedRoute>} />
+<Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} /> {/* ✅ AJOUTÉ */}
+<Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
+        
 
         {/* ===== ROUTES UTILITAIRES ===== */}
-        <Route path="/setup" element={<SetupAttributes />} />
+       
         <Route path="/backup" element={<BackupUtility />} />
         
         {/* ===== REDIRECTION PAR DÉFAUT ===== */}
