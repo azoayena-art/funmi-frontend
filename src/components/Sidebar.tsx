@@ -4,15 +4,15 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useSubscription } from '../hooks/useSubscription'; // ✅ NOUVEAU : Hook d'abonnement
 import { databases, DATABASE_ID } from '../appwrite';
 import { Query, Models } from 'appwrite';
 import {
   LayoutDashboard, Users, UserCheck, Package, FileText, Receipt,
-  Bell, Wallet, FileCheck, LogOut, ChevronLeft,
-  ChevronRight, Moon, Sun, Menu, X, Building2, Shield,
-  BarChart3, FileOutput, FileInput, BookOpen, ArrowRightLeft,
-  Save, CreditCard, Scale, BookOpenCheck, BookText, FileDown,
-  LucideIcon,
+  Bell, Wallet, FileCheck, LogOut, ChevronLeft, ChevronRight,
+  Moon, Sun, Menu, X, Building2, Shield, BarChart3, FileOutput,
+  FileInput, BookOpen, ArrowRightLeft, Save, CreditCard, Scale,
+  BookOpenCheck, BookText, FileDown, Sparkles // ✅ Sparkles ajouté pour le bandeau
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,7 +22,7 @@ interface SidebarProps {
 interface NavItem {
   path: string;
   label: string;
-  icon: LucideIcon;
+  icon: any; // LucideIcon type simplifié pour éviter les conflits d'import
   permissions: string[];
   badge?: number;
   color: string;
@@ -35,8 +35,11 @@ interface NavSection {
 
 export default function Sidebar({ children }: SidebarProps) {
   const { user, logout } = useAuth();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { customTeamId } = useTeam();
+  
+  // ✅ NOUVEAU : Récupérer le statut de l'abonnement
+  const { isPro, isLoading: subLoading } = useSubscription();
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -214,7 +217,7 @@ export default function Sidebar({ children }: SidebarProps) {
   };
 
   // ============================================================
-  // 🗺️ STRUCTURE DE NAVIGATION
+  // 🗺️ STRUCTURE DE NAVIGATION (Mise à jour avec isPro)
   // ============================================================
   const navSections: NavSection[] = [
     {
@@ -250,13 +253,15 @@ export default function Sidebar({ children }: SidebarProps) {
       ],
     },
     {
-      // ✅ NOUVELLE SECTION : Cycle comptable PCG/SYSCOHADA
       title: 'Comptabilité',
       items: [
-        { path: '/journal', label: 'Journal', icon: BookText, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-blue-600' },
-        { path: '/grand-livre', label: 'Grand Livre', icon: BookOpenCheck, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-indigo-600' },
-        { path: '/balance-comptable', label: 'Balance', icon: Scale, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-purple-600' },
-        { path: '/export-comptable', label: 'Export FEC / Logiciels', icon: FileDown, permissions: ['reports.export', 'reports.view', 'dashboard'], color: 'text-emerald-600' },
+        { path: '/journal', label: 'Journal', icon: BookText, permissions: ['reports.view'], color: 'text-blue-600' },
+        // ✅ Affichage conditionnel des fonctionnalités PRO
+        ...(isPro ? [
+          { path: '/grand-livre', label: 'Grand Livre', icon: BookOpenCheck, permissions: ['reports.view'], color: 'text-indigo-600' },
+          { path: '/balance-comptable', label: 'Balance', icon: Scale, permissions: ['reports.view'], color: 'text-purple-600' },
+          { path: '/export-comptable', label: 'Export Comptable', icon: FileDown, permissions: ['reports.export'], color: 'text-emerald-600' },
+        ] : []),
       ],
     },
   ];
@@ -277,29 +282,17 @@ export default function Sidebar({ children }: SidebarProps) {
 
     let tooltipText: string | undefined;
     if (collapsed) {
-      if (item.path === '/quotes' && showBadge) {
-        tooltipText = `${item.label} (${item.badge} à traiter)`;
-      } else if (item.path === '/received-invoices' && showBadge) {
-        tooltipText = `${item.label} (${item.badge} à valider)`;
-      } else if (item.path === '/reminders' && showBadge) {
-        tooltipText = `${item.label} (${item.badge} à relancer)`;
-      } else if (item.path === '/cash-operations') {
-        tooltipText = 'Entrées & Sorties particulières';
-      } else if (item.path === '/backup') {
-        tooltipText = 'Sauvegardes & Restaurations';
-      } else if (item.path === '/billing') {
-        tooltipText = 'Gérer mon abonnement';
-      } else if (item.path === '/journal') {
-        tooltipText = 'Journal des écritures comptables';
-      } else if (item.path === '/grand-livre') {
-        tooltipText = 'Grand Livre - Détail par compte';
-      } else if (item.path === '/balance-comptable') {
-        tooltipText = 'Balance comptable (soldes par compte)';
-      } else if (item.path === '/export-comptable') {
-        tooltipText = 'Export FEC, Sage, Cegid, EBP...';
-      } else {
-        tooltipText = item.label;
-      }
+      if (item.path === '/quotes' && showBadge) tooltipText = `${item.label} (${item.badge} à traiter)`;
+      else if (item.path === '/received-invoices' && showBadge) tooltipText = `${item.label} (${item.badge} à valider)`;
+      else if (item.path === '/reminders' && showBadge) tooltipText = `${item.label} (${item.badge} à relancer)`;
+      else if (item.path === '/cash-operations') tooltipText = 'Entrées & Sorties particulières';
+      else if (item.path === '/backup') tooltipText = 'Sauvegardes & Restaurations';
+      else if (item.path === '/billing') tooltipText = 'Gérer mon abonnement';
+      else if (item.path === '/journal') tooltipText = 'Journal des écritures comptables';
+      else if (item.path === '/grand-livre') tooltipText = 'Grand Livre - Détail par compte';
+      else if (item.path === '/balance-comptable') tooltipText = 'Balance comptable';
+      else if (item.path === '/export-comptable') tooltipText = 'Export FEC, Sage, Cegid...';
+      else tooltipText = item.label;
     }
 
     return (
@@ -346,8 +339,9 @@ export default function Sidebar({ children }: SidebarProps) {
     <div className="flex flex-col h-full">
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0`}>
         {!collapsed && (
-          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-            RelancePro
+          // ✅ BRANDING MIS À JOUR
+          <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent tracking-tight">
+            Funmi
           </h1>
         )}
         <button
@@ -383,6 +377,25 @@ export default function Sidebar({ children }: SidebarProps) {
           })}
         </div>
 
+        {/* ✅ BANDEAU D'INCITATION À LA MISE À NIVEAU (Upgrade) */}
+        {!isPro && !subLoading && !collapsed && (
+          <div className="mx-2 mb-3 p-3 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/20">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Sparkles size={14} className="text-yellow-300" />
+              <span className="text-xs font-bold">Passez à Funmi Pro</span>
+            </div>
+            <p className="text-[10px] text-indigo-100 mb-2.5 leading-tight">
+              Débloquez le Grand Livre, la Balance et les exports FEC/OHADA.
+            </p>
+            <button 
+              onClick={() => navigate('/pricing')}
+              className="w-full py-1.5 px-2 bg-white text-indigo-600 text-[10px] font-bold rounded-lg hover:bg-indigo-50 transition-colors flex items-center justify-center gap-1"
+            >
+              Voir les tarifs <ChevronRight size={10} />
+            </button>
+          </div>
+        )}
+
         <div className="my-3 border-t border-slate-200 dark:border-slate-700"></div>
 
         <div className="space-y-0.5">
@@ -408,7 +421,7 @@ export default function Sidebar({ children }: SidebarProps) {
         </button>
 
         <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/30 ring-1 ring-slate-200/50 dark:ring-slate-700/50 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-800">
+          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-800">
             {initials}
           </div>
           {!collapsed && (
@@ -442,8 +455,9 @@ export default function Sidebar({ children }: SidebarProps) {
       )}
 
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-out lg:hidden flex flex-col shadow-2xl ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`} aria-label="Menu mobile">
-        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-purple-50/50 dark:bg-purple-900/20">
-          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">RelancePro</h1>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-indigo-50/50 dark:bg-indigo-900/20">
+          {/* ✅ BRANDING MIS À JOUR (Mobile) */}
+          <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">Funmi</h1>
           <button onClick={() => setMobileOpen(false)} className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-all" aria-label="Fermer le menu">
             <X size={20} />
           </button>
@@ -458,8 +472,8 @@ export default function Sidebar({ children }: SidebarProps) {
           <button onClick={() => setMobileOpen(true)} className="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-all" aria-label="Ouvrir le menu">
             <Menu size={22} />
           </button>
-          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">RelancePro</h1>
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white dark:ring-slate-800">
+          <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">Funmi</h1>
+          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white dark:ring-slate-800">
             {initials}
           </div>
         </header>

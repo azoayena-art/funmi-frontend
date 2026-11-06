@@ -1,284 +1,174 @@
 // src/pages/Pricing.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
-import { Check, Zap, Loader2, Crown, Calendar, ArrowLeft } from 'lucide-react';
-import { usePaddle } from '../hooks/usePaddle';
+import { usePaddle } from '../context/PaddleContext';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
-import Sidebar from '../components/Sidebar';
+import { Check, X, Loader2, Sparkles, Shield, Zap } from 'lucide-react';
+import { toast } from 'sonner';
 
-// ============================================================
-// ⚙️ CONFIGURATION DES PLANS TARIFAIRES
-// ⚠️ Les prix affichés ci-dessous correspondent EXACTEMENT 
-//    aux Price IDs Sandbox de votre capture d'écran Paddle.
-// ============================================================
-const PRICING_PLANS = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Idéal pour les indépendants qui démarrent.',
-    priceMonthly: 0,
-    priceYearly: 0,
-    priceIdMonthly: null,
-    priceIdYearly: null,
-    features: [
-      'Jusqu\'à 5 clients actifs',
-      '10 devis & factures / mois',
-      'Relances manuelles',
-      'Support par email'
-    ],
-    cta: 'Plan actuel',
-    popular: false,
-    disabled: true
-  },
-  {
-    id: 'pro',
-    name: 'Professionnel',
-    description: 'Pour les artisans et TPE en croissance.',
-    // ✅ PRIX MIS À JOUR pour correspondre aux IDs Paddle de votre capture
-    priceMonthly: 12,  
-    priceYearly: 200,  
-    // ✅ VOS VRAIS PRICE IDs SANDBOX
-    priceIdMonthly: 'pri_01m6cc847zn2e00vy655tvtar9', 
-    priceIdYearly: 'pri_01m6cc847zn2e00vy655tvtar9',  
-
-    features: [
-      'Clients & devis illimités',
-      'Relances automatiques par email',
-      'E-facturation B2B (Réforme 2026)',
-      'Tableau de bord financier',
-      'Export comptable (FEC)',
-      'Support prioritaire'
-    ],
-    cta: 'Passer au Pro',
-    popular: true,
-    disabled: false
-  },
-  {
-    id: 'business',
-    name: 'Business',
-    description: 'Pour les équipes et les besoins avancés.',
-    priceMonthly: 79,
-    priceYearly: 790,
-    priceIdMonthly: null, // Désactivé pour l'instant
-    priceIdYearly: null,  // Désactivé pour l'instant
-    features: [
-      'Tout du plan Professionnel',
-      'Jusqu\'à 5 utilisateurs',
-      'Signature électronique intégrée',
-      'API & Webhooks',
-      'Manager de compte dédié',
-      'Formation à la demande'
-    ],
-    cta: 'Contacter les ventes',
-    popular: false,
-    disabled: true
-  }
-];
+// Récupération des IDs depuis le .env
+const STARTER_PRICE_ID = import.meta.env.VITE_PADDLE_STARTER_PRICE_ID;
+const PRO_PRICE_ID = import.meta.env.VITE_PADDLE_PRO_PRICE_ID;
 
 export default function Pricing() {
-  const navigate = useNavigate();
+  const { paddle, isReady } = usePaddle();
   const { user } = useAuth();
   const { customTeamId } = useTeam();
-  const { openCheckout, loading: paddleLoading } = usePaddle();
+  const navigate = useNavigate();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const [processingPlan, setProcessingPlan] = useState<string | null>(null);
+  const handleCheckout = async (priceId: string, planName: string) => {
+    if (!isReady || !paddle) {
+      toast.error('Paddle n\'est pas encore chargé. Veuillez réessayer dans un instant.');
+      return;
+    }
 
-  const handleSubscribe = async (planId: string) => {
-    const plan = PRICING_PLANS.find(p => p.id === planId);
-    if (!plan || plan.disabled) return;
-
-    if (!user) {
-      toast.error('Vous devez être connecté pour souscrire');
+    if (!user || !customTeamId) {
+      toast.error('Vous devez être connecté pour souscrire.');
       navigate('/login');
       return;
     }
 
-    if (!customTeamId) {
-      toast.error('Équipe non trouvée. Veuillez rafraîchir la page.');
-      return;
-    }
+    setLoadingPlan(planName);
 
-    const priceId = billingCycle === 'monthly' ? plan.priceIdMonthly : plan.priceIdYearly;
-    
-    if (!priceId) {
-      toast.error('Configuration du plan invalide. Contactez le support.');
-      return;
-    }
+    // URL de retour après succès (à adapter selon votre domaine)
+    const successUrl = `${window.location.origin}/billing?success=true&plan=${planName}`;
 
-    // ✅ LOG DE DÉBOGAGE : Vérifiez cette ligne dans la console (F12)
-    console.log('🚀 Envoi à Paddle - Price ID:', priceId, '| User:', user.$id, '| Team:', customTeamId);
+    paddle.Checkout.open({
+      settings: {
+        displayMode: 'overlay',
+        theme: 'light',
+        locale: 'fr',
+        successUrl: successUrl,
+      },
+      items: [{ priceId, quantity: 1 }],
+      customer: {
+        email: user.email, // Pré-remplir l'email
+      },
+      customData: {
+        teamId: customTeamId, // CRUCIAL : On passe le teamId pour le webhook
+        userId: user.$id,
+      },
+    });
 
-    setProcessingPlan(planId);
-
-    try {
-      await openCheckout(priceId, user.email, {
-        user_id: user.$id,
-        team_id: customTeamId
-      });
-    } catch (error) {
-      console.error('Erreur ouverture checkout:', error);
-      toast.error('Impossible d\'ouvrir le paiement. Veuillez réessayer.');
-    } finally {
-      setProcessingPlan(null);
-    }
+    setLoadingPlan(null);
   };
 
   return (
-    <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900 p-6 lg:p-10">
-        <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto">
+        
+        {/* Header */}
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-semibold mb-4 border border-indigo-100 dark:border-indigo-800">
+            <Sparkles size={12} />
+            Tarification simple et transparente
+          </div>
+          <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-4 tracking-tight">
+            Choisissez le plan adapté à votre croissance
+          </h1>
+          <p className="text-lg text-slate-600 dark:text-slate-400">
+            Démarrez gratuitement avec 14 jours d'essai. Passez à la vitesse supérieure avec Funmi Pro pour la comptabilité complète.
+          </p>
+        </div>
+
+        {/* Pricing Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           
-          {/* En-tête avec bouton retour */}
-          <div className="flex items-center justify-between">
-            <div>
-              <button
-                onClick={() => navigate('/billing')}
-                className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors mb-3"
-              >
-                <ArrowLeft size={16} />
-                Retour à la facturation
-              </button>
-              <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                <Crown className="text-purple-600" size={28} />
-                Choisissez votre plan
-              </h1>
-              <p className="text-slate-500 dark:text-slate-400 mt-2">
-                Passez au niveau supérieur et débloquez toutes les fonctionnalités de RelancePro.
-              </p>
+          {/* PLAN STARTER */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-8 flex flex-col hover:border-indigo-300 dark:hover:border-indigo-700 transition-all">
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Zap size={18} className="text-blue-500" />
+                Funmi Starter
+              </h3>
+              <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Pour les indépendants et TPE qui débutent.</p>
             </div>
+            <div className="mb-6">
+              <span className="text-4xl font-bold text-slate-900 dark:text-white">14 €</span>
+              <span className="text-slate-500 dark:text-slate-400"> / mois</span>
+              <p className="text-xs text-slate-400 mt-1">+ 14 jours d'essai gratuit</p>
+            </div>
+            
+            <ul className="space-y-3 mb-8 flex-1">
+              {['50 Factures & Devis / mois', '100 Clients & Prospects', 'Relances automatiques basiques', 'Support par email', 'Multi-utilisateur (1 siège)'].map((feature, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                  {feature}
+                </li>
+              ))}
+              {['Export FEC / OHADA', 'Grand Livre & Balance'].map((feature, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm text-slate-400 dark:text-slate-600 line-through">
+                  <X size={16} className="flex-shrink-0 mt-0.5" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+
+            <button
+              onClick={() => handleCheckout(STARTER_PRICE_ID, 'starter')}
+              disabled={loadingPlan !== null}
+              className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loadingPlan === 'starter' ? <Loader2 size={16} className="animate-spin" /> : 'Commencer l\'essai'}
+            </button>
           </div>
 
-          {/* Toggle Mensuel / Annuel */}
-          <div className="flex justify-center">
-            <div className="inline-flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1 shadow-sm">
-              <button
-                onClick={() => setBillingCycle('monthly')}
-                className={`px-6 py-2 rounded-full text-sm font-semibold transition-all ${
-                  billingCycle === 'monthly' 
-                    ? 'bg-purple-600 text-white shadow-md' 
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Mensuel
-              </button>
-              <button
-                onClick={() => setBillingCycle('yearly')}
-                className={`px-6 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${
-                  billingCycle === 'yearly' 
-                    ? 'bg-purple-600 text-white shadow-md' 
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Annuel
-                <span className="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-bold">
-                  -17%
-                </span>
-              </button>
+          {/* PLAN PRO (Mis en avant) */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border-2 border-indigo-500 dark:border-indigo-500 p-8 flex flex-col relative transform md:-translate-y-4">
+            <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-2">
+              <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+                <Sparkles size={10} /> Le plus populaire
+              </span>
             </div>
-          </div>
-
-          {/* Grille des plans */}
-          <div className="grid lg:grid-cols-3 gap-6">
-            {PRICING_PLANS.map((plan) => {
-              const price = billingCycle === 'monthly' ? plan.priceMonthly : plan.priceYearly;
-              const period = billingCycle === 'monthly' ? '/mois' : '/an';
-              const isProcessing = processingPlan === plan.id;
-              
-              return (
-                <div 
-                  key={plan.id}
-                  className={`relative p-6 lg:p-8 rounded-2xl border transition-all duration-300 hover:-translate-y-1 ${
-                    plan.popular 
-                      ? 'bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-purple-300 dark:border-purple-700 shadow-xl shadow-purple-500/10 ring-2 ring-purple-500/20' 
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm'
-                  }`}
-                >
-                  {plan.popular && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold rounded-full shadow-lg flex items-center gap-1">
-                      <Zap size={12} />
-                      Le plus populaire
-                    </div>
-                  )}
-
-                  <div className="mb-6">
-                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">{plan.name}</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{plan.description}</p>
-                  </div>
-
-                  <div className="mb-6">
-                    <span className="text-4xl font-bold text-slate-900 dark:text-white">{price}€</span>
-                    <span className="text-slate-500 dark:text-slate-400 ml-1">{period}</span>
-                    {billingCycle === 'yearly' && price > 0 && plan.priceMonthly > 0 && (
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2 font-medium">
-                        💰 Économisez {(plan.priceMonthly * 12 - plan.priceYearly).toFixed(0)}€/an
-                      </p>
-                    )}
-                  </div>
-
-                  <button 
-                    onClick={() => handleSubscribe(plan.id)}
-                    disabled={plan.disabled || isProcessing || paddleLoading}
-                    className={`w-full py-3 rounded-xl font-semibold transition-all mb-6 flex items-center justify-center gap-2 ${
-                      plan.popular
-                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-lg shadow-purple-500/30 active:scale-95'
-                        : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-900 dark:text-white'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="animate-spin" size={18} />
-                        Ouverture du paiement...
-                      </>
-                    ) : (
-                      plan.cta
-                    )}
-                  </button>
-
-                  <ul className="space-y-3">
-                    {plan.features.map((feature, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
-                        <Check size={18} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Section réassurance */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 mt-8">
-            <div className="grid md:grid-cols-3 gap-6 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
-                  <Check size={20} className="text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">Sans engagement</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Annulez à tout moment</p>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <Calendar size={20} className="text-blue-600 dark:text-blue-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">Essai 14 jours</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Testez sans risque</p>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
-                  <Zap size={20} className="text-purple-600 dark:text-purple-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">Activation immédiate</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Toutes les fonctions débloquées</p>
-              </div>
+            
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Shield size={18} className="text-indigo-500" />
+                Funmi Pro
+              </h3>
+              <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Pour les PME exigeantes et experts-comptables.</p>
             </div>
+            <div className="mb-6">
+              <span className="text-4xl font-bold text-slate-900 dark:text-white">39 €</span>
+              <span className="text-slate-500 dark:text-slate-400"> / mois</span>
+              <p className="text-xs text-slate-400 mt-1">+ 14 jours d'essai gratuit</p>
+            </div>
+            
+            <ul className="space-y-3 mb-8 flex-1">
+              {[
+                'Factures & Devis ILLIMITÉS', 
+                'Clients & Prospects ILLIMITÉS', 
+                'Export FEC (France) & SYSCOHADA (OHADA)',
+                'Grand Livre & Balance Comptable',
+                'Relances avancées & Scénarios',
+                'Support prioritaire',
+                'Jusqu\'à 3 sièges utilisateurs'
+              ].map((feature, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <Check size={16} className="text-indigo-500 flex-shrink-0 mt-0.5" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+
+            <button
+              onClick={() => handleCheckout(PRO_PRICE_ID, 'pro')}
+              disabled={loadingPlan !== null}
+              className="w-full py-3 px-4 rounded-lg font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loadingPlan === 'pro' ? <Loader2 size={16} className="animate-spin" /> : 'Passer à Funmi Pro'}
+            </button>
           </div>
 
         </div>
+
+        {/* Footer info */}
+        <p className="text-center text-xs text-slate-500 dark:text-slate-500 mt-12">
+          Paiement sécurisé par Paddle. Nous gérons automatiquement la TVA européenne et internationale.
+        </p>
       </div>
-    </Sidebar>
+    </div>
   );
 }
