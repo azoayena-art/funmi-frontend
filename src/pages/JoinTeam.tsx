@@ -123,7 +123,7 @@ export default function JoinTeam() {
   // Filet de sécurité : détecte les sessions orphelines
   useEffect(() => {
     if (authLoading || user) return;
-    
+
     let cancelled = false;
     (async () => {
       try {
@@ -172,6 +172,9 @@ export default function JoinTeam() {
   };
 
   const processInvitation = useCallback(async () => {
+    // ✅ GARDE ANTI-DOUBLE-CLIC : Empêche la soumission si déjà en cours
+    if (status === 'loading') return;
+
     const rateCheck = tryConsumeProcess();
     if (!rateCheck.allowed) {
       setStatus('error');
@@ -259,20 +262,19 @@ export default function JoinTeam() {
       });
       console.log('📤 Appel function accept-invitation:', requestBody);
 
-            // ✅ Appel REST direct via client.call (contourne les bugs de signature du SDK)
-            let funcResponse: any;
+      // ✅ Appel REST direct via client.call (contourne les bugs de signature du SDK)
+      let funcResponse: any;
       try {
         funcResponse = await functions.createExecution(
           FUNCTION_ID,
-          requestBody,          // ← position 2 = body (string JSON)
-          false,                // ← position 3 = async (false = synchrone)
-          '/',                  // ← position 4 = path
-          'POST',               // ← position 5 = method
-          { 'content-type': 'application/json' }  // ← position 6 = headers
-          // PAS de position 7 (scheduledAt) → évite le bug précédent
+          requestBody,          // → position 2 = body (string JSON)
+          false,                // → position 3 = async (false = synchrone)
+          '/',                  // → position 4 = path
+          'POST',               // → position 5 = method
+          { 'content-type': 'application/json' }  // → position 6 = headers
         );
       } catch (execError: any) {
-        console.error('❌ Erreur appel function:', execError);
+        console.error('⚠️ Erreur appel function:', execError);
         throw new Error(`Appel function échoué: ${execError.message}`);
       }
 
@@ -340,9 +342,9 @@ export default function JoinTeam() {
       const message = err.message || 'Erreur lors du traitement de l\'invitation.';
       setErrorMessage(message);
       processedRef.current = false;
-      console.error('❌ Erreur processInvitation:', err);
+      console.error('⚠️ Erreur processInvitation:', err);
     }
-  }, [email, membershipId, secret, customTeamId, user, navigate, tryConsumeProcess, resetProcessLimit]);
+  }, [email, membershipId, secret, customTeamId, user, navigate, tryConsumeProcess, resetProcessLimit, status]);
 
   useEffect(() => {
     if (authLoading) {
@@ -475,7 +477,7 @@ export default function JoinTeam() {
               {invalidDetails.length > 0 && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4 w-full text-left">
                   <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-2">
-                    🔍 Problèmes détectés :
+                    ⚠️ Problèmes détectés :
                   </p>
                   <ul className="text-xs text-red-600 dark:text-red-400 space-y-1 list-disc list-inside">
                     {invalidDetails.map((detail, idx) => (
@@ -671,10 +673,15 @@ export default function JoinTeam() {
                 </button>
                 <button
                   onClick={handleRetry}
-                  disabled={isBlockedForProcess}
-                  className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+                  // ✅ MODIFICATION : Désactivation stricte pendant le chargement
+                  disabled={status === 'loading' || isBlockedForProcess}
+                  className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
-                  Réessayer
+                  {status === 'loading' ? (
+                    <><Loader2 size={14} className="animate-spin" /> Traitement...</>
+                  ) : (
+                    'Réessayer'
+                  )}
                 </button>
               </div>
             </div>

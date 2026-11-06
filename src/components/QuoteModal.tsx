@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
@@ -7,58 +7,88 @@ import SignatureCanvas from 'react-signature-canvas';
 import {
   X, Calculator, Plus, Minus, Building2, User,
   Wrench, DollarSign, FileSignature, Upload,
-  FileText, Package, Search, Check, Send, ChevronLeft, ChevronRight, MapPin, Home, Hash, Globe,
-  RefreshCw, Shield, Landmark, Info
+  FileText, Package, Search, Check, Send, ChevronLeft, ChevronRight, 
+  MapPin, Home, Hash, Globe, RefreshCw, Shield, Landmark, Info, 
+  Mail, Lightbulb, AlertTriangle
 } from 'lucide-react';
 import { Query, ID as AppwriteID } from 'appwrite';
 import Modal from '../components/ui/Modal';
 import {
-  FormField,
-  Input,
-  Select,
-  Textarea,
-  Alert,
-  Badge,
-  EmptyState,
-  SearchFilter,
-  Pagination,
+  FormField, Input, Select, Textarea, Alert, Badge, 
+  EmptyState, SearchFilter, Pagination,
 } from '../components/ui/SharedUI';
 
-// ✅ E-FACTURATION MULTI-PAYS
 import { 
   isEInvoiceRequired, 
   getVisibleFields, 
   validateVatNumber as validateVatMultiCountry 
 } from '../utils/eInvoicing';
 
-// 🔐 CORRECTION RLS : Import centralisé (supprime la duplication)
 import { getTeamPermissions } from '../utils/rowLevelPermissions';
+
+// ✅ IMPORT DYNAMIQUE DE LA LISTE DES PAYS
+import { listCountryOptions } from '../config/countries';
 
 // ============================================================
 // 📋 INTERFACES
 // ============================================================
 
 interface QuoteItem {
-  id: string; reference: string; description: string; quantity: number;
-  unit: string; unitPrice: number; tvaRate: number; total: number; discount: number;
+  id: string;
+  reference: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  tvaRate: number;
+  total: number;
+  discount: number;
 }
 
 interface Quote {
-  $id: string; quoteNumber: string; clientName: string; subject?: string; status: string;
-  total: number; issueDate?: string; validityDate?: string; items?: string;
-  subtotal?: number; discount?: number; tax?: number; deposit?: number; balance?: number;
-  companyName?: string; companyAddress?: string;
-  companyPostalCode?: string; companyCity?: string; companyCountry?: string;
-  companySiret?: string; companyTva?: string;
-  companyPhone?: string; companyEmail?: string; logoFileId?: string;
-  clientAddress?: string; clientPostalCode?: string; clientCity?: string; clientCountry?: string;
-  clientBillingAddress?: string; clientEmail?: string;
-  clientPhone?: string; executionDelay?: string; paymentConditions?: string;
-  paymentMethods?: string; specialConditions?: string; acceptanceMention?: string;
-  bonPourAccord?: boolean; tvaMention?: string; 
+  $id: string;
+  quoteNumber: string;
+  clientName: string;
+  subject?: string;
+  status: string;
+  total: number;
+  issueDate?: string;
+  validityDate?: string;
+  items?: string;
+  subtotal?: number;
+  discount?: number;
+  tax?: number;
+  deposit?: number;
+  balance?: number;
+  companyName?: string;
+  companyAddress?: string;
+  companyPostalCode?: string;
+  companyCity?: string;
+  companyCountry?: string;
+  companySiret?: string;
+  companyTva?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  logoFileId?: string;
+  clientAddress?: string;
+  clientPostalCode?: string;
+  clientCity?: string;
+  clientCountry?: string;
+  clientBillingAddress?: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  executionDelay?: string;
+  paymentConditions?: string;
+  paymentMethods?: string;
+  specialConditions?: string;
+  acceptanceMention?: string;
+  bonPourAccord?: boolean;
+  tvaMention?: string;
   prospectId?: string;
   clientId?: string;
-  clientSignature?: string; clientToken?: string; clientComment?: string;
+  clientSignature?: string;
+  clientToken?: string;
+  clientComment?: string;
   teamId?: string;
   clientType?: 'particulier' | 'entreprise';
   clientSiret?: string;
@@ -67,8 +97,14 @@ interface Quote {
 }
 
 interface CompanySettings {
-  name: string; address: string; siret: string;
-  tvaNumber: string; phone: string; email: string; defaultTvaRate: string; logoFileId?: string;
+  name: string;
+  address: string;
+  siret: string;
+  tvaNumber: string;
+  phone: string;
+  email: string;
+  defaultTvaRate: string;
+  logoFileId?: string;
   tvaRates?: string;
   postalCode?: string;
   city?: string;
@@ -76,26 +112,54 @@ interface CompanySettings {
 }
 
 interface CatalogProduct {
-  $id: string; reference?: string; name: string; description?: string;
-  unit: string; unitPrice: string; tvaRate: string;
+  $id: string;
+  reference?: string;
+  name: string;
+  description?: string;
+  unit: string;
+  unitPrice: string;
+  tvaRate: string;
 }
 
 interface QuoteFormData {
   prospectId: string;
   clientId: string;
-  quoteNumber: string; status: string; issueDate: string;
-  validityDate: string; subject: string; workAddress: string; companyName: string;
+  quoteNumber: string;
+  status: string;
+  issueDate: string;
+  validityDate: string;
+  subject: string;
+  workAddress: string;
+  companyName: string;
   companyAddress: string;
-  companyPostalCode: string; companyCity: string; companyCountry: string;
+  companyPostalCode: string;
+  companyCity: string;
+  companyCountry: string;
   companySiret: string;
-  companyTva: string; companyPhone: string; companyEmail: string; logoFileId: string;
-  clientName: string; clientAddress: string;
-  clientPostalCode: string; clientCity: string; clientCountry: string;
+  companyTva: string;
+  companyPhone: string;
+  companyEmail: string;
+  logoFileId: string;
+  clientName: string;
+  clientAddress: string;
+  clientPostalCode: string;
+  clientCity: string;
+  clientCountry: string;
   clientBillingAddress: string;
-  clientEmail: string; clientPhone: string; items: QuoteItem[]; discount: number;
-  deposit: number; executionDelay: string; paymentConditions: string; paymentMethods: string;
-  specialConditions: string; acceptanceMention: string; bonPourAccord: boolean;
-  clientSignature: string; clientToken: string; clientComment: string;
+  clientEmail: string;
+  clientPhone: string;
+  items: QuoteItem[];
+  discount: number;
+  deposit: number;
+  executionDelay: string;
+  paymentConditions: string;
+  paymentMethods: string;
+  specialConditions: string;
+  acceptanceMention: string;
+  bonPourAccord: boolean;
+  clientSignature: string;
+  clientToken: string;
+  clientComment: string;
   clientType: 'particulier' | 'entreprise';
   clientSiret: string;
   clientSiren: string;
@@ -106,15 +170,44 @@ interface QuoteFormData {
 // 🎨 CONSTANTES
 // ============================================================
 
-const PAYMENT_METHODS = ["Virement bancaire", "Chèque", "Espèces", "Carte bancaire", "Prélèvement SEPA"];
-const EXECUTION_DELAYS = ["Immédiat", "Selon planning", "Sous 1 semaine", "Sous 2 semaines", "Sous 1 mois", "À convenir"];
-const UNIT_OPTIONS = ['Forfait', 'Heure', 'Jour', 'm²', 'ml', 'Unité', 'kg', 'Intervention'];
+const PAYMENT_METHODS = [
+  "Virement bancaire",
+  "Chèque",
+  "Espèces",
+  "Carte bancaire",
+  "Prélèvement SEPA"
+];
+
+const EXECUTION_DELAYS = [
+  "Immédiat",
+  "Selon planning",
+  "Sous 1 semaine",
+  "Sous 2 semaines",
+  "Sous 1 mois",
+  "À convenir"
+];
+
+const UNIT_OPTIONS = [
+  'Forfait',
+  'Heure',
+  'Jour',
+  'm²',
+  'ml',
+  'Unité',
+  'kg',
+  'Intervention'
+];
+
 const TVA_OPTIONS = ['20', '10', '5.5', '0'];
 const CATALOG_ITEMS_PER_PAGE = 20;
 
 // ============================================================
-// 🏠 PARSER RÉTROACTIF D'ADRESSE
+// 🏠 HELPERS
 // ============================================================
+
+/**
+ * Parse une adresse rétroactivement pour extraire code postal et ville
+ */
 const parseAddressRetroactive = (
   address: string | undefined,
   existingPostalCode?: string,
@@ -126,19 +219,29 @@ const parseAddressRetroactive = (
       address: address || '',
       postalCode: existingPostalCode || '',
       city: existingCity || '',
-      country: existingCountry || 'FR'
+      country: existingCountry || ''
     };
   }
   
   if (!address || !address.trim()) {
-    return { address: '', postalCode: '', city: '', country: existingCountry || 'FR' };
+    return {
+      address: '',
+      postalCode: '',
+      city: '',
+      country: existingCountry || ''
+    };
   }
   
   const postalRegex = /\b(\d{5})\b/;
   const match = address.match(postalRegex);
   
   if (!match) {
-    return { address, postalCode: '', city: '', country: existingCountry || 'FR' };
+    return {
+      address,
+      postalCode: '',
+      city: '',
+      country: existingCountry || ''
+    };
   }
   
   const postalCode = match[1];
@@ -151,20 +254,21 @@ const parseAddressRetroactive = (
     address: line1 || address,
     postalCode,
     city: city || '',
-    country: existingCountry || 'FR'
+    country: existingCountry || ''
   };
 };
 
-// ============================================================
-// ✅ VALIDATION SIRET/SIREN (Luhn)
-// ============================================================
-
+/**
+ * Validation SIRET (14 chiffres) avec algorithme de Luhn
+ */
 const validateSIRET = (siret: string): boolean => {
   if (!siret) return false;
   const clean = siret.replace(/\s/g, '');
   if (!/^\d{14}$/.test(clean)) return false;
+  
   let sum = 0;
   let isEven = false;
+  
   for (let i = clean.length - 1; i >= 0; i--) {
     let digit = parseInt(clean.charAt(i), 10);
     if (isEven) {
@@ -174,15 +278,21 @@ const validateSIRET = (siret: string): boolean => {
     sum += digit;
     isEven = !isEven;
   }
+  
   return sum % 10 === 0;
 };
 
+/**
+ * Validation SIREN (9 chiffres) avec algorithme de Luhn
+ */
 const validateSIREN = (siren: string): boolean => {
   if (!siren) return false;
   const clean = siren.replace(/\s/g, '');
   if (!/^\d{9}$/.test(clean)) return false;
+  
   let sum = 0;
   let isEven = false;
+  
   for (let i = clean.length - 1; i >= 0; i--) {
     let digit = parseInt(clean.charAt(i), 10);
     if (isEven) {
@@ -192,17 +302,14 @@ const validateSIREN = (siren: string): boolean => {
     sum += digit;
     isEven = !isEven;
   }
+  
   return sum % 10 === 0;
 };
 
-const validateVatNumber = (vat: string): boolean => {
-  if (!vat) return true;
-  const clean = vat.replace(/\s/g, '').toUpperCase();
-  return /^FR[0-9A-Z]{2}\d{9}$/.test(clean);
-};
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 // ============================================================
-// 🎯 PROPS
+// 🎯 PROPS DU COMPOSANT
 // ============================================================
 
 interface QuoteModalProps {
@@ -218,55 +325,100 @@ interface QuoteModalProps {
   userPermissions?: string[];
 }
 
-const emptyFormData = (): QuoteFormData => ({
-  prospectId: '',
-  clientId: '', quoteNumber: `DEV-${new Date().getFullYear()}-000`,
-  status: 'Brouillon', issueDate: new Date().toISOString().split('T')[0],
-  validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  subject: '', workAddress: '', companyName: '',
-  companyAddress: '', companyPostalCode: '', companyCity: '', companyCountry: 'FR',
-  companySiret: '',
-  companyTva: 'TVA non applicable, art. 293 B du CGI', companyPhone: '', companyEmail: '', logoFileId: '',
-  clientName: '', clientAddress: '', clientPostalCode: '', clientCity: '', clientCountry: 'FR',
-  clientBillingAddress: '', clientEmail: '', clientPhone: '',
-  items: [{ id: '1', reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: 20, total: 0, discount: 0 }],
-  discount: 0, deposit: 0, executionDelay: 'Selon planning', paymentConditions: 'Paiement à 30 jours',
-  paymentMethods: 'Virement bancaire', specialConditions: '', acceptanceMention: 'Lu et approuvé, bon pour accord',
-  bonPourAccord: true,
-  clientSignature: '', clientToken: '', clientComment: '',
-  clientType: 'particulier',
-  clientSiret: '',
-  clientSiren: '',
-  clientVatNumber: '',
-});
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+// ============================================================
+// 🎯 COMPOSANT PRINCIPAL
+// ============================================================
 
 export default function QuoteModal({ 
-  isOpen, onClose, onSave, clients = [], companySettings, 
-  editingQuote, preselectedClientId = null, getNextQuoteNumber, currentTeamId, userPermissions = []
+  isOpen,
+  onClose,
+  onSave,
+  clients = [],
+  companySettings,
+  editingQuote,
+  preselectedClientId = null,
+  getNextQuoteNumber,
+  currentTeamId,
+  userPermissions = []
 }: QuoteModalProps) {
-
   const { user } = useAuth();
-  // 🔒 RLS : Récupération des DEUX IDs depuis le hook
   const { appwriteTeamId } = useTeam();
-  
-  // ✅ Pays de l'entreprise émettrice (fallback sur 'FR')
-  const { 
-    fm: hookFm, 
-    currency, 
-    currencyConfig, 
-    companyCountry: hookCompanyCountry 
+  const {
+    fm: hookFm,
+    currency,
+    currencyConfig,
+    companyCountry: hookCompanyCountry
   } = useCompanySettings();
   
-  const companyCountry = hookCompanyCountry || companySettings?.country || 'FR';
+  // ✅ Récupération STRICTE du pays de l'entreprise
+  const companyCountry = hookCompanyCountry || companySettings?.country || '';
+  
+  // ✅ Liste des pays disponible
+  const countryOptions = listCountryOptions();
 
-  // ✅ CORRECTION RLS : Définition locale SUPPRIMÉE
-  // Utilisation directe de getTeamPermissions(appwriteTeamId, { isPublic }) depuis utils/rowLevelPermissions
+  // ✅ Factory fonction pour données de formulaire vides (utilise companyCountry)
+  const getEmptyFormData = useCallback((): QuoteFormData => ({
+    prospectId: '',
+    clientId: '',
+    quoteNumber: `DEV-${new Date().getFullYear()}-000`,
+    status: 'Brouillon',
+    issueDate: new Date().toISOString().split('T')[0],
+    validityDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    subject: '',
+    workAddress: '',
+    companyName: '',
+    companyAddress: '',
+    companyPostalCode: '',
+    companyCity: '',
+    companyCountry: companyCountry || '', // ✅ Utilise le pays de l'entreprise
+    companySiret: '',
+    companyTva: 'TVA non applicable, art. 293 B du CGI',
+    companyPhone: '',
+    companyEmail: '',
+    logoFileId: '',
+    clientName: '',
+    clientAddress: '',
+    clientPostalCode: '',
+    clientCity: '',
+    clientCountry: companyCountry || '', // ✅ Utilise le pays de l'entreprise
+    clientBillingAddress: '',
+    clientEmail: '',
+    clientPhone: '',
+    items: [{
+      id: '1',
+      reference: '',
+      description: '',
+      quantity: 1,
+      unit: 'Forfait',
+      unitPrice: 0,
+      tvaRate: 20,
+      total: 0,
+      discount: 0
+    }],
+    discount: 0,
+    deposit: 0,
+    executionDelay: 'Selon planning',
+    paymentConditions: 'Paiement à 30 jours',
+    paymentMethods: 'Virement bancaire',
+    specialConditions: '',
+    acceptanceMention: 'Lu et approuvé, bon pour accord',
+    bonPourAccord: true,
+    clientSignature: '',
+    clientToken: '',
+    clientComment: '',
+    clientType: 'particulier',
+    clientSiret: '',
+    clientSiren: '',
+    clientVatNumber: '',
+  }), [companyCountry]);
+
+  // ============================================================
+  // 📦 ÉTATS
+  // ============================================================
 
   const [saving, setSaving] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
-  const [formData, setFormData] = useState<QuoteFormData>(emptyFormData());
+  const [formData, setFormData] = useState<QuoteFormData>(getEmptyFormData());
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -276,7 +428,6 @@ export default function QuoteModal({
   
   const [clientSearch, setClientSearch] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
-  
   const [companyInfoCustomized, setCompanyInfoCustomized] = useState(false);
   
   const sigCanvas = useRef<SignatureCanvas>(null);
@@ -294,10 +445,15 @@ export default function QuoteModal({
       if (raw) {
         const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (Array.isArray(arr) && arr.length > 0) {
-          return arr.map((r: any) => ({ value: String(r.rate), label: `${r.rate}% — ${r.name}${r.country ? ` (${r.country})` : ''}` }));
+          return arr.map((r: any) => ({
+            value: String(r.rate),
+            label: `${r.rate}% — ${r.name}${r.country ? ` (${r.country})` : ''}`
+          }));
         }
       }
-    } catch { /* fallback */ }
+    } catch {
+      /* fallback */
+    }
     return TVA_OPTIONS.map(t => ({ value: t, label: `${t}%` }));
   }, [companySettings]);
 
@@ -340,24 +496,14 @@ export default function QuoteModal({
     });
   }, [clients, clientSearch]);
 
-  useEffect(() => {
-    if (isOpen) {
-      console.log('🔍 [QuoteModal] Modal ouvert:', {
-        clientsRecus: clients?.length || 0,
-        clientsActifs: filteredClients.length,
-        currentTeamId,
-        companySettingsProps: companySettings?.name || '(null)',
-        companyCountry,
-        appwriteTeamId,
-      });
-    }
-  }, [isOpen, clients, filteredClients, currentTeamId, companySettings, companyCountry, appwriteTeamId]);
-
+  // Calculs financiers
   const subtotalRaw = formData.items.reduce((s, i) => s + (i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100)), 0);
   const discountAmountRaw = subtotalRaw * (formData.discount / 100);
   const taxableRaw = subtotalRaw - discountAmountRaw;
   const isTvaApplicable = !formData.companyTva.includes('non applicable');
-  const taxRaw = isTvaApplicable ? formData.items.reduce((a, i) => a + ((i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100) * (1 - formData.discount / 100)) * (i.tvaRate / 100)), 0) : 0;
+  const taxRaw = isTvaApplicable 
+    ? formData.items.reduce((a, i) => a + ((i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100) * (1 - formData.discount / 100)) * (i.tvaRate / 100)), 0)
+    : 0;
 
   const subtotal = round2(subtotalRaw);
   const discountAmount = round2(discountAmountRaw);
@@ -366,9 +512,12 @@ export default function QuoteModal({
   const total = round2(taxableAmount + tax);
   const balance = round2(total - formData.deposit);
 
+  // Ventilation TVA
   const taxBreakdown = useMemo(() => {
     if (!isTvaApplicable) return [] as { rate: number; baseHT: number; taxAmount: number }[];
+    
     const map = new Map<number, { rate: number; baseHT: number; taxAmount: number }>();
+    
     formData.items.forEach(i => {
       const base = i.quantity * i.unitPrice * (1 - (i.discount || 0) / 100) * (1 - formData.discount / 100);
       const cur = map.get(i.tvaRate) || { rate: i.tvaRate, baseHT: 0, taxAmount: 0 };
@@ -376,19 +525,19 @@ export default function QuoteModal({
       cur.taxAmount = round2(cur.taxAmount + base * (i.tvaRate / 100));
       map.set(i.tvaRate, cur);
     });
+    
     return Array.from(map.values()).sort((a, b) => b.rate - a.rate);
   }, [formData.items, formData.discount, isTvaApplicable]);
 
-  // ✅ Calcul dynamique de la visibilité e-facturation
+  // E-facturation
   const isClientEntreprise = formData.clientType === 'entreprise';
   const visible = useMemo(() => 
-    getVisibleFields(companyCountry, formData.clientCountry, isClientEntreprise),
+    getVisibleFields(companyCountry || 'FR', formData.clientCountry, isClientEntreprise),
     [companyCountry, formData.clientCountry, isClientEntreprise]
   );
   
-  // ✅ Vérification croisée : e-facturation obligatoire ?
   const eInvoiceRequired = useMemo(() => 
-    isEInvoiceRequired(companyCountry, {
+    isEInvoiceRequired(companyCountry || 'FR', {
       country: formData.clientCountry,
       type: formData.clientType,
       companyName: formData.clientName,
@@ -418,6 +567,7 @@ export default function QuoteModal({
     setCatalogPage(1);
   }, [catalogSearch]);
 
+  // Chargement automatique des paramètres entreprise
   useEffect(() => {
     if (!isOpen) return;
     if (editingQuote) return;
@@ -436,7 +586,7 @@ export default function QuoteModal({
             freshSettings = res.documents[0] as unknown as CompanySettings;
           }
         } catch (e) {
-          console.warn('⚠️ [QuoteModal] Erreur rechargement settings teamId:', e);
+          console.warn('Erreur rechargement settings teamId:', e);
         }
       }
       
@@ -450,12 +600,12 @@ export default function QuoteModal({
             freshSettings = res.documents[0] as unknown as CompanySettings;
           }
         } catch (e) {
-          console.warn('⚠️ [QuoteModal] Erreur rechargement settings userId:', e);
+          console.warn('Erreur rechargement settings userId:', e);
         }
       }
       
       if (!freshSettings) {
-        console.warn('⚠️ [QuoteModal] Aucun paramètre entreprise trouvé');
+        console.warn('Aucun paramètre entreprise trouvé');
         return;
       }
       
@@ -481,7 +631,7 @@ export default function QuoteModal({
         companyAddress: addr.address,
         companyPostalCode: addr.postalCode,
         companyCity: addr.city,
-        companyCountry: addr.country,
+        companyCountry: addr.country || companyCountry || '',
         companySiret: freshSettings!.siret || prev.companySiret,
         companyTva: companyTvaValue,
         companyPhone: freshSettings!.phone || prev.companyPhone,
@@ -491,7 +641,7 @@ export default function QuoteModal({
     };
     
     loadAndFillCompanySettings();
-  }, [isOpen, editingQuote, companyInfoCustomized, currentTeamId, companySettings, user]);
+  }, [isOpen, editingQuote, companyInfoCustomized, currentTeamId, companySettings, user, companyCountry]);
 
   // ============================================================
   // ✅ CHARGEMENT
@@ -507,7 +657,9 @@ export default function QuoteModal({
         Query.limit(500)
       ]);
       setCatalogProducts(res.documents as unknown as CatalogProduct[]);
-    } catch (e) { console.error('Erreur chargement catalogue:', e); }
+    } catch (e) {
+      console.error('Erreur chargement catalogue:', e);
+    }
   };
 
   const initForm = async () => {
@@ -537,16 +689,18 @@ export default function QuoteModal({
           }
         }
       } catch (e) {
-        console.warn('⚠️ [initForm] Erreur rechargement settings:', e);
+        console.warn('Erreur rechargement settings:', e);
       }
     }
 
     if (editingQuote) {
       let parsedItems: QuoteItem[] = [];
-      try { 
-        parsedItems = editingQuote.items ? JSON.parse(editingQuote.items) : emptyFormData().items;
+      try {
+        parsedItems = editingQuote.items ? JSON.parse(editingQuote.items) : getEmptyFormData().items;
         parsedItems = parsedItems.map(item => ({ ...item, discount: item.discount || 0 }));
-      } catch(e){ parsedItems = emptyFormData().items; }
+      } catch(e) {
+        parsedItems = getEmptyFormData().items;
+      }
       
       const editCompanyAddr = parseAddressRetroactive(
         editingQuote.companyAddress,
@@ -564,30 +718,41 @@ export default function QuoteModal({
       setFormData({
         prospectId: editingQuote.prospectId || '',
         clientId: editingQuote.clientId || '',
-        quoteNumber: editingQuote.quoteNumber || '', 
+        quoteNumber: editingQuote.quoteNumber || '',
         status: editingQuote.status === 'Refusé' ? 'Brouillon' : editingQuote.status || 'Brouillon',
-        issueDate: editingQuote.issueDate || new Date().toISOString().split('T')[0], 
+        issueDate: editingQuote.issueDate || new Date().toISOString().split('T')[0],
         validityDate: editingQuote.validityDate || '',
-        subject: editingQuote.subject || '', workAddress: '', 
+        subject: editingQuote.subject || '',
+        workAddress: '',
         companyName: editingQuote.companyName || '',
         companyAddress: editCompanyAddr.address,
         companyPostalCode: editCompanyAddr.postalCode,
         companyCity: editCompanyAddr.city,
-        companyCountry: editCompanyAddr.country,
-        companySiret: editingQuote.companySiret || '', companyTva: editingQuote.companyTva || '',
-        companyPhone: editingQuote.companyPhone || '', companyEmail: editingQuote.companyEmail || '',
-        logoFileId: editingQuote.logoFileId || '', clientName: editingQuote.clientName || '',
+        companyCountry: editCompanyAddr.country || companyCountry || '',
+        companySiret: editingQuote.companySiret || '',
+        companyTva: editingQuote.companyTva || '',
+        companyPhone: editingQuote.companyPhone || '',
+        companyEmail: editingQuote.companyEmail || '',
+        logoFileId: editingQuote.logoFileId || '',
+        clientName: editingQuote.clientName || '',
         clientAddress: editClientAddr.address,
         clientPostalCode: editClientAddr.postalCode,
         clientCity: editClientAddr.city,
-        clientCountry: editClientAddr.country,
+        clientCountry: editClientAddr.country || companyCountry || '',
         clientBillingAddress: editingQuote.clientBillingAddress || '',
-        clientEmail: editingQuote.clientEmail || '', clientPhone: editingQuote.clientPhone || '',
-        items: parsedItems, discount: editingQuote.discount || 0, deposit: editingQuote.deposit || 0,
-        executionDelay: editingQuote.executionDelay || '', paymentConditions: editingQuote.paymentConditions || '',
-        paymentMethods: editingQuote.paymentMethods || '', specialConditions: editingQuote.specialConditions || '',
-        acceptanceMention: editingQuote.acceptanceMention || '', bonPourAccord: editingQuote.bonPourAccord || false,
-        clientSignature: editingQuote.clientSignature || '', clientToken: editingQuote.clientToken || '', 
+        clientEmail: editingQuote.clientEmail || '',
+        clientPhone: editingQuote.clientPhone || '',
+        items: parsedItems,
+        discount: editingQuote.discount || 0,
+        deposit: editingQuote.deposit || 0,
+        executionDelay: editingQuote.executionDelay || '',
+        paymentConditions: editingQuote.paymentConditions || '',
+        paymentMethods: editingQuote.paymentMethods || '',
+        specialConditions: editingQuote.specialConditions || '',
+        acceptanceMention: editingQuote.acceptanceMention || '',
+        bonPourAccord: editingQuote.bonPourAccord || false,
+        clientSignature: editingQuote.clientSignature || '',
+        clientToken: editingQuote.clientToken || '',
         clientComment: editingQuote.clientComment || '',
         clientType: editingQuote.clientType || 'particulier',
         clientSiret: editingQuote.clientSiret || '',
@@ -617,22 +782,28 @@ export default function QuoteModal({
       );
 
       const def: QuoteFormData = {
-        ...emptyFormData(), 
+        ...getEmptyFormData(),
         quoteNumber: newQuoteNumber,
-        companyName: freshSettings?.name || '', 
+        companyName: freshSettings?.name || '',
         companyAddress: companyAddr.address,
         companyPostalCode: companyAddr.postalCode,
         companyCity: companyAddr.city,
-        companyCountry: companyAddr.country || 'FR',
+        companyCountry: companyAddr.country || companyCountry || '',
         companySiret: freshSettings?.siret || '',
         companyTva: companyTvaValue,
-        companyPhone: freshSettings?.phone || '', 
+        companyPhone: freshSettings?.phone || '',
         companyEmail: freshSettings?.email || '',
         logoFileId: freshSettings?.logoFileId || '',
-        items: [{ 
-          id: '1', reference: '', description: '', quantity: 1, 
-          unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, 
-          total: 0, discount: 0 
+        items: [{
+          id: '1',
+          reference: '',
+          description: '',
+          quantity: 1,
+          unit: 'Forfait',
+          unitPrice: 0,
+          tvaRate: defaultTvaRate,
+          total: 0,
+          discount: 0
         }]
       };
       
@@ -646,7 +817,7 @@ export default function QuoteModal({
           def.clientAddress = clientAddr.address;
           def.clientPostalCode = clientAddr.postalCode;
           def.clientCity = clientAddr.city;
-          def.clientCountry = c.country || 'FR';
+          def.clientCountry = c.country || companyCountry || '';
           def.clientBillingAddress = c.billingAddress || clientAddr.address;
           def.clientEmail = c.email || '';
           def.clientPhone = c.phone || '';
@@ -683,7 +854,7 @@ export default function QuoteModal({
       clientAddress: clientAddr.address,
       clientPostalCode: clientAddr.postalCode,
       clientCity: clientAddr.city,
-      clientCountry: client.country || 'FR',
+      clientCountry: client.country || companyCountry || '',
       clientBillingAddress: client.billingAddress || clientAddr.address,
       clientEmail: client.email || '',
       clientPhone: client.phone || '',
@@ -705,7 +876,7 @@ export default function QuoteModal({
       clientAddress: '',
       clientPostalCode: '',
       clientCity: '',
-      clientCountry: 'FR',
+      clientCountry: companyCountry || '',
       clientBillingAddress: '',
       clientEmail: '',
       clientPhone: '',
@@ -730,8 +901,8 @@ export default function QuoteModal({
           freshSettings = res.documents[0] as unknown as CompanySettings;
         }
       }
-    } catch (e) { 
-      console.log('Erreur rechargement settings'); 
+    } catch (e) {
+      console.log('Erreur rechargement settings');
     }
     
     if (!freshSettings && user?.$id) {
@@ -747,7 +918,7 @@ export default function QuoteModal({
     }
     
     if (!freshSettings) {
-      console.warn('⚠️ Aucun paramètre entreprise trouvé');
+      console.warn('Aucun paramètre entreprise trouvé');
       return;
     }
     
@@ -774,7 +945,7 @@ export default function QuoteModal({
       companyAddress: companyAddr.address,
       companyPostalCode: companyAddr.postalCode,
       companyCity: companyAddr.city,
-      companyCountry: (settings as any).country || 'FR',
+      companyCountry: (settings as any).country || companyCountry || '',
       companySiret: settings.siret || '',
       companyTva: companyTvaValue,
       companyPhone: settings.phone || '',
@@ -800,8 +971,18 @@ export default function QuoteModal({
   const addItem = () => {
     const defaultTvaRate = parseFloat(companySettings?.defaultTvaRate || '20');
     setFormData(prev => ({
-      ...prev, 
-      items: [...prev.items, { id: Date.now().toString(), reference: '', description: '', quantity: 1, unit: 'Forfait', unitPrice: 0, tvaRate: defaultTvaRate, total: 0, discount: 0 }]
+      ...prev,
+      items: [...prev.items, {
+        id: Date.now().toString(),
+        reference: '',
+        description: '',
+        quantity: 1,
+        unit: 'Forfait',
+        unitPrice: 0,
+        tvaRate: defaultTvaRate,
+        total: 0,
+        discount: 0
+      }]
     }));
   };
 
@@ -811,19 +992,21 @@ export default function QuoteModal({
       id: Date.now().toString(),
       reference: product.reference || '',
       description: product.name + (product.description ? ` - ${product.description}` : ''),
-      quantity: 1, unit: product.unit || 'Forfait',
+      quantity: 1,
+      unit: product.unit || 'Forfait',
       unitPrice: parseFloat(product.unitPrice) || 0,
       tvaRate: parseFloat(product.tvaRate) || defaultTvaRate,
-      total: parseFloat(product.unitPrice) || 0, discount: 0
+      total: parseFloat(product.unitPrice) || 0,
+      discount: 0
     };
     setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
     setShowCatalogModal(false);
     setCatalogSearch('');
   };
 
-  const removeItem = (i: number) => { 
-    if (formData.items.length === 1) return; 
-    setFormData(prev => ({ ...prev, items: prev.items.filter((_, x) => x !== i) })); 
+  const removeItem = (i: number) => {
+    if (formData.items.length === 1) return;
+    setFormData(prev => ({ ...prev, items: prev.items.filter((_, x) => x !== i) }));
   };
 
   const handleSigUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -857,7 +1040,6 @@ export default function QuoteModal({
       if (!formData.clientId) return 'Étape 1 : veuillez sélectionner un client.';
       if (!formData.subject.trim()) return 'Étape 1 : veuillez indiquer l\'objet du devis.';
       
-      // ✅ Validation conditionnelle selon la règle e-facturation
       if (eInvoiceRequired) {
         if (!formData.clientSiret.trim()) {
           return 'Étape 1 : le SIRET est obligatoire pour l\'e-facturation B2B France (Réforme 2026).';
@@ -904,9 +1086,14 @@ export default function QuoteModal({
     if (err) { alert(err); return; }
     setStep((step + 1) as 1 | 2 | 3 | 4);
   };
+
   const goPrev = () => setStep(Math.max(1, step - 1) as 1 | 2 | 3 | 4);
+
   const goToStep = (s: 1 | 2 | 3 | 4) => {
-    if (s < step) { setStep(s); return; }
+    if (s < step) {
+      setStep(s);
+      return;
+    }
     for (let i = step; i < s; i++) {
       const err = validateStep(i);
       if (err) { alert(err); return; }
@@ -921,59 +1108,55 @@ export default function QuoteModal({
   const buildPayload = (status: string, clientToken?: string) => {
     let mainVatRate = 20;
     try {
-        const rateCounts = new Map<number, number>();
-        formData.items.forEach(item => {
-            const rate = parseInt(String(item.tvaRate || 0), 10);
-            if (!isNaN(rate) && rate >= 0 && rate <= 100) {
-                rateCounts.set(rate, (rateCounts.get(rate) || 0) + 1);
-            }
-        });
-        if (rateCounts.size > 0) {
-            let maxCount = 0;
-            rateCounts.forEach((count, rate) => {
-                if (count > maxCount) {
-                    maxCount = count;
-                    mainVatRate = rate;
-                }
-            });
+      const rateCounts = new Map<number, number>();
+      formData.items.forEach(item => {
+        const rate = parseInt(String(item.tvaRate || 0), 10);
+        if (!isNaN(rate) && rate >= 0 && rate <= 100) {
+          rateCounts.set(rate, (rateCounts.get(rate) || 0) + 1);
         }
+      });
+      if (rateCounts.size > 0) {
+        let maxCount = 0;
+        rateCounts.forEach((count, rate) => {
+          if (count > maxCount) {
+            maxCount = count;
+            mainVatRate = rate;
+          }
+        });
+      }
     } catch {
-        mainVatRate = 20;
+      mainVatRate = 20;
     }
     
     return {
-        ...formData, 
-        userId: user?.$id, 
-        teamId: currentTeamId, 
-        status,
-        clientToken: clientToken || formData.clientToken,
-        currencyCode: currency,
-        vatRate: mainVatRate,
-        items: JSON.stringify(formData.items), 
-        subtotal, 
-        discount: formData.discount, 
-        tax: tax, 
-        total: total,
-        deposit: formData.deposit, 
-        balance: balance, 
-        tvaMention: formData.companyTva, 
-        createdAt: new Date().toISOString(),
-        clientType: formData.clientType,
-        // ✅ CORRECTION : Nettoyer les champs selon la règle e-facturation
-        clientSiret: visible.showSirenSiret ? formData.clientSiret : '',
-        clientSiren: visible.showSirenSiret ? formData.clientSiren : '',
-        clientVatNumber: isClientEntreprise ? formData.clientVatNumber : '',
+      ...formData,
+      userId: user?.$id,
+      teamId: currentTeamId,
+      status,
+      clientToken: clientToken || formData.clientToken,
+      currencyCode: currency,
+      vatRate: mainVatRate,
+      items: JSON.stringify(formData.items),
+      subtotal,
+      discount: formData.discount,
+      tax: tax,
+      total: total,
+      deposit: formData.deposit,
+      balance: balance,
+      tvaMention: formData.companyTva,
+      createdAt: new Date().toISOString(),
+      clientType: formData.clientType,
+      clientSiret: visible.showSirenSiret ? formData.clientSiret : '',
+      clientSiren: visible.showSirenSiret ? formData.clientSiren : '',
+      clientVatNumber: isClientEntreprise ? formData.clientVatNumber : '',
     };
   };
 
   const saveDocument = async (payload: any) => {
-    // ✅ CORRECTION RLS : Utilisation du helper centralisé
-    // ✅ FIX CRITIQUE : isPublic doit être true si clientToken présent (accès via /v/:token)
     const isPublic = !!payload.clientToken;
     const permissions = getTeamPermissions(appwriteTeamId, { isPublic });
 
     if (editingQuote) {
-      // ✅ Vérification cross-tenant
       if (editingQuote.teamId && editingQuote.teamId !== currentTeamId) {
         throw new Error('Accès refusé : Ce devis n\'appartient pas à votre équipe');
       }
@@ -985,23 +1168,31 @@ export default function QuoteModal({
 
   const handleSubmit = async () => {
     const bad = firstInvalidStep();
-    if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
+    if (bad) {
+      alert(validateStep(bad)!);
+      setStep(bad as 1 | 2 | 3 | 4);
+      return;
+    }
     
     setSaving(true);
     try {
       await saveDocument(buildPayload('Brouillon'));
       onSave();
-    } catch (e: any) { 
+    } catch (e: any) {
       console.error('Erreur handleSubmit:', e);
-      alert(`Erreur: ${e.message}`); 
-    } finally { 
-      setSaving(false); 
+      alert(`Erreur: ${e.message}`);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleSendToClient = async () => {
     const bad = firstInvalidStep();
-    if (bad) { alert(validateStep(bad)!); setStep(bad as 1 | 2 | 3 | 4); return; }
+    if (bad) {
+      alert(validateStep(bad)!);
+      setStep(bad as 1 | 2 | 3 | 4);
+      return;
+    }
     
     setSendingToClient(true);
     try {
@@ -1011,13 +1202,15 @@ export default function QuoteModal({
       try {
         await navigator.clipboard.writeText(link);
         alert(`Devis envoyé !\n\nLien copié :\n${link}`);
-      } catch { alert(`Devis envoyé !\n\nLien :\n${link}`); }
+      } catch {
+        alert(`Devis envoyé !\n\nLien :\n${link}`);
+      }
       onSave();
-    } catch (e: any) { 
+    } catch (e: any) {
       console.error('Erreur handleSendToClient:', e);
-      alert(`Erreur: ${e.message}`); 
-    } finally { 
-      setSendingToClient(false); 
+      alert(`Erreur: ${e.message}`);
+    } finally {
+      setSendingToClient(false);
     }
   };
 
@@ -1041,50 +1234,59 @@ export default function QuoteModal({
       open={isOpen}
       onClose={onClose}
       title={editingQuote ? (formData.status === 'Refusé' ? 'Modifier (Refusé)' : 'Modifier le devis') : 'Nouveau Devis'}
-      icon={<Calculator size={20} className="text-purple-600" />}
+      icon={<Calculator size={20} className="text-indigo-600" />}
       maxWidth="sm:max-w-5xl"
       footer={
         <div className="flex flex-col sm:flex-row gap-3 w-full">
-          <button 
-            onClick={onClose} 
-            className="order-3 sm:order-1 w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95"
+          <button
+            onClick={onClose}
+            className="order-3 sm:order-1 w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95"
           >
             Annuler
           </button>
           
           <div className="flex flex-col sm:flex-row gap-3 order-1 sm:order-2 flex-1">
             {step > 1 && (
-              <button 
-                onClick={goPrev} 
-                className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95"
+              <button
+                onClick={goPrev}
+                className="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 active:scale-95"
               >
-                <ChevronLeft size={16} /> Précédent
+                <ChevronLeft size={16} />
+                Précédent
               </button>
             )}
             {step < 4 && (
-              <button 
-                onClick={goNext} 
-                className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 active:scale-95"
+              <button
+                onClick={goNext}
+                className="w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-all shadow-sm flex items-center justify-center gap-2 active:scale-95"
               >
-                Suivant <ChevronRight size={16} />
+                Suivant
+                <ChevronRight size={16} />
               </button>
             )}
             {step === 4 && (
               <>
-                <button 
-                  onClick={handleSubmit} 
+                <button
+                  onClick={handleSubmit}
                   disabled={saving || sendingToClient}
-                  className="w-full sm:w-auto px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                 >
-                  {(saving || sendingToClient) && <span className="animate-spin h-4 w-4 border-2 border-slate-700 dark:border-slate-300 border-t-transparent rounded-full" />}
+                  {(saving || sendingToClient) && (
+                    <span className="animate-spin h-4 w-4 border-2 border-slate-700 dark:border-slate-300 border-t-transparent rounded-full" />
+                  )}
                   Enregistrer (Brouillon)
                 </button>
-                <button 
-                  onClick={handleSendToClient} 
+                <button
+                  onClick={handleSendToClient}
                   disabled={saving || sendingToClient}
-                  className="w-full sm:w-auto px-6 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                  className="w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                 >
-                  {sendingToClient ? 'Envoi...' : <><Send size={16}/> Envoyer au client</>}
+                  {sendingToClient ? 'Envoi...' : (
+                    <>
+                      <Send size={16} />
+                      Envoyer au client
+                    </>
+                  )}
                 </button>
               </>
             )}
@@ -1106,13 +1308,15 @@ export default function QuoteModal({
                   onClick={() => goToStep(s.n)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                     isActive
-                      ? 'bg-purple-600 text-white shadow-sm'
+                      ? 'bg-indigo-600 text-white shadow-sm'
                       : isDone
-                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50'
                       : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
                   }`}
                 >
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive ? 'bg-white/20' : isDone ? 'bg-purple-600 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300'}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    isActive ? 'bg-white/20' : isDone ? 'bg-indigo-600 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300'
+                  }`}>
                     {isDone ? <Check size={12} /> : s.n}
                   </span>
                   <Icon size={14} />
@@ -1136,29 +1340,32 @@ export default function QuoteModal({
           <div className="space-y-6">
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <User size={14} className="text-purple-600" /> Client destinataire
+                <User size={14} className="text-indigo-600" />
+                Client destinataire
               </h3>
               
               {selectedClient && (
-                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4">
+                <div className="bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-11 h-11 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-sm shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold text-sm shrink-0">
                         {(selectedClient.firstName?.[0] || '') + (selectedClient.lastName?.[0] || selectedClient.companyName?.[0] || '?')}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                        <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">
                           {selectedClient.companyName || `${selectedClient.firstName} ${selectedClient.lastName}`}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
                           {selectedClient.email && (
                             <span className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                              ✉️ {selectedClient.email}
+                              <Mail size={12} />
+                              {selectedClient.email}
                             </span>
                           )}
                           {(selectedClient.city || selectedClient.postalCode) && (
-                            <span className="text-xs text-slate-500 dark:text-slate-500">
-                              📍 {selectedClient.postalCode} {selectedClient.city}
+                            <span className="text-xs text-slate-500 dark:text-slate-500 flex items-center gap-1">
+                              <MapPin size={12} />
+                              {selectedClient.postalCode} {selectedClient.city}
                             </span>
                           )}
                           <Badge tone={selectedClient.type === 'entreprise' ? 'blue' : 'slate'}>
@@ -1169,7 +1376,8 @@ export default function QuoteModal({
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full">
-                        <Check size={11} /> SÉLECTIONNÉ
+                        <Check size={11} />
+                        Sélectionné
                       </span>
                       <button
                         type="button"
@@ -1186,14 +1394,14 @@ export default function QuoteModal({
               
               <div className="relative">
                 <div className="relative group">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={18} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
                   <Input
                     type="text"
-                    placeholder={selectedClient ? "Changer de client..." : "Rechercher un client par nom, entreprise, email, ville..."}
+                    placeholder={selectedClient ? "Rechercher un autre client..." : "Rechercher par nom, entreprise, email ou ville..."}
                     value={clientSearch}
                     onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }}
                     onFocus={() => setShowClientDropdown(true)}
-                    className="pl-11"
+                    className="pl-10"
                   />
                   {clientSearch && (
                     <button
@@ -1213,20 +1421,15 @@ export default function QuoteModal({
                         <User size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                           {clientSearch 
-                            ? 'Aucun client trouvé pour cette recherche' 
+                            ? 'Aucun client trouvé pour cette recherche'
                             : 'Aucun client disponible'}
                         </p>
-                        {!clientSearch && (
-                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                            Vérifiez que vos clients sont bien créés dans la page "Clients"
-                          </p>
-                        )}
                       </div>
                     ) : (
                       <>
                         <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 sticky top-0">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            {filteredClients.length} client{filteredClients.length > 1 ? 's' : ''} disponible{filteredClients.length > 1 ? 's' : ''}
+                            {filteredClients.length} résultat(s)
                           </span>
                         </div>
                         {filteredClients.map((client: any) => {
@@ -1238,14 +1441,14 @@ export default function QuoteModal({
                               onClick={() => handleClientSelect(client)}
                               className={`w-full text-left px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-700 last:border-0 flex items-center gap-3 ${
                                 isSelected 
-                                  ? 'bg-purple-50 dark:bg-purple-900/20' 
-                                  : 'hover:bg-purple-50/50 dark:hover:bg-slate-700/50'
+                                  ? 'bg-indigo-50 dark:bg-indigo-900/20' 
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
                               }`}
                             >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
                                 isSelected 
-                                  ? 'bg-purple-600 text-white' 
-                                  : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                                  ? 'bg-indigo-600 text-white' 
+                                  : 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
                               }`}>
                                 {(client.firstName?.[0] || '') + (client.lastName?.[0] || client.companyName?.[0] || '?')}
                               </div>
@@ -1253,30 +1456,30 @@ export default function QuoteModal({
                                 <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">
                                   {client.companyName || `${client.firstName} ${client.lastName}`}
                                 </div>
-                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                                   {client.companyName && (client.firstName || client.lastName) && (
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                      👤 {client.firstName} {client.lastName}
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                                      <User size={10} />
+                                      {client.firstName} {client.lastName}
                                     </span>
                                   )}
                                   {client.email && (
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">
-                                      ✉️ {client.email}
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px] flex items-center gap-1">
+                                      <Mail size={10} />
+                                      {client.email}
                                     </span>
                                   )}
                                   {clientAddr.city && (
-                                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                                      📍 {clientAddr.city}
+                                    <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                                      <MapPin size={10} />
+                                      {clientAddr.city}
                                     </span>
                                   )}
-                                  <Badge tone={client.type === 'entreprise' ? 'blue' : 'slate'}>
-                                    {client.type === 'entreprise' ? 'Entreprise' : 'Particulier'}
-                                  </Badge>
                                 </div>
                               </div>
                               {isSelected && (
                                 <div className="shrink-0">
-                                  <Check size={18} className="text-purple-600 dark:text-purple-400" />
+                                  <Check size={18} className="text-indigo-600 dark:text-indigo-400" />
                                 </div>
                               )}
                             </button>
@@ -1293,7 +1496,7 @@ export default function QuoteModal({
                   {/* SECTION TYPE DE CLIENT */}
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                      <User size={12} className="text-purple-600 dark:text-purple-400" />
+                      <User size={12} className="text-indigo-600 dark:text-indigo-400" />
                       Type de client
                     </h4>
                     <div className="grid grid-cols-2 gap-2">
@@ -1302,7 +1505,7 @@ export default function QuoteModal({
                         onClick={() => setFormData({...formData, clientType: 'particulier', clientSiret: '', clientSiren: ''})}
                         className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
                           formData.clientType === 'particulier'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
                             : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                         }`}
                       >
@@ -1314,7 +1517,7 @@ export default function QuoteModal({
                         onClick={() => setFormData({...formData, clientType: 'entreprise'})}
                         className={`p-3 border rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
                           formData.clientType === 'entreprise'
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
                             : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                         }`}
                       >
@@ -1328,18 +1531,18 @@ export default function QuoteModal({
                   {isClientEntreprise && (
                     <div className={`rounded-xl p-4 space-y-4 border ${
                       eInvoiceRequired 
-                        ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' 
-                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                        ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' 
+                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
                     }`}>
                       <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-2 ${
                         eInvoiceRequired 
-                          ? 'text-purple-900 dark:text-purple-200' 
-                          : 'text-blue-900 dark:text-blue-200'
+                          ? 'text-indigo-900 dark:text-indigo-200' 
+                          : 'text-slate-700 dark:text-slate-300'
                       }`}>
-                        <Landmark size={12} className={eInvoiceRequired ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'} />
+                        <Landmark size={12} className={eInvoiceRequired ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'} />
                         Identification fiscale
                         {eInvoiceRequired && (
-                          <span className="ml-auto text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold">
+                          <span className="ml-auto text-[10px] px-2 py-0.5 bg-indigo-600 text-white rounded-full font-bold">
                             OBLIGATOIRE
                           </span>
                         )}
@@ -1349,18 +1552,16 @@ export default function QuoteModal({
                       {eInvoiceRequired ? (
                         <Alert tone="info" icon={Shield}>
                           <p className="text-xs">
-                            <strong>E-facturation B2B obligatoire (Réforme 2026) :</strong> Votre entreprise ({companyCountry}) et le client ({formData.clientCountry}) 
-                            sont tous deux en France. Les identifiants <strong>SIREN</strong> et <strong>SIRET</strong> sont requis pour la transmission électronique.
+                            <strong>E-facturation B2B obligatoire :</strong> Votre entreprise et le client sont tous deux en France. Les identifiants SIREN et SIRET sont requis pour la transmission électronique.
                           </p>
                         </Alert>
                       ) : companyCountry === 'FR' && formData.clientCountry !== 'FR' ? (
                         <Alert tone="info" icon={Info}>
                           <p className="text-xs">
-                            <strong>Client étranger (export) :</strong> Le client est basé en {formData.clientCountry}. L'e-facturation française ne s'applique pas. 
-                            Le numéro de TVA intracommunautaire est recommandé pour les échanges intra-UE.
+                            <strong>Client étranger (export) :</strong> L'e-facturation française ne s'applique pas. Le numéro de TVA intracommunautaire est recommandé pour les échanges intra-UE.
                           </p>
                         </Alert>
-                      ) : companyCountry !== 'FR' ? (
+                      ) : companyCountry !== 'FR' && companyCountry ? (
                         <Alert tone="info" icon={Info}>
                           <p className="text-xs">
                             <strong>Entreprise non-française :</strong> Votre entreprise est basée en {companyCountry}. La réglementation française sur l'e-facturation ne s'applique pas.
@@ -1382,10 +1583,13 @@ export default function QuoteModal({
                                 maxLength={14}
                               />
                               {formData.clientSiret && !validateSIRET(formData.clientSiret) && (
-                                <p className="text-xs text-red-500 mt-1">SIRET invalide (14 chiffres attendus)</p>
+                                <p className="text-xs text-red-500 mt-1">SIRET invalide</p>
                               )}
                               {formData.clientSiret && validateSIRET(formData.clientSiret) && (
-                                <p className="text-xs text-emerald-600 mt-1">✓ SIRET valide</p>
+                                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                                  <Check size={10} />
+                                  SIRET valide
+                                </p>
                               )}
                             </FormField>
                             <FormField label="SIREN (9 chiffres)" hint="Identifie l'entreprise">
@@ -1398,18 +1602,21 @@ export default function QuoteModal({
                                 maxLength={9}
                               />
                               {formData.clientSiren && !validateSIREN(formData.clientSiren) && (
-                                <p className="text-xs text-red-500 mt-1">SIREN invalide (9 chiffres attendus)</p>
+                                <p className="text-xs text-red-500 mt-1">SIREN invalide</p>
                               )}
                               {formData.clientSiren && validateSIREN(formData.clientSiren) && (
-                                <p className="text-xs text-emerald-600 mt-1">✓ SIREN valide</p>
+                                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                                  <Check size={10} />
+                                  SIREN valide
+                                </p>
                               )}
                             </FormField>
                           </>
                         )}
                         
                         {/* TVA : affichée pour tout B2B */}
-                        <FormField 
-                          label={visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale"} 
+                        <FormField
+                          label={visible.showSirenSiret ? "N° TVA intracommunautaire" : "N° TVA / Identification fiscale"}
                           className={visible.showSirenSiret ? "sm:col-span-2" : ""}
                           hint={visible.showSirenSiret ? "Format: FR + clé + 9 chiffres" : `Selon le pays (${formData.clientCountry})`}
                         >
@@ -1424,7 +1631,10 @@ export default function QuoteModal({
                             <p className="text-xs text-red-500 mt-1">Format invalide pour {formData.clientCountry}</p>
                           )}
                           {formData.clientVatNumber && validateVatMultiCountry(formData.clientVatNumber, formData.clientCountry) && (
-                            <p className="text-xs text-emerald-600 mt-1">✓ TVA valide</p>
+                            <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                              <Check size={10} />
+                              TVA valide
+                            </p>
                           )}
                         </FormField>
                       </div>
@@ -1433,7 +1643,7 @@ export default function QuoteModal({
 
                   <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                      <Home size={12} className="text-purple-600 dark:text-purple-400" />
+                      <Home size={12} className="text-indigo-600 dark:text-indigo-400" />
                       Adresse du client
                     </h4>
 
@@ -1476,22 +1686,18 @@ export default function QuoteModal({
                       <FormField label="Pays">
                         <div className="relative">
                           <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          {/* ✅ LISTE DYNAMIQUE DES PAYS */}
                           <Select
                             value={formData.clientCountry}
                             onChange={e => setFormData({...formData, clientCountry: e.target.value})}
                             className="pl-9"
                           >
-                            <option value="FR">🇫🇷 France</option>
-                            <option value="BE">🇧🇪 Belgique</option>
-                            <option value="CH">🇨🇭 Suisse</option>
-                            <option value="LU">🇱🇺 Luxembourg</option>
-                            <option value="DE">🇩🇪 Allemagne</option>
-                            <option value="ES">🇪🇸 Espagne</option>
-                            <option value="IT">🇮🇹 Italie</option>
-                            <option value="GB">🇬🇧 Royaume-Uni</option>
-                            <option value="US">🇺🇸 États-Unis</option>
-                            <option value="CA">🇨🇦 Canada</option>
-                            <option value="OTHER">🌍 Autre</option>
+                            <option value="">-- Sélectionner --</option>
+                            {countryOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
                           </Select>
                         </div>
                       </FormField>
@@ -1520,11 +1726,12 @@ export default function QuoteModal({
 
             <div className="space-y-4">
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <FileText size={14} className="text-purple-600" /> Informations du devis
+                <FileText size={14} className="text-indigo-600" />
+                Informations du devis
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="N° Devis">
-                  <Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-purple-700 dark:text-purple-400" />
+                  <Input readOnly value={formData.quoteNumber} className="bg-slate-100 dark:bg-slate-700/50 font-semibold text-indigo-700 dark:text-indigo-400" />
                 </FormField>
                 <FormField label="Objet" required>
                   <Input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Ex: Rénovation salle de bain..." />
@@ -1551,12 +1758,13 @@ export default function QuoteModal({
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <Building2 size={14} className="text-purple-600" /> Mon Entreprise
+                <Building2 size={14} className="text-indigo-600" />
+                Mon Entreprise
               </h3>
               <button
                 type="button"
                 onClick={handleReloadCompanySettings}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors active:scale-95"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors active:scale-95"
                 title="Recharger depuis les paramètres entreprise"
               >
                 <RefreshCw size={13} />
@@ -1566,41 +1774,41 @@ export default function QuoteModal({
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Nom de l'entreprise" required className="sm:col-span-2">
-                <Input 
-                  placeholder="Nom entreprise" 
-                  value={formData.companyName} 
+                <Input
+                  placeholder="Nom entreprise"
+                  value={formData.companyName}
                   onChange={e => {
                     setFormData({...formData, companyName: e.target.value});
                     setCompanyInfoCustomized(true);
-                  }} 
+                  }}
                 />
               </FormField>
               <FormField label="SIRET">
-                <Input 
-                  placeholder="SIRET" 
-                  value={formData.companySiret} 
+                <Input
+                  placeholder="SIRET"
+                  value={formData.companySiret}
                   onChange={e => {
                     setFormData({...formData, companySiret: e.target.value});
                     setCompanyInfoCustomized(true);
-                  }} 
+                  }}
                 />
               </FormField>
               <FormField label="Téléphone">
-                <Input 
-                  type="tel" 
-                  placeholder="Téléphone" 
-                  value={formData.companyPhone} 
+                <Input
+                  type="tel"
+                  placeholder="Téléphone"
+                  value={formData.companyPhone}
                   onChange={e => {
                     setFormData({...formData, companyPhone: e.target.value});
                     setCompanyInfoCustomized(true);
-                  }} 
+                  }}
                 />
               </FormField>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
               <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Home size={12} className="text-purple-600 dark:text-purple-400" />
+                <Home size={12} className="text-indigo-600 dark:text-indigo-400" />
                 Adresse de l'entreprise
               </h4>
 
@@ -1652,6 +1860,7 @@ export default function QuoteModal({
                 <FormField label="Pays">
                   <div className="relative">
                     <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    {/* ✅ LISTE DYNAMIQUE DES PAYS */}
                     <Select
                       value={formData.companyCountry}
                       onChange={e => {
@@ -1660,17 +1869,12 @@ export default function QuoteModal({
                       }}
                       className="pl-9"
                     >
-                      <option value="FR">🇫🇷 France</option>
-                      <option value="BE">🇧🇪 Belgique</option>
-                      <option value="CH">🇨🇭 Suisse</option>
-                      <option value="LU">🇱🇺 Luxembourg</option>
-                      <option value="DE">🇩🇪 Allemagne</option>
-                      <option value="ES">🇪🇸 Espagne</option>
-                      <option value="IT">🇮🇹 Italie</option>
-                      <option value="GB">🇬🇧 Royaume-Uni</option>
-                      <option value="US">🇺🇸 États-Unis</option>
-                      <option value="CA">🇨🇦 Canada</option>
-                      <option value="OTHER">🌍 Autre</option>
+                      <option value="">-- Sélectionner --</option>
+                      {countryOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
                     </Select>
                   </div>
                 </FormField>
@@ -1679,23 +1883,23 @@ export default function QuoteModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Email">
-                <Input 
-                  type="email" 
-                  placeholder="Email" 
-                  value={formData.companyEmail} 
+                <Input
+                  type="email"
+                  placeholder="Email"
+                  value={formData.companyEmail}
                   onChange={e => {
                     setFormData({...formData, companyEmail: e.target.value});
                     setCompanyInfoCustomized(true);
-                  }} 
+                  }}
                 />
               </FormField>
               <FormField label="Régime TVA" className="sm:col-span-2">
-                <Select 
+                <Select
                   value={
-                    formData.companyTva.includes('non applicable') 
-                      ? 'TVA non applicable, art. 293 B du CGI' 
+                    formData.companyTva.includes('non applicable')
+                      ? 'TVA non applicable, art. 293 B du CGI'
                       : 'assujetti'
-                  } 
+                  }
                   onChange={e => {
                     const val = e.target.value;
                     if (val === 'TVA non applicable, art. 293 B du CGI') {
@@ -1704,7 +1908,7 @@ export default function QuoteModal({
                       const tvaFromSettings = companySettings?.tvaNumber || '';
                       const hasRealNumber = tvaFromSettings && !tvaFromSettings.includes('non applicable');
                       setFormData({
-                        ...formData, 
+                        ...formData,
                         companyTva: hasRealNumber ? tvaFromSettings : 'FR00000000000'
                       });
                     }
@@ -1716,18 +1920,18 @@ export default function QuoteModal({
                   </option>
                   <option value="assujetti">
                     Assujetti à la TVA ({
-                      formData.companyTva.includes('non applicable') 
-                        ? 'numéro à saisir' 
+                      formData.companyTva.includes('non applicable')
+                        ? 'numéro à saisir'
                         : formData.companyTva || 'FR...'
                     })
                   </option>
                 </Select>
                 
                 {!formData.companyTva.includes('non applicable') && (
-                  <Input 
-                    type="text" 
-                    placeholder="Ex: FR12345678901" 
-                    value={formData.companyTva} 
+                  <Input
+                    type="text"
+                    placeholder="Ex: FR12345678901"
+                    value={formData.companyTva}
                     onChange={(e) => {
                       setFormData({...formData, companyTva: e.target.value});
                       setCompanyInfoCustomized(true);
@@ -1737,9 +1941,9 @@ export default function QuoteModal({
                 )}
                 
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  {isTvaApplicable 
-                    ? '✅ TVA appliquée sur les lignes selon leurs taux.' 
-                    : 'ℹ️ Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}
+                  {isTvaApplicable
+                    ? 'TVA appliquée sur les lignes selon leurs taux.'
+                    : 'Franchise en base : aucune TVA ne sera calculée (mention automatique sur le PDF).'}
                 </p>
               </FormField>
             </div>
@@ -1751,22 +1955,25 @@ export default function QuoteModal({
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <Wrench size={14} className="text-purple-600" /> Prestations & Produits
+                <Wrench size={14} className="text-indigo-600" />
+                Prestations & Produits
               </h3>
               <div className="flex gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => setShowCatalogModal(true)} 
-                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors"
+                <button
+                  type="button"
+                  onClick={() => setShowCatalogModal(true)}
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 px-3 py-2 rounded-lg transition-colors"
                 >
-                  <Package size={14}/> Catalogue
+                  <Package size={14} />
+                  Catalogue
                 </button>
-                <button 
-                  type="button" 
-                  onClick={addItem} 
-                  className="text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 px-3 py-2 rounded-lg transition-colors"
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 px-3 py-2 rounded-lg transition-colors"
                 >
-                  <Plus size={14}/> Ligne libre
+                  <Plus size={14} />
+                  Ligne libre
                 </button>
               </div>
             </div>
@@ -1779,10 +1986,10 @@ export default function QuoteModal({
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 w-16">Qté</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Unité</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Prix U. HT ({currencyConfig?.symbol || '€'})</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Prix U. HT</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Remise %</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">TVA %</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-28">Total HT ({currencyConfig?.symbol || '€'})</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-28">Total HT</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 w-12"></th>
                   </tr>
                 </thead>
@@ -1790,27 +1997,70 @@ export default function QuoteModal({
                   {formData.items.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
                       <td className="px-4 py-2">
-                        <input type="text" value={item.reference} onChange={e => handleItemChange(idx, 'reference', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400" placeholder="REF" />
+                        <input
+                          type="text"
+                          value={item.reference}
+                          onChange={e => handleItemChange(idx, 'reference', e.target.value)}
+                          className="w-full bg-transparent border-none focus:ring-0 text-xs p-1 text-slate-900 dark:text-white placeholder-slate-400"
+                          placeholder="REF"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <input type="text" value={item.description} onChange={e => handleItemChange(idx, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400" placeholder="Description" />
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={e => handleItemChange(idx, 'description', e.target.value)}
+                          className="w-full bg-transparent border-none focus:ring-0 text-sm p-1 font-medium text-slate-900 dark:text-white placeholder-slate-400"
+                          placeholder="Description"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <input type="number" min="0" step="0.01" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                          className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs p-1"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <select value={item.unit} onChange={e => handleItemChange(idx, 'unit', e.target.value)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
+                        <select
+                          value={item.unit}
+                          onChange={e => handleItemChange(idx, 'unit', e.target.value)}
+                          className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs p-1"
+                        >
                           {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-2">
-                        <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)} className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.unitPrice}
+                          onChange={e => handleItemChange(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
+                          className="w-full text-right bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs p-1"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <input type="number" min="0" max="100" step="0.01" value={item.discount || 0} onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1" title="Remise en %" />
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={item.discount || 0}
+                          onChange={e => handleItemChange(idx, 'discount', parseFloat(e.target.value) || 0)}
+                          className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs p-1"
+                          title="Remise en %"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <select value={item.tvaRate} onChange={e => handleItemChange(idx, 'tvaRate', parseFloat(e.target.value))} className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-xs p-1">
+                        <select
+                          value={item.tvaRate}
+                          onChange={e => handleItemChange(idx, 'tvaRate', parseFloat(e.target.value))}
+                          className="w-full text-center bg-transparent border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs p-1"
+                        >
                           {!tvaSelectOptions.some(o => parseFloat(o.value) === item.tvaRate) && (
                             <option value={item.tvaRate}>{item.tvaRate}%</option>
                           )}
@@ -1821,16 +2071,21 @@ export default function QuoteModal({
                         {round2(item.total).toFixed(2)} {currencyConfig?.symbol || '€'}
                       </td>
                       <td className="px-4 py-2 text-center">
-                        <button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"><Minus size={14} /></button>
+                        <button
+                          onClick={() => removeItem(idx)}
+                          className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded transition-colors"
+                        >
+                          <Minus size={14} />
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <Alert tone="info" icon={Package}>
+            <Alert tone="info" icon={Lightbulb}>
               <p className="text-xs">
-                💡 Les taux disponibles proviennent de vos paramètres entreprise (TVA multi-pays). Devise actuelle : <strong className="text-purple-600 dark:text-purple-400">{currencyConfig?.symbol || '€'} {currency}</strong>.
+                Les taux disponibles proviennent de vos paramètres entreprise. Devise actuelle : <strong className="text-indigo-600 dark:text-indigo-400">{currencyConfig?.symbol || '€'} {currency}</strong>.
               </p>
             </Alert>
           </div>
@@ -1842,13 +2097,14 @@ export default function QuoteModal({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
               <div className="space-y-4">
                 <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                  <DollarSign size={14} className="text-purple-600" /> Conditions & Modalités
+                  <DollarSign size={14} className="text-indigo-600" />
+                  Conditions & Modalités
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField label="Remise globale (%)">
                     <Input type="number" min="0" max="100" value={formData.discount} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value) || 0})} />
                   </FormField>
-                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `⚠️ Maximum : ${hookFm(total)}` : undefined}>
+                  <FormField label={`Acompte (${currencyConfig?.symbol || '€'})`} hint={formData.deposit > total ? `Maximum : ${hookFm(total)}` : undefined}>
                     <Input type="number" min="0" max={total} step="0.01" value={formData.deposit} onChange={e => setFormData({...formData, deposit: parseFloat(e.target.value) || 0})} />
                   </FormField>
                 </div>
@@ -1868,9 +2124,9 @@ export default function QuoteModal({
                 </FormField>
               </div>
 
-              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 border border-slate-200 dark:border-slate-600 space-y-3 h-fit">
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-6 border border-slate-200 dark:border-slate-700 space-y-3 h-fit">
                 <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">
-                  Récapitulatif financier ({currencyConfig?.symbol || '€'} {currency})
+                  Récapitulatif financier
                 </h3>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-400">Total HT</span>
@@ -1906,7 +2162,7 @@ export default function QuoteModal({
                 <div className="border-t border-slate-200 dark:border-slate-600 my-3"></div>
                 <div className="flex justify-between text-base">
                   <span className="font-bold text-slate-900 dark:text-white">Total TTC</span>
-                  <span className="font-bold text-purple-600 dark:text-purple-400">{hookFm(total)}</span>
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400">{hookFm(total)}</span>
                 </div>
                 {formData.deposit > 0 && (
                   <>
@@ -1921,37 +2177,86 @@ export default function QuoteModal({
                     </div>
                   </>
                 )}
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
-                  ✅ Contrôle : HT ({hookFm(taxableAmount)}) + TVA ({hookFm(tax)}) = TTC ({hookFm(taxableAmount + tax)})
-                </p>
               </div>
             </div>
 
-            <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-5">
-              <h3 className="text-xs font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider mb-3 flex items-center gap-2"><FileSignature size={14} className="text-purple-600 dark:text-purple-400"/>Signature Client</h3>
+            <div className="bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl p-5">
+              <h3 className="text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FileSignature size={14} className="text-indigo-600 dark:text-indigo-400" />
+                Signature Client
+              </h3>
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => setSigTab('draw')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${sigTab === 'draw' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800'}`}>Dessiner</button>
-                  <button type="button" onClick={() => setSigTab('upload')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${sigTab === 'upload' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800'}`}>Importer</button>
+                  <button
+                    type="button"
+                    onClick={() => setSigTab('draw')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      sigTab === 'draw'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
+                    }`}
+                  >
+                    Dessiner
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSigTab('upload')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      sigTab === 'upload'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
+                    }`}
+                  >
+                    Importer
+                  </button>
                 </div>
                 {sigTab === 'draw' ? (
-                  <div className="border border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-slate-800 overflow-hidden relative" style={{width: '100%', height: '120px'}}>
-                    <SignatureCanvas ref={sigCanvas} penColor='black' canvasProps={{ width: 350, height: 120, className: 'block' }} onEnd={saveSignature} />
+                  <div className="border border-indigo-300 dark:border-indigo-700 rounded-lg bg-white dark:bg-slate-800 overflow-hidden relative" style={{width: '100%', height: '120px'}}>
+                    <SignatureCanvas
+                      ref={sigCanvas}
+                      penColor='black'
+                      canvasProps={{ width: 350, height: 120, className: 'block' }}
+                      onEnd={saveSignature}
+                    />
                   </div>
                 ) : (
-                  <div className="border border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-slate-800 p-6 text-center border-dashed">
-                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" onChange={handleSigUpload} className="hidden" id="sig-up-modal"/>
-                    <label htmlFor="sig-up-modal" className="cursor-pointer text-sm text-purple-600 dark:text-purple-400 font-medium flex items-center justify-center gap-2 hover:text-purple-800 dark:hover:text-purple-300 transition-colors"><Upload size={16}/>Choisir une image de signature</label>
+                  <div className="border border-indigo-300 dark:border-indigo-700 rounded-lg bg-white dark:bg-slate-800 p-6 text-center border-dashed">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      onChange={handleSigUpload}
+                      className="hidden"
+                      id="sig-up-modal"
+                    />
+                    <label
+                      htmlFor="sig-up-modal"
+                      className="cursor-pointer text-sm text-indigo-600 dark:text-indigo-400 font-medium flex items-center justify-center gap-2 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+                    >
+                      <Upload size={16} />
+                      Choisir une image de signature
+                    </label>
                   </div>
                 )}
                 {formData.clientSignature && (
-                  <div className="mt-2 p-2 bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-700 rounded-lg flex justify-between items-center">
-                    <img src={formData.clientSignature} alt="Sig" className="h-10"/>
-                    <button type="button" onClick={clearSignature} className="text-xs text-red-500 font-medium hover:text-red-700 dark:hover:text-red-400">Supprimer</button>
+                  <div className="mt-2 p-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-lg flex justify-between items-center">
+                    <img src={formData.clientSignature} alt="Signature" className="h-10" />
+                    <button
+                      type="button"
+                      onClick={clearSignature}
+                      className="text-xs text-red-500 font-medium hover:text-red-700 dark:hover:text-red-400"
+                    >
+                      Supprimer
+                    </button>
                   </div>
                 )}
                 <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
-                  <input type="checkbox" checked={formData.bonPourAccord} onChange={e => setFormData(prev => ({...prev, bonPourAccord: e.target.checked}))} className="rounded text-purple-600 focus:ring-purple-500"/> 
+                  <input
+                    type="checkbox"
+                    checked={formData.bonPourAccord}
+                    onChange={e => setFormData(prev => ({...prev, bonPourAccord: e.target.checked}))}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
                   Inclure la signature sur le PDF généré
                 </label>
               </div>
@@ -1999,14 +2304,18 @@ export default function QuoteModal({
                         )}
                       </div>
                       {product.description && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{product.description}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
+                          {product.description}
+                        </div>
                       )}
                     </div>
                     <div className="text-right ml-4 shrink-0">
                       <div className="font-bold text-indigo-700 dark:text-indigo-400">
                         {parseFloat(product.unitPrice).toFixed(2)} {currencyConfig?.symbol || '€'}
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{product.unit} • TVA {product.tvaRate}%</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        {product.unit} • TVA {product.tvaRate}%
+                      </div>
                     </div>
                   </button>
                 ))}

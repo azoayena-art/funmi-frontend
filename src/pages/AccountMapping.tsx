@@ -1,6 +1,4 @@
-// src/pages/AccountMapping.tsx — Plan Comptable Multi-Pays (STABLE)
-// 🌍 Détection automatique du référentiel selon le pays de l'entreprise
-// 🎯 Support : FR, SYSCOHADA (14 pays), MA, TN, DZ, BE, CH, et générique
+// src/pages/AccountMapping.tsx — Plan Comptable Multi-Pays (CORRIGÉ & OPTIMISÉ)
 import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +13,7 @@ import {
   Wallet, TrendingUp, ShoppingBag, Landmark, Users, Receipt,
   ArrowLeft, Plus, Trash2, X, Edit3, FolderPlus, Globe,
   CreditCard, Building2, FileText, Package, Flag, Percent,
+  Coins, Shield, Info,
 } from 'lucide-react';
 import {
   DEFAULT_PCG_ARTISAN,
@@ -24,18 +23,15 @@ import {
   loadCustomAccountMapping,
   saveAccountMapping,
   resetToDefaultMapping,
-  deleteCustomAccount,
   type CustomAccount,
 } from '../services/accountMappingService';
-
-// 🌍 Registre international
 import {
   getCountryConfig,
   type CountryConfig,
 } from '../config/countries';
 
 // ============================================================
-// 🎨 MAPPINGS STATIQUES (évite les classes Tailwind dynamiques)
+// 🎨 MAPPINGS STATIQUES
 // ============================================================
 const ICON_MAP: Record<string, any> = {
   TrendingUp, Wallet, Receipt, Landmark, Users, ShoppingBag,
@@ -62,14 +58,11 @@ const getColorStyle = (color: string) => COLOR_STYLES[color] || COLOR_STYLES.sla
 // 🌍 MAPPING PAYS → RÉFÉRENTIEL COMPTABLE
 // ============================================================
 const COUNTRY_TO_STANDARD: Record<string, string> = {
-  // 🇪🇺 Europe
   FR: 'FR_PCG', BE: 'BE_PCMN', CH: 'CH_PCS',
-  // 🌍 SYSCOHADA (14 pays d'Afrique francophone)
   SN: 'SYSCOHADA', CI: 'SYSCOHADA', ML: 'SYSCOHADA', BF: 'SYSCOHADA',
   NE: 'SYSCOHADA', BJ: 'SYSCOHADA', TG: 'SYSCOHADA', GW: 'SYSCOHADA',
   CM: 'SYSCOHADA', GA: 'SYSCOHADA', CG: 'SYSCOHADA', TD: 'SYSCOHADA',
   CF: 'SYSCOHADA', GQ: 'SYSCOHADA',
-  // 🌍 Maghreb
   MA: 'MA_PCM', TN: 'TN_PCT', DZ: 'DZ_SCF',
 };
 
@@ -97,11 +90,9 @@ interface AccountingStandard {
 
 const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
   FR_PCG: {
-    code: 'FR_PCG',
-    name: 'PCG France',
+    code: 'FR_PCG', name: 'PCG France',
     description: 'Plan Comptable Général français (classes 1 à 8)',
-    countries: ['FR'],
-    vatLabel: 'TVA intracommunautaire',
+    countries: ['FR'], vatLabel: 'TVA intracommunautaire',
     sections: [
       { key: 'ventes', label: 'Ventes (Revenus)', icon: 'TrendingUp', color: 'emerald', description: 'Classe 7 - Comptes de produits', isDefault: true, order: 1 },
       { key: 'clients', label: 'Clients', icon: 'Users', color: 'blue', description: 'Classe 411 - Créances clients', isDefault: true, order: 2 },
@@ -112,8 +103,7 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   SYSCOHADA: {
-    code: 'SYSCOHADA',
-    name: 'SYSCOHADA',
+    code: 'SYSCOHADA', name: 'SYSCOHADA',
     description: 'Système comptable OHADA — 14 pays d\'Afrique francophone (XOF/XAF)',
     countries: ['SN', 'CI', 'ML', 'BF', 'NE', 'BJ', 'TG', 'GW', 'CM', 'GA', 'CG', 'TD', 'CF', 'GQ'],
     vatLabel: 'TVA (OHADA)',
@@ -128,11 +118,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   MA_PCM: {
-    code: 'MA_PCM',
-    name: 'PCM Maroc',
+    code: 'MA_PCM', name: 'PCM Maroc',
     description: 'Plan Comptable Marocain (CGNC)',
-    countries: ['MA'],
-    vatLabel: 'TVA Maroc',
+    countries: ['MA'], vatLabel: 'TVA Maroc',
     sections: [
       { key: 'ventes', label: 'Ventes', icon: 'TrendingUp', color: 'emerald', description: 'Classe 71 - Ventes de biens et services', isDefault: true, order: 1 },
       { key: 'clients', label: 'Clients', icon: 'Users', color: 'blue', description: 'Classe 342 - Créances clients', isDefault: true, order: 2 },
@@ -143,11 +131,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   TN_PCT: {
-    code: 'TN_PCT',
-    name: 'PCT Tunisie',
+    code: 'TN_PCT', name: 'PCT Tunisie',
     description: 'Plan Comptable Tunisien',
-    countries: ['TN'],
-    vatLabel: 'TVA Tunisie',
+    countries: ['TN'], vatLabel: 'TVA Tunisie',
     sections: [
       { key: 'ventes', label: 'Produits', icon: 'TrendingUp', color: 'emerald', description: 'Classe 7 - Produits d\'exploitation', isDefault: true, order: 1 },
       { key: 'clients', label: 'Clients', icon: 'Users', color: 'blue', description: 'Classe 41 - Clients', isDefault: true, order: 2 },
@@ -158,11 +144,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   DZ_SCF: {
-    code: 'DZ_SCF',
-    name: 'SCF Algérie',
+    code: 'DZ_SCF', name: 'SCF Algérie',
     description: 'Système Comptable Financier algérien',
-    countries: ['DZ'],
-    vatLabel: 'TVA Algérie',
+    countries: ['DZ'], vatLabel: 'TVA Algérie',
     sections: [
       { key: 'ventes', label: 'Ventes', icon: 'TrendingUp', color: 'emerald', isDefault: true, order: 1 },
       { key: 'clients', label: 'Clients', icon: 'Users', color: 'blue', isDefault: true, order: 2 },
@@ -173,11 +157,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   BE_PCMN: {
-    code: 'BE_PCMN',
-    name: 'PCMN Belgique',
+    code: 'BE_PCMN', name: 'PCMN Belgique',
     description: 'Plan Comptable Minimum Normalisé belge',
-    countries: ['BE'],
-    vatLabel: 'TVA Belgique',
+    countries: ['BE'], vatLabel: 'TVA Belgique',
     sections: [
       { key: 'ventes', label: 'Ventes', icon: 'TrendingUp', color: 'emerald', isDefault: true, order: 1 },
       { key: 'clients', label: 'Créances', icon: 'Users', color: 'blue', isDefault: true, order: 2 },
@@ -188,11 +170,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   CH_PCS: {
-    code: 'CH_PCS',
-    name: 'PCS Suisse',
+    code: 'CH_PCS', name: 'PCS Suisse',
     description: 'Plan Comptable Suisse',
-    countries: ['CH'],
-    vatLabel: 'TVA Suisse',
+    countries: ['CH'], vatLabel: 'TVA Suisse',
     sections: [
       { key: 'ventes', label: 'Produits', icon: 'TrendingUp', color: 'emerald', isDefault: true, order: 1 },
       { key: 'clients', label: 'Débiteurs', icon: 'Users', color: 'blue', isDefault: true, order: 2 },
@@ -203,11 +183,9 @@ const ACCOUNTING_STANDARDS: Record<string, AccountingStandard> = {
     ],
   },
   GENERIC: {
-    code: 'GENERIC',
-    name: 'Plan générique',
+    code: 'GENERIC', name: 'Plan générique',
     description: 'Plan comptable simplifié (adapté à tout pays)',
-    countries: [],
-    vatLabel: 'Taxes',
+    countries: [], vatLabel: 'Taxes',
     sections: [
       { key: 'ventes', label: 'Revenus', icon: 'TrendingUp', color: 'emerald', isDefault: true, order: 1 },
       { key: 'clients', label: 'Créances clients', icon: 'Users', color: 'blue', isDefault: true, order: 2 },
@@ -242,18 +220,9 @@ export default function AccountMapping() {
   const { customTeamId, appwriteTeamId } = useTeam();
   const { companySettings } = useCompanySettings();
 
-  // 🌍 Pays de l'entreprise
   const countryCode = companySettings?.country || 'FR';
-  const countryConfig: CountryConfig = useMemo(
-    () => getCountryConfig(countryCode),
-    [countryCode]
-  );
-
-  // 🎯 Détection automatique du référentiel selon le pays
-  const detectedStandard = useMemo(
-    () => COUNTRY_TO_STANDARD[countryCode] || 'GENERIC',
-    [countryCode]
-  );
+  const countryConfig: CountryConfig = useMemo(() => getCountryConfig(countryCode), [countryCode]);
+  const detectedStandard = useMemo(() => COUNTRY_TO_STANDARD[countryCode] || 'GENERIC', [countryCode]);
 
   const [selectedStandard, setSelectedStandard] = useState<string>(detectedStandard);
   const [customSections, setCustomSections] = useState<CustomSection[]>([]);
@@ -276,10 +245,7 @@ export default function AccountMapping() {
     label: '', icon: 'FolderPlus', color: 'indigo', description: '',
   });
 
-  // ⚡ Synchroniser le référentiel détecté quand le pays change
-  useEffect(() => {
-    setSelectedStandard(detectedStandard);
-  }, [detectedStandard]);
+  useEffect(() => { setSelectedStandard(detectedStandard); }, [detectedStandard]);
 
   useEffect(() => {
     if (!permLoading && !hasPermission('settings.edit')) navigate('/dashboard');
@@ -288,12 +254,10 @@ export default function AccountMapping() {
   useEffect(() => {
     if (!user || !customTeamId) return;
     loadMapping();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, customTeamId]);
 
   const currentStandard = ACCOUNTING_STANDARDS[selectedStandard] || ACCOUNTING_STANDARDS.GENERIC;
 
-  // Vérifier si le référentiel choisi correspond au pays
   const isStandardMatchingCountry = useMemo(() => {
     if (selectedStandard === 'GENERIC') return true;
     return currentStandard.countries.includes(countryCode);
@@ -301,13 +265,44 @@ export default function AccountMapping() {
 
   const allSections = useMemo(() => {
     const defaultSections = currentStandard.sections.map(s => ({
-      ...s,
-      isCustom: false as const,
-      order: s.order || 99,
+      ...s, isCustom: false as const, order: s.order || 99,
     }));
-    const customWithOrder = customSections.map(s => ({ ...s, isCustom: true as const }));
-    return [...defaultSections, ...customWithOrder].sort((a, b) => a.order - b.order);
+    const safeCustomSections = Array.isArray(customSections) ? customSections : [];
+    const customWithOrder = safeCustomSections.map(s => ({ ...s, isCustom: true as const }));
+    return [...defaultSections, ...customWithOrder].sort((a, b) => (a.order || 0) - (b.order || 0));
   }, [currentStandard, customSections]);
+
+  // ✅ CORRECTION CRITIQUE : Pré-calcul des comptes par section AU NIVEAU SUPÉRIEUR
+  const accountsBySection = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    const safeCustomAccounts = Array.isArray(customAccounts) ? customAccounts : [];
+    
+    allSections.forEach(section => {
+      const savedStandardAccounts = DEFAULT_PCG_ARTISAN
+        .filter(c => c.section === section.key)
+        .filter(cat => formData[cat.key] && (formData[cat.key].number || formData[cat.key].label))
+        .map(cat => ({
+          key: cat.key,
+          label: cat.label,
+          number: formData[cat.key].number,
+          isCustom: false,
+          description: cat.description,
+        }));
+
+      const customAccs = safeCustomAccounts
+        .filter(c => c.section === section.key)
+        .map(acc => ({
+          key: acc.key,
+          label: acc.label,
+          number: acc.number,
+          isCustom: true,
+          description: acc.description,
+        }));
+
+      map[section.key] = [...savedStandardAccounts, ...customAccs];
+    });
+    return map;
+  }, [formData, customAccounts, allSections]);
 
   const isSecureContext = (): boolean => {
     if (!user || !customTeamId || !appwriteTeamId) {
@@ -317,29 +312,59 @@ export default function AccountMapping() {
     return true;
   };
 
+  // ✅ CORRECTION ROBUSTE DU CHARGEMENT DES DONNÉES
   const loadMapping = async () => {
     if (!customTeamId) return;
     setLoading(true);
     try {
       const result = await loadCustomAccountMapping(customTeamId);
       setCustomized(result.customized || false);
-      setCustomAccounts(result.customAccounts || []);
-      if (result.customSections && Array.isArray(result.customSections)) {
-        setCustomSections(result.customSections);
-      }
+      
+      setCustomAccounts(Array.isArray(result.customAccounts) ? result.customAccounts : []);
+      setCustomSections(Array.isArray(result.customSections) ? result.customSections : []);
+      
       if (result.mapping?.accountingStandard) {
         setSelectedStandard(result.mapping.accountingStandard);
       }
+      
       const data: Record<string, { number: string; label: string }> = {};
-      DEFAULT_PCG_ARTISAN.forEach(cat => {
-        data[cat.key] = { number: cat.defaultNumber, label: cat.defaultLabel };
-      });
+      if (result.mapping) {
+        const mapping = result.mapping as any;
+        Object.keys(mapping).forEach(key => {
+          if (key === 'accountingStandard') return;
+          
+          // Supporte à la fois la structure imbriquée { number, label } et la structure à plat 'number', 'numberLabel'
+          if (typeof mapping[key] === 'object' && mapping[key] !== null && 'number' in mapping[key]) {
+            data[key] = {
+              number: String(mapping[key].number || ''),
+              label: String(mapping[key].label || ''),
+            };
+          } else if (!key.endsWith('Label')) {
+            data[key] = {
+              number: String(mapping[key] || ''),
+              label: String(mapping[`${key}Label`] || ''),
+            };
+          }
+        });
+      }
       setFormData(data);
     } catch (error: any) {
       toast.error('Erreur de chargement', { description: error.message });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFillWithDefault = () => {
+    if (Object.keys(formData).length > 0) {
+      if (!confirm('Cela remplacera les comptes actuels par le modèle par défaut. Continuer ?')) return;
+    }
+    const data: Record<string, { number: string; label: string }> = {};
+    DEFAULT_PCG_ARTISAN.forEach(cat => {
+      data[cat.key] = { number: cat.defaultNumber, label: cat.defaultLabel };
+    });
+    setFormData(data);
+    toast.success('Modèle par défaut appliqué. N\'oubliez pas d\'enregistrer !');
   };
 
   const handleSave = async () => {
@@ -349,17 +374,23 @@ export default function AccountMapping() {
       const updates = Object.entries(formData).map(([category, value]) => ({
         category, accountNumber: value.number, accountLabel: value.label,
       }));
-      // Ligne 352 - Passe customTeamId ET appwriteTeamId
-await saveAccountMapping(
-  customTeamId!,      // ✅ ID custom de l'équipe
-  appwriteTeamId!,    // ✅ ID natif Appwrite (pour permissions RLS)
-  updates,
-  customAccounts,
-  { accountingStandard, country, customSections }
-);
+      
+      await saveAccountMapping(
+        customTeamId!,
+        appwriteTeamId!,
+        updates,
+        customAccounts,
+        { 
+          accountingStandard: selectedStandard,
+          country: countryCode,
+          customSections 
+        },
+        user?.$id
+      );
+      
       setCustomized(true);
       toast.success('Plan comptable sauvegardé', {
-        description: `${countryConfig.flag} ${countryConfig.name} • ${currentStandard.name} • ${updates.length} compte(s)`,
+        description: `${countryConfig.flag} ${countryConfig.name} — ${currentStandard.name} — ${updates.length} compte(s)`,
       });
     } catch (error: any) {
       toast.error('Erreur', { description: error.message });
@@ -372,7 +403,7 @@ await saveAccountMapping(
     if (!isSecureContext()) return;
     setResetting(true);
     try {
-      await resetToDefaultMapping(customTeamId!, appwriteTeamId!, true);
+      await resetToDefaultMapping(customTeamId!, appwriteTeamId!);
       setCustomSections([]);
       await loadMapping();
       setCustomized(false);
@@ -389,12 +420,6 @@ await saveAccountMapping(
       ...prev,
       [categoryKey]: { ...prev[categoryKey], [field]: value },
     }));
-  };
-
-  const isModified = (cat: AccountCategory): boolean => {
-    const current = formData[cat.key];
-    if (!current) return false;
-    return current.number !== cat.defaultNumber || current.label !== cat.defaultLabel;
   };
 
   const openAddModal = (section: string) => {
@@ -421,18 +446,23 @@ await saveAccountMapping(
       toast.error('Libellé obligatoire');
       return;
     }
+    
+    const cleanAccount = {
+      key: editingCustom?.key || `custom_${Date.now()}`,
+      number: newAccount.number,
+      label: newAccount.label,
+      description: newAccount.description || '',
+      section: newAccount.section,
+    };
+    
     if (editingCustom) {
-      setCustomAccounts(prev => prev.map(acc =>
-        acc.key === editingCustom.key ? { ...acc, ...newAccount } : acc
-      ));
-      toast.success('Compte modifié');
+      setCustomAccounts(prev => Array.isArray(prev) ? prev.map(acc =>
+        acc.key === editingCustom.key ? cleanAccount : acc
+      ) : [cleanAccount]);
+      toast.success('Compte modifié (sera appliqué à la sauvegarde)');
     } else {
-      const key = `custom_${Date.now()}`;
-      setCustomAccounts(prev => [...prev, {
-        key, number: newAccount.number, label: newAccount.label,
-        description: newAccount.description, section: newAccount.section,
-      }]);
-      toast.success('Compte ajouté');
+      setCustomAccounts(prev => Array.isArray(prev) ? [...prev, cleanAccount] : [cleanAccount]);
+      toast.success('Compte ajouté (sera appliqué à la sauvegarde)');
     }
     setShowAddModal(false);
     setEditingCustom(null);
@@ -441,11 +471,8 @@ await saveAccountMapping(
   const handleDeleteCustom = async (custom: CustomAccount) => {
     if (!confirm(`Supprimer le compte ${custom.number} ?`)) return;
     try {
-      if (custom.id && appwriteTeamId) {
-        await deleteCustomAccount(custom.id, appwriteTeamId);
-      }
-      setCustomAccounts(prev => prev.filter(acc => acc.key !== custom.key));
-      toast.success('Compte supprimé');
+      setCustomAccounts(prev => Array.isArray(prev) ? prev.filter(acc => acc.key !== custom.key) : []);
+      toast.success('Compte supprimé (sera appliqué à la sauvegarde)');
     } catch (error: any) {
       toast.error('Erreur', { description: error.message });
     }
@@ -471,16 +498,20 @@ await saveAccountMapping(
       return;
     }
     if (editingSection) {
-      setCustomSections(prev => prev.map(s =>
+      setCustomSections(prev => Array.isArray(prev) ? prev.map(s =>
         s.key === editingSection.key ? { ...s, ...newSection } : s
-      ));
+      ) : [{ ...newSection, key: `custom_${Date.now()}`, order: 1, isCustom: true }]);
       toast.success('Section modifiée');
     } else {
       const key = `custom_${Date.now()}`;
-      const maxOrder = Math.max(...allSections.map(s => s.order), 0);
-      setCustomSections(prev => [...prev, {
+      const safeSections = Array.isArray(customSections) ? customSections : [];
+      const maxOrder = safeSections.length > 0 ? Math.max(...safeSections.map(s => s.order || 0), 0) : 0;
+      setCustomSections(prev => Array.isArray(prev) ? [...prev, {
         key, label: newSection.label, icon: newSection.icon, color: newSection.color,
         description: newSection.description, order: maxOrder + 1, isCustom: true,
+      }] : [{
+        key, label: newSection.label, icon: newSection.icon, color: newSection.color,
+        description: newSection.description, order: 1, isCustom: true,
       }]);
       toast.success('Section créée');
     }
@@ -490,16 +521,16 @@ await saveAccountMapping(
 
   const handleDeleteSection = (section: CustomSection) => {
     if (!confirm(`Supprimer la section "${section.label}" ?`)) return;
-    setCustomSections(prev => prev.filter(s => s.key !== section.key));
-    setCustomAccounts(prev => prev.filter(a => a.section !== section.key));
-    toast.success('Section supprimée');
+    setCustomSections(prev => Array.isArray(prev) ? prev.filter(s => s.key !== section.key) : []);
+    setCustomAccounts(prev => Array.isArray(prev) ? prev.filter(a => a.section !== section.key) : []);
+    toast.success('Section supprimée (sera appliquée à la sauvegarde)');
   };
 
   if (permLoading || loading) {
     return (
       <Sidebar>
         <div className="min-h-full bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-          <Loader2 size={32} className="animate-spin text-purple-600" />
+          <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
     );
@@ -508,26 +539,24 @@ await saveAccountMapping(
   return (
     <Sidebar>
       <div className="min-h-full bg-slate-50 dark:bg-slate-900">
-        {/* Header */}
-        <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800">
+        {/* ========== HEADER ========== */}
+        <div className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate('/export-comptable')}
-                className="flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                className="flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
               >
                 <ArrowLeft size={18} />
               </button>
               <div>
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <BookOpen size={18} className="text-purple-600 dark:text-purple-400" />
-                  <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+                  <BookOpen size={18} className="text-blue-600 dark:text-blue-400" />
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">
                     Plan Comptable
                   </h1>
-                  <Badge tone="purple">{currentStandard.name}</Badge>
-                  <Badge tone="slate">
-                    {countryConfig.flag} {countryConfig.name}
-                  </Badge>
+                  <Badge tone="blue">{currentStandard.name}</Badge>
+                  <Badge tone="slate">{countryConfig.flag} {countryConfig.name}</Badge>
                   {customized && <Badge tone="indigo">Personnalisé</Badge>}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -539,7 +568,7 @@ await saveAccountMapping(
               <button
                 onClick={handleReset}
                 disabled={resetting}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-slate-300 dark:hover:border-slate-600 disabled:opacity-50 transition-colors"
               >
                 {resetting ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
                 Réinitialiser
@@ -547,7 +576,7 @@ await saveAccountMapping(
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-purple-500/20 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/20 disabled:opacity-50 transition-all"
               >
                 {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                 Enregistrer
@@ -556,117 +585,102 @@ await saveAccountMapping(
           </div>
         </div>
 
-        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-6">
+        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
 
           {/* ========== 🌍 CARTE CONTEXTE PAYS ========== */}
-          <Card className="bg-gradient-to-br from-indigo-50 via-purple-50 to-cyan-50 dark:from-indigo-950/30 dark:via-purple-950/30 dark:to-cyan-950/30 border border-indigo-200/50 dark:border-indigo-900/50">
-            <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 text-3xl shadow-lg">
-                {countryConfig.flag}
+          <Card className="!p-4 bg-gradient-to-br from-blue-50/50 via-indigo-50/30 to-transparent dark:from-blue-950/20 dark:via-indigo-950/10 dark:to-transparent border-blue-100 dark:border-blue-900/50">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <span className="text-3xl">{countryConfig.flag}</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {countryConfig.name}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Plan adapté au référentiel local
+                  </p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
-                  Plan comptable adapté à {countryConfig.name}
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                  {/* Devise */}
-                  <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-lg p-3 border border-white dark:border-slate-700">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Devise
-                    </p>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      {countryConfig.currency}
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {countryConfig.currencySymbol || countryConfig.currency}
-                    </p>
-                  </div>
 
-                  {/* TVA */}
-                  <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-lg p-3 border border-white dark:border-slate-700">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      {countryConfig.vat?.label || 'TVA'}
-                    </p>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      {countryConfig.vat?.enabled
-                        ? `${countryConfig.vat.standardRates[0]}%`
-                        : 'Non applicable'}
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {countryConfig.vat?.enabled
-                        ? `Taux : ${countryConfig.vat.standardRates.join('%, ')}%`
-                        : 'Pas de TVA'}
-                    </p>
+              <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 min-w-0">
+                <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-slate-200/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Coins size={10} className="text-emerald-500" />
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Devise</p>
                   </div>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{countryConfig.currency}</p>
+                </div>
 
-                  {/* Conservation */}
-                  <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-lg p-3 border border-white dark:border-slate-700">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Conservation
-                    </p>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      {countryConfig.retentionYears} ans
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      Durée légale documents
-                    </p>
+                <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-slate-200/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Percent size={10} className="text-purple-500" />
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{countryConfig.vat?.label || 'TVA'}</p>
                   </div>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {countryConfig.vat?.enabled ? `${countryConfig.vat.standardRates[0]}%` : 'N/A'}
+                  </p>
+                </div>
 
-                  {/* UE / Zone */}
-                  <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-lg p-3 border border-white dark:border-slate-700">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Zone
-                    </p>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      {countryConfig.vat?.isEU ? '🇪🇺 UE' : 
-                       ['XOF', 'XAF'].includes(countryConfig.currency) ? '🌍 CFA' : 
-                       '🌐 International'}
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {countryConfig.vat?.isEU ? 'VIES applicable' : 'Hors UE'}
-                    </p>
+                <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-slate-200/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Shield size={10} className="text-amber-500" />
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Conservation</p>
                   </div>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{countryConfig.retentionYears} ans</p>
+                </div>
+
+                <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-slate-200/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Globe size={10} className="text-blue-500" />
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Zone</p>
+                  </div>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {countryConfig.vat?.isEU ? 'UE' : ['XOF', 'XAF'].includes(countryConfig.currency) ? 'Zone CFA' : 'International'}
+                  </p>
                 </div>
               </div>
             </div>
           </Card>
 
-          {/* ========== ⚠️ Alerte si référentiel ne correspond pas ========== */}
+          {/* ========== ALERTE RÉFÉRENTIEL DIFFÉRENT ========== */}
           {!isStandardMatchingCountry && selectedStandard !== 'GENERIC' && (
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-start gap-3">
-              <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 text-xs text-amber-900 dark:text-amber-200">
-                <p className="font-semibold mb-1">
-                  ⚠️ Référentiel différent du pays de votre entreprise
-                </p>
-                <p>
-                  Votre entreprise est en <strong>{countryConfig.flag} {countryConfig.name}</strong> mais vous utilisez le plan <strong>{currentStandard.name}</strong>. 
-                  Assurez-vous que cela correspond à votre situation comptable.
-                </p>
+            <Card className="!p-4 bg-amber-50/50 dark:bg-amber-950/10 border-amber-200 dark:border-amber-900/50">
+              <div className="flex items-start gap-3">
+                <AlertCircle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs text-amber-900 dark:text-amber-200">
+                  <p className="font-semibold mb-1">
+                    Référentiel différent du pays de votre entreprise
+                  </p>
+                  <p>
+                    Votre entreprise est en <strong>{countryConfig.flag} {countryConfig.name}</strong> mais vous utilisez le plan <strong>{currentStandard.name}</strong>. 
+                    Assurez-vous que cela correspond à votre situation comptable.
+                  </p>
+                </div>
               </div>
-            </div>
+            </Card>
           )}
 
           {/* ========== SÉLECTEUR DE RÉFÉRENTIEL ========== */}
-          <Card className="bg-white dark:bg-slate-800">
+          <Card className="!p-5">
             <div className="flex items-start gap-3 mb-4">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
                 <Globe size={16} className="text-white" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-0.5">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">
                   Référentiel comptable
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Le plan <strong>{currentStandard.name}</strong> a été automatiquement détecté pour {countryConfig.flag} {countryConfig.name}. 
-                  Vous pouvez en changer si nécessaire.
+                  Le plan <strong>{currentStandard.name}</strong> a été automatiquement détecté pour {countryConfig.flag} {countryConfig.name}.
                 </p>
               </div>
             </div>
             <Select
               value={selectedStandard}
               onChange={(e: any) => {
-                if ((customSections.length > 0 || customAccounts.length > 0) && selectedStandard !== e.target.value) {
+                const safeSections = Array.isArray(customSections) ? customSections : [];
+                const safeAccounts = Array.isArray(customAccounts) ? customAccounts : [];
+                if ((safeSections.length > 0 || safeAccounts.length > 0) && selectedStandard !== e.target.value) {
                   if (!confirm('Changer de référentiel peut désorganiser vos sections et comptes personnalisés. Continuer ?')) return;
                 }
                 setSelectedStandard(e.target.value);
@@ -680,11 +694,18 @@ await saveAccountMapping(
             </Select>
           </Card>
 
-          {/* Bouton créer section */}
-          <div className="flex justify-end">
+          {/* ========== BOUTONS D'ACTION ========== */}
+          <div className="flex flex-col sm:flex-row justify-end gap-2">
+            <button
+              onClick={handleFillWithDefault}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+            >
+              <BookOpen size={16} />
+              Modèle par défaut
+            </button>
             <button
               onClick={() => openSectionModal()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-cyan-600 to-blue-600 rounded-lg hover:from-cyan-700 hover:to-blue-700 shadow-lg shadow-cyan-500/20"
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/20 transition-all"
             >
               <FolderPlus size={16} />
               Créer une section personnalisée
@@ -695,16 +716,15 @@ await saveAccountMapping(
           {allSections.map(section => {
             const SectionIcon = ICON_MAP[section.icon] || FolderPlus;
             const colorStyle = getColorStyle(section.color);
-            const sectionCategories = DEFAULT_PCG_ARTISAN.filter(c => c.section === section.key);
-            const sectionCustomAccounts = customAccounts.filter(c => c.section === section.key);
+            const sectionAccounts = accountsBySection[section.key] || [];
 
             return (
               <Card 
                 key={section.key}
-                className={`bg-white dark:bg-slate-800 border rounded-xl p-5 ${
+                className={`!p-5 ${
                   section.isCustom 
                     ? `${colorStyle.border} ring-1 ${colorStyle.ring}` 
-                    : 'border-slate-200 dark:border-slate-700'
+                    : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -714,15 +734,15 @@ await saveAccountMapping(
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{section.label}</h3>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">{section.label}</h3>
                         {section.isCustom ? (
-                          <Badge tone="cyan">✨ Custom</Badge>
+                          <Badge tone="blue">Custom</Badge>
                         ) : (
                           <Badge tone="slate">Standard</Badge>
                         )}
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {section.description || `${sectionCategories.length + sectionCustomAccounts.length} compte(s)`}
+                        {section.description || 'Section de comptes'}
                       </p>
                     </div>
                   </div>
@@ -731,14 +751,14 @@ await saveAccountMapping(
                       <>
                         <button
                           onClick={() => openSectionModal(section)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-purple-600"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-blue-600 transition-colors"
                           title="Modifier"
                         >
                           <Edit3 size={14} />
                         </button>
                         <button
                           onClick={() => handleDeleteSection(section)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-red-600"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-red-600 transition-colors"
                           title="Supprimer"
                         >
                           <Trash2 size={14} />
@@ -747,7 +767,7 @@ await saveAccountMapping(
                     )}
                     <button
                       onClick={() => openAddModal(section.key)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
                     >
                       <Plus size={12} />
                       Ajouter un compte
@@ -756,27 +776,46 @@ await saveAccountMapping(
                 </div>
 
                 <div className="space-y-3">
-                  {sectionCategories.map(cat => {
-                    const current = formData[cat.key];
-                    const modified = isModified(cat);
+                  {sectionAccounts.map(account => {
+                    const current = formData[account.key] || { number: account.number, label: account.label };
+                    
                     return (
                       <div
-                        key={cat.key}
+                        key={account.key}
                         className={`p-4 rounded-lg border transition-all ${
-                          modified 
-                            ? 'border-purple-300 dark:border-purple-700 bg-purple-50/50 dark:bg-purple-950/20'
+                          account.isCustom 
+                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-950/20'
                             : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
                         }`}
                       >
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{cat.label}</h4>
-                              {modified && <Badge tone="purple">Modifié</Badge>}
-                              {cat.required && <Badge tone="red">Obligatoire</Badge>}
+                              <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{account.label}</h4>
+                              {account.isCustom && <Badge tone="amber">Personnalisé</Badge>}
                             </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{cat.description}</p>
+                            {account.description && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{account.description}</p>
+                            )}
                           </div>
+                          {account.isCustom && (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => openEditModal({ key: account.key, number: account.number, label: account.label, description: account.description || '', section: section.key })}
+                                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-slate-500 hover:text-blue-600 transition-colors"
+                                title="Modifier"
+                              >
+                                <Edit3 size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCustom({ key: account.key, number: account.number, label: account.label, section: section.key })}
+                                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-slate-500 hover:text-red-600 transition-colors"
+                                title="Supprimer"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
@@ -785,8 +824,8 @@ await saveAccountMapping(
                             </label>
                             <Input
                               type="text"
-                              value={current?.number || ''}
-                              onChange={(e: any) => handleChange(cat.key, 'number', e.target.value.replace(/\D/g, ''))}
+                              value={current.number}
+                              onChange={(e: any) => handleChange(account.key, 'number', e.target.value.replace(/\D/g, ''))}
                               maxLength={10}
                             />
                           </div>
@@ -796,8 +835,8 @@ await saveAccountMapping(
                             </label>
                             <Input
                               type="text"
-                              value={current?.label || ''}
-                              onChange={(e: any) => handleChange(cat.key, 'label', e.target.value)}
+                              value={current.label}
+                              onChange={(e: any) => handleChange(account.key, 'label', e.target.value)}
                             />
                           </div>
                         </div>
@@ -805,74 +844,16 @@ await saveAccountMapping(
                     );
                   })}
 
-                  {sectionCustomAccounts.map(custom => (
-                    <div
-                      key={custom.key}
-                      className="p-4 rounded-lg border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-950/20"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{custom.label}</h4>
-                            <Badge tone="amber">✨ Personnalisé</Badge>
-                          </div>
-                          {custom.description && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{custom.description}</p>
-                          )}
-                        </div>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => openEditModal(custom)}
-                            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-slate-500 hover:text-purple-600"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCustom(custom)}
-                            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-slate-500 hover:text-red-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                            Numéro
-                          </label>
-                          <Input
-                            type="text"
-                            value={custom.number}
-                            onChange={(e: any) => {
-                              const value = e.target.value.replace(/\D/g, '');
-                              setCustomAccounts(prev => prev.map(acc =>
-                                acc.key === custom.key ? { ...acc, number: value } : acc
-                              ));
-                            }}
-                            maxLength={10}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                            Libellé
-                          </label>
-                          <Input
-                            type="text"
-                            value={custom.label}
-                            onChange={(e: any) => {
-                              setCustomAccounts(prev => prev.map(acc =>
-                                acc.key === custom.key ? { ...acc, label: e.target.value } : acc
-                              ));
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {sectionCategories.length === 0 && sectionCustomAccounts.length === 0 && (
-                    <div className="text-center py-8 text-xs text-slate-400">
-                      Aucun compte dans cette section
+                  {sectionAccounts.length === 0 && (
+                    <div className="text-center py-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
+                      <p className="text-xs text-slate-400 mb-3">Aucun compte dans cette section</p>
+                      <button
+                        onClick={() => openAddModal(section.key)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                      >
+                        <Plus size={12} />
+                        Ajouter un premier compte
+                      </button>
                     </div>
                   )}
                 </div>
@@ -880,14 +861,28 @@ await saveAccountMapping(
             );
           })}
 
-          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong>💡 Adaptation automatique :</strong> Le plan comptable a été pré-configuré pour {countryConfig.flag} <strong>{countryConfig.name}</strong> 
-              ({countryConfig.currency}, {countryConfig.vat?.label || 'TVA'} {countryConfig.vat?.standardRates[0] || 0}%). 
-              Créez des sections personnalisées pour adapter votre comptabilité à votre activité.
+          {/* ========== INFO BOX ========== */}
+          <Card className="!p-4 bg-blue-50/40 dark:bg-blue-950/10 border-blue-100 dark:border-blue-900/50">
+            <div className="flex items-start gap-3">
+              <Info size={16} className="text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                <p className="mb-2">
+                  <strong>Adaptation automatique :</strong> Le plan comptable a été pré-configuré pour {countryConfig.flag} <strong>{countryConfig.name}</strong> 
+                  ({countryConfig.currency}, {countryConfig.vat?.label || 'TVA'} {countryConfig.vat?.standardRates[0] || 0}%). 
+                  Créez des sections personnalisées pour adapter votre comptabilité à votre activité.
+                </p>
+                {Object.keys(formData).length === 0 && (
+                  <button
+                    onClick={handleFillWithDefault}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                  >
+                    <BookOpen size={12} />
+                    Remplir avec le modèle par défaut
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          </Card>
         </main>
 
         {/* ========== MODAL COMPTE ========== */}
@@ -896,14 +891,14 @@ await saveAccountMapping(
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700">
                 <div className="flex items-center gap-2">
-                  {editingCustom ? <Edit3 size={18} className="text-purple-600" /> : <Plus size={18} className="text-purple-600" />}
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                  {editingCustom ? <Edit3 size={18} className="text-blue-600" /> : <Plus size={18} className="text-blue-600" />}
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
                     {editingCustom ? 'Modifier le compte' : 'Ajouter un compte'}
                   </h3>
                 </div>
                 <button
                   onClick={() => { setShowAddModal(false); setEditingCustom(null); }}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500"
+                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-colors"
                 >
                   <X size={16} />
                 </button>
@@ -962,14 +957,14 @@ await saveAccountMapping(
               <div className="flex gap-2 p-5 border-t border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => { setShowAddModal(false); setEditingCustom(null); }}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"
+                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   onClick={handleSaveCustom}
                   disabled={!newAccount.number || !newAccount.label}
-                  className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg disabled:opacity-50"
+                  className="flex-1 px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition-all"
                 >
                   {editingCustom ? 'Modifier' : 'Ajouter'}
                 </button>
@@ -984,14 +979,14 @@ await saveAccountMapping(
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700">
                 <div className="flex items-center gap-2">
-                  <FolderPlus size={18} className="text-cyan-600" />
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                  <FolderPlus size={18} className="text-blue-600" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
                     {editingSection ? 'Modifier la section' : 'Nouvelle section'}
                   </h3>
                 </div>
                 <button
                   onClick={() => { setShowSectionModal(false); setEditingSection(null); }}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500"
+                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-colors"
                 >
                   <X size={16} />
                 </button>
@@ -1077,14 +1072,14 @@ await saveAccountMapping(
               <div className="flex gap-2 p-5 border-t border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => { setShowSectionModal(false); setEditingSection(null); }}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"
+                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   onClick={handleSaveSection}
                   disabled={!newSection.label}
-                  className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-600 to-blue-600 rounded-lg disabled:opacity-50"
+                  className="flex-1 px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition-all"
                 >
                   {editingSection ? 'Modifier' : 'Créer'}
                 </button>

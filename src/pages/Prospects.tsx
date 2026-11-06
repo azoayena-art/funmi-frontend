@@ -10,8 +10,7 @@ import { toast } from 'sonner';
 import {
   PageHeader, Modal, ActionMenu, ActionMenuItem, StatCell, StatusIndicator,
   DotLabel, Avatar, SkeletonRow, SkeletonCard, TypeTabs, KPIGrid, Pagination,
-  mapInvoiceStatusToShared, toEntity, formatDate,
-  type Entity, type DotTone,
+  type DotTone,
 } from '../components/ui/SharedUI';
 import {
   Plus, Search, Edit2, Phone, Mail, Building, FileText,
@@ -19,6 +18,8 @@ import {
   Globe, Shield, MapPin, Hash, Home, FileSpreadsheet
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
+// ✅ IMPORT DYNAMIQUE DE LA LISTE DES PAYS
+import { listCountryOptions } from '../config/countries';
 
 // ============================================================
 // 📋 INTERFACES
@@ -72,37 +73,41 @@ const sourceTones: Record<string, DotTone> = {
   other: 'slate'
 };
 
-const emptyForm = {
-  firstName: '',
-  lastName: '',
-  companyName: '',
-  phone: '',
-  email: '',
-  address: '',
-  postalCode: '',
-  city: '',
-  country: 'FR',
-  source: 'other',
-  status: 'new',
-  needs: '',
-  notes: '',
-  siren: '',
-  siret: '',
-  vatNumber: ''
-};
-
 export default function Prospects() {
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
   const navigate = useNavigate();
-  const { currency, currencyConfig, loading: settingsLoading } = useCompanySettings();
+  
+  // ✅ Récupération STRICTE du pays de l'entreprise
+  const { currency, currencyConfig, country: companyCountry, loading: settingsLoading } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
 
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  
+  // ✅ Factory fonction : utilise companyCountry. Si indéfini, laisse vide (''), PAS de 'FR' en dur.
+  const getDefaultForm = useCallback(() => ({
+    firstName: '',
+    lastName: '',
+    companyName: '',
+    phone: '',
+    email: '',
+    address: '',
+    postalCode: '',
+    city: '',
+    country: companyCountry || '', 
+    source: 'other',
+    status: 'new',
+    needs: '',
+    notes: '',
+    siren: '',
+    siret: '',
+    vatNumber: ''
+  }), [companyCountry]);
+
+  const [form, setForm] = useState(getDefaultForm());
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [saving, setSaving] = useState(false);
@@ -119,10 +124,6 @@ export default function Prospects() {
 
   const isFrenchCompany = !!form.companyName?.trim() && form.country === 'FR';
   const isCompany = !!form.companyName?.trim();
-
-  // ✅ CORRECTION : Permissions gérées au niveau collection (RLS + rôle team)
-  // Aucune permission explicite nécessaire sur les documents
-  const getDocPerms = useCallback(() => undefined, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -145,6 +146,13 @@ export default function Prospects() {
     loadProspects();
   }, [user, viewMode, customTeamId]);
 
+  // Met à jour le formulaire si le pays de l'entreprise change en arrière-plan
+  useEffect(() => {
+    if (!showModal && !editingId && companyCountry && !form.country) {
+      setForm(prev => ({ ...prev, country: companyCountry }));
+    }
+  }, [companyCountry, showModal, editingId, form.country]);
+
   const loadProspects = async (background = false) => {
     if (!background) setLoading(true);
     try {
@@ -166,7 +174,6 @@ export default function Prospects() {
     }
   };
 
-  // ✅ Recherche de doublons optimisée avec Query.or()
   const checkDuplicate = async (): Promise<Prospect | null> => {
     if (!form.email && !form.phone) return null;
     if (!customTeamId) return null;
@@ -197,12 +204,12 @@ export default function Prospects() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setDuplicateFound(null);
-    setForm({ ...emptyForm });
+    // ✅ Utilise strictement la factory qui dépend de companyCountry
+    setForm(getDefaultForm());
     setShowModal(true);
   };
 
   const handleOpenEdit = (prospect: Prospect) => {
-    // ✅ Vérification de sécurité
     if (prospect.teamId !== customTeamId) {
       toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
       return;
@@ -220,7 +227,8 @@ export default function Prospects() {
       address: prospect.address || '',
       postalCode: prospect.postalCode || '',
       city: prospect.city || '',
-      country: prospect.country || 'FR',
+      // ✅ Priorité : Pays du prospect > Pays de l'entreprise > Vide (pas de 'FR' forcé)
+      country: prospect.country || companyCountry || '',
       source: prospect.source || 'other',
       status: prospect.status === 'archived' ? 'new' : prospect.status,
       needs: prospect.needs || '',
@@ -232,7 +240,6 @@ export default function Prospects() {
     setShowModal(true);
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleSave = async () => {
     if (!form.firstName || !form.lastName) {
       toast.error('Champs requis', { description: 'Veuillez remplir le prénom et le nom.' });
@@ -241,17 +248,17 @@ export default function Prospects() {
 
     if (isFrenchCompany) {
       if (!form.siren || !/^\d{9}$/.test(form.siren)) {
-        toast.error('SIREN obligatoire', { description: 'Pour une entreprise en France, le SIREN (9 chiffres) est requis pour l\'e-facturation B2B.' });
+        toast.error('SIREN obligatoire', { description: 'Pour une entreprise en France, le SIREN (9 chiffres) est requis.' });
         return;
       }
       if (!form.siret || !/^\d{14}$/.test(form.siret)) {
-        toast.error('SIRET obligatoire', { description: 'Pour une entreprise en France, le SIRET (14 chiffres) est requis pour identifier l\'établissement.' });
+        toast.error('SIRET obligatoire', { description: 'Pour une entreprise en France, le SIRET (14 chiffres) est requis.' });
         return;
       }
     }
 
     if (!customTeamId) {
-      toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
+      toast.error('Erreur de sécurité : équipe non identifiée.');
       return;
     }
 
@@ -286,23 +293,21 @@ export default function Prospects() {
       };
 
       if (editingId) {
-        // ✅ Vérification de sécurité avant update
         const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', editingId);
         if (existingDoc.teamId !== customTeamId) {
-          toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+          toast.error('Accès refusé.');
           return;
         }
-
         await databases.updateDocument(DATABASE_ID, 'prospects', editingId, data);
-        toast.success('Prospect mis à jour', { description: `${form.firstName} ${form.lastName}`.trim() });
+        toast.success('Prospect mis à jour');
       } else {
         await databases.createDocument(DATABASE_ID, 'prospects', ID.unique(), data);
-        toast.success('Prospect ajouté', { description: `${form.firstName} ${form.lastName}`.trim() });
+        toast.success('Prospect ajouté');
       }
       setShowModal(false);
       setDuplicateFound(null);
       setEditingId(null);
-      setForm({ ...emptyForm });
+      setForm(getDefaultForm());
       setSearch('');
       await loadProspects();
     } catch (error: any) {
@@ -313,30 +318,26 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleConvertToClient = async () => {
     const prospect = prospectToConvert;
     if (!prospect) return;
 
-    // ✅ Vérification de sécurité
     if (prospect.teamId !== customTeamId) {
-      toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+      toast.error('Accès refusé.');
       setProspectToConvert(null);
       return;
     }
 
-    if (!customTeamId) {
-      toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
-      return;
-    }
+    // ✅ Détermination stricte du pays cible sans fallback 'FR'
+    const targetCountry = prospect.country || companyCountry || '';
 
-    if (prospect.companyName && (prospect.country || 'FR') === 'FR') {
+    if (prospect.companyName && targetCountry === 'FR') {
       if (!prospect.siren || !/^\d{9}$/.test(prospect.siren)) {
-        toast.error('Conversion impossible', { description: 'Le SIREN (9 chiffres) est requis pour convertir une entreprise française en client.' });
+        toast.error('Conversion impossible', { description: 'Le SIREN est requis pour une entreprise française.' });
         return;
       }
       if (!prospect.siret || !/^\d{14}$/.test(prospect.siret)) {
-        toast.error('Conversion impossible', { description: 'Le SIRET (14 chiffres) est requis pour convertir une entreprise française en client.' });
+        toast.error('Conversion impossible', { description: 'Le SIRET est requis pour une entreprise française.' });
         return;
       }
     }
@@ -370,7 +371,7 @@ export default function Prospects() {
           userId: user?.$id || '',
           clientId: newClientId,
           type: prospect.companyName ? 'entreprise' : 'particulier',
-          country: prospect.country || 'FR',
+          country: targetCountry,
           firstName: prospect.firstName,
           lastName: prospect.lastName,
           companyName: prospect.companyName || '',
@@ -382,7 +383,7 @@ export default function Prospects() {
           siren: prospect.siren || '',
           siret: prospect.siret || '',
           vatNumber: prospect.vatNumber || '',
-          notes: prospect.notes ? `Converti depuis le prospect.\nNotes d'origine: ${prospect.notes}` : 'Converti depuis un prospect',
+          notes: prospect.notes ? `Converti depuis le prospect.\nNotes: ${prospect.notes}` : 'Converti depuis un prospect',
           status: 'active',
           prospectId: prospect.$id
         }
@@ -393,7 +394,7 @@ export default function Prospects() {
       setProspectToConvert(null);
       await loadProspects(true);
       toast.success('Prospect converti en client', {
-        description: `Numéro client : ${newClientId}${prospect.companyName && (prospect.country || 'FR') === 'FR' ? ' • SIREN/SIRET transférés' : ''}`,
+        description: `Numéro client : ${newClientId}`,
         action: { label: 'Voir les clients', onClick: () => navigate('/clients') },
       });
     } catch (error: any) {
@@ -404,84 +405,56 @@ export default function Prospects() {
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleQuickStatusChange = async (prospectId: string, newStatus: string) => {
-    if (!customTeamId) {
-      toast.error('Erreur de sécurité : équipe non identifiée.');
-      return;
-    }
-
+    if (!customTeamId) return;
     try {
-      // ✅ Vérification de sécurité avant update
       const existingDoc = await databases.getDocument(DATABASE_ID, 'prospects', prospectId);
       if (existingDoc.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        toast.error('Accès refusé.');
         return;
       }
-
       await databases.updateDocument(DATABASE_ID, 'prospects', prospectId, { status: newStatus });
-      toast.success('Statut mis à jour', { description: statusLabels[newStatus] || newStatus });
+      toast.success('Statut mis à jour');
       await loadProspects(true);
     } catch (error: any) {
-      console.error('Erreur changement statut:', error);
       toast.error('Erreur', { description: error.message });
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleArchive = async () => {
-    if (!prospectToArchive) return;
-
-    if (!customTeamId) {
-      toast.error('Erreur de sécurité : équipe non identifiée.');
-      setProspectToArchive(null);
-      return;
-    }
-
+    if (!prospectToArchive || !customTeamId) return;
     try {
-      // ✅ Vérification de sécurité
       if (prospectToArchive.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        toast.error('Accès refusé.');
         setProspectToArchive(null);
         return;
       }
-
       await databases.updateDocument(DATABASE_ID, 'prospects', prospectToArchive.$id, { status: 'archived' });
-      toast.success('Prospect archivé', { description: `${prospectToArchive.firstName} ${prospectToArchive.lastName}`.trim() });
+      toast.success('Prospect archivé');
       setProspectToArchive(null);
       await loadProspects(true);
     } catch (error: any) {
-      console.error('Erreur archivage:', error);
       toast.error('Erreur', { description: error.message });
     }
   };
 
-  // ✅ CORRECTION : Retrait du 4ème argument perms
   const handleUnarchive = async (id: string, name: string) => {
-    if (!customTeamId) {
-      toast.error('Erreur de sécurité : équipe non identifiée.');
-      return;
-    }
-
+    if (!customTeamId) return;
     try {
-      // ✅ Vérification de sécurité
       const doc = await databases.getDocument(DATABASE_ID, 'prospects', id);
       if (doc.teamId !== customTeamId) {
-        toast.error('Accès refusé : Ce prospect n\'appartient pas à votre équipe.');
+        toast.error('Accès refusé.');
         return;
       }
-
       await databases.updateDocument(DATABASE_ID, 'prospects', id, { status: 'new' });
-      toast.success('Prospect désarchivé', { description: name });
+      toast.success('Prospect désarchivé');
       await loadProspects(true);
       setViewMode('active');
     } catch (error: any) {
-      console.error('Erreur désarchivage:', error);
       toast.error('Erreur', { description: error.message });
     }
   };
 
-  // ✅ Navigation vers Import/Export
   const handleOpenImportExport = () => {
     navigate('/import-export?type=prospects');
   };
@@ -542,7 +515,7 @@ export default function Prospects() {
   if (permLoading || settingsLoading) return (
     <Sidebar>
       <div className="flex items-center justify-center h-full w-full">
-        <div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">Vérification des droits...</div>
+        <div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">Chargement...</div>
       </div>
     </Sidebar>
   );
@@ -556,26 +529,21 @@ export default function Prospects() {
           iconColor="purple"
           title="Prospects"
           description={
-            <>
-              <span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">{filtered.length}</span> résultat(s) {viewMode === 'active' ? 'actif(s)' : 'archivé(s)'}
-            </>
+            <><span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">{filtered.length}</span> résultat(s) {viewMode === 'active' ? 'actif(s)' : 'archivé(s)'}</>
           }
           currency={currency || 'EUR'}
           currencySymbol={currencyConfig?.symbol || '€'}
           action={
             <div className="flex gap-2 w-full sm:w-auto">
-              {/* ✅ BOUTON IMPORT/EXPORT - NOUVEAU */}
               {hasPermission('prospects.view') && (
                 <button 
                   onClick={handleOpenImportExport} 
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-lg hover:border-purple-500 border border-slate-300 dark:border-slate-600 transition-all font-medium text-sm shadow-sm active:scale-95"
-                  title="Importer ou exporter des prospects"
                 >
                   <FileSpreadsheet size={18} />
                   <span>Import / Export</span>
                 </button>
               )}
-              {/* BOUTON NOUVEAU PROSPECT */}
               {viewMode === 'active' && hasPermission('prospects.create') && (
                 <button 
                   onClick={handleOpenAdd} 
@@ -615,9 +583,6 @@ export default function Prospects() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-10 pr-16 py-3 border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm transition-shadow"
               />
-              <div className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 items-center gap-1 pointer-events-none">
-                <kbd className="h-5 select-none items-center gap-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 font-mono text-[10px] font-medium text-slate-500 dark:text-slate-400 flex">⌘K</kbd>
-              </div>
             </div>
             {viewMode === 'active' && (
               <div className="relative sm:w-64">
@@ -633,10 +598,32 @@ export default function Prospects() {
           </div>
 
           {loading ? (
+            <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible">
+              <table className="w-full">
+                <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Prospect</th>
+                    <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
+                    <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Localisation</th>
+                    <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Statut</th>
+                    <th className="text-right px-2 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} />)}
+                </tbody>
+              </table>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center shadow-sm">
+              <Users size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+              <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2">Aucun prospect {viewMode === 'active' ? 'actif' : 'archivé'}</h3>
+            </div>
+          ) : (
             <>
               <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible">
                 <table className="w-full">
-                  <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 [&>tr>th:first-child]:rounded-tl-xl [&>tr>th:last-child]:rounded-tr-xl">
+                  <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Prospect</th>
                       <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
@@ -646,205 +633,69 @@ export default function Prospects() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} />)}
+                    {paginatedProspects.map((p) => (
+                      <tr key={p.$id} className="group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <Avatar client={{ firstName: p.firstName, lastName: p.lastName, companyName: p.companyName } as any} />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">{p.firstName} {p.lastName}</div>
+                              {p.companyName && (
+                                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                                  <Building size={11} /> {p.companyName}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col space-y-1">
+                            {p.email && <span className="flex items-center text-xs text-slate-600 dark:text-slate-300 truncate max-w-[200px]"><Mail size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />{p.email}</span>}
+                            {p.phone && <span className="flex items-center text-xs text-slate-600 dark:text-slate-300 tabular-nums"><Phone size={13} className="mr-1.5 text-slate-400" />{p.phone}</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col space-y-1">
+                            {(p.city || p.postalCode) && (
+                              <span className="flex items-center text-xs text-slate-600 dark:text-slate-300">
+                                <MapPin size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
+                                {p.postalCode} {p.city}
+                              </span>
+                            )}
+                            <span className="flex items-center text-xs text-slate-500 dark:text-slate-400">
+                              <Globe size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
+                              {p.country || companyCountry || 'Non spécifié'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <StatusIndicator status={p.status} />
+                        </td>
+                        <td className="px-2 py-4 text-right w-12">
+                          <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                            <ActionMenu>
+                              {p.status === 'new' && hasPermission('prospects.edit') && (
+                                <ActionMenuItem onClick={() => handleQuickStatusChange(p.$id, 'contacted')} icon={Phone} label="Marquer contacté" />
+                              )}
+                              {hasPermission('prospects.edit') && (
+                                <ActionMenuItem onClick={() => handleOpenEdit(p)} icon={Edit2} label="Modifier" />
+                              )}
+                              {hasPermission('quotes.create') && (
+                                <ActionMenuItem onClick={() => navigate(`/quotes?prospectId=${p.$id}`)} icon={FileText} label="Créer un devis" />
+                              )}
+                              {hasPermission('clients.create') && p.status !== 'won' && (
+                                <ActionMenuItem onClick={() => setProspectToConvert(p)} icon={UserCheck} label="Convertir en client" />
+                              )}
+                              {hasPermission('prospects.delete') && (
+                                <ActionMenuItem onClick={() => setProspectToArchive(p)} icon={Archive} label="Archiver" danger />
+                              )}
+                            </ActionMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              </div>
-              <div className="md:hidden space-y-4">
-                {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
-              </div>
-            </>
-          ) : filtered.length === 0 ? (
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center shadow-sm">
-              <Users size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
-              <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2">Aucun prospect {viewMode === 'active' ? 'actif' : 'archivé'}</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                {viewMode === 'active' 
-                  ? 'Ajoutez un prospect manuellement ou importez une liste depuis un fichier CSV/Excel.'
-                  : 'Aucun prospect archivé pour le moment.'}
-              </p>
-              {viewMode === 'active' && hasPermission('prospects.create') && (
-                <div className="flex flex-col sm:flex-row gap-2 justify-center max-w-md mx-auto">
-                  <button 
-                    onClick={handleOpenImportExport}
-                    className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg hover:border-purple-500 text-sm font-medium active:scale-95 transition-transform"
-                  >
-                    <FileSpreadsheet size={16} />
-                    <span>Importer une liste</span>
-                  </button>
-                  <button 
-                    onClick={handleOpenAdd} 
-                    className="flex items-center justify-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium active:scale-95 transition-transform"
-                  >
-                    <Plus size={16} />
-                    <span>Ajouter manuellement</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-visible">
-                <div className="overflow-visible">
-                  <table className="w-full">
-                    <thead className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 [&>tr>th:first-child]:rounded-tl-xl [&>tr>th:last-child]:rounded-tr-xl">
-                      <tr>
-                        <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Prospect</th>
-                        <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
-                        <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Localisation</th>
-                        <th className="text-left px-6 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Statut</th>
-                        <th className="text-right px-2 py-4 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                      {paginatedProspects.map((p) => (
-                        <tr key={p.$id} className="group hover:bg-purple-50/50 dark:hover:bg-slate-700/30 transition-colors duration-200 last:[&>td:first-child]:rounded-bl-xl last:[&>td:last-child]:rounded-br-xl">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <Avatar client={toEntity(p)} />
-                              <div className="min-w-0">
-                                <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">{p.firstName} {p.lastName}</div>
-                                {p.companyName && (
-                                  <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                                    <Building size={11} /> {p.companyName}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col space-y-1">
-                              {p.email && <span className="flex items-center text-xs text-slate-600 dark:text-slate-300 truncate max-w-[200px]"><Mail size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />{p.email}</span>}
-                              {p.phone && <span className="flex items-center text-xs text-slate-600 dark:text-slate-300 tabular-nums"><Phone size={13} className="mr-1.5 text-slate-400" />{p.phone}</span>}
-                              {!p.email && !p.phone && <span className="text-xs text-slate-400 italic">Non renseigné</span>}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col space-y-1">
-                              {(p.city || p.postalCode) && (
-                                <span className="flex items-center text-xs text-slate-600 dark:text-slate-300">
-                                  <MapPin size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
-                                  {p.postalCode} {p.city}
-                                </span>
-                              )}
-                              <span className="flex items-center text-xs text-slate-500 dark:text-slate-400">
-                                <Globe size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
-                                {p.country || 'FR'}
-                              </span>
-                              {!p.city && !p.postalCode && <span className="text-xs text-slate-400 italic">Non renseigné</span>}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <StatusIndicator status={p.status} />
-                          </td>
-                          <td className="px-2 py-4 text-right w-12">
-                            <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200 [&:has([aria-expanded='true'])]:opacity-100">
-                              <ActionMenu>
-                                {p.status === 'new' && hasPermission('prospects.edit') && (
-                                  <ActionMenuItem
-                                    onClick={() => handleQuickStatusChange(p.$id, 'contacted')}
-                                    icon={Phone}
-                                    label="Marquer contacté"
-                                  />
-                                )}
-                                {hasPermission('prospects.edit') && (
-                                  <ActionMenuItem
-                                    onClick={() => handleOpenEdit(p)}
-                                    icon={Edit2}
-                                    label="Modifier"
-                                  />
-                                )}
-                                {hasPermission('quotes.create') && (
-                                  <ActionMenuItem
-                                    onClick={() => navigate(`/quotes?prospectId=${p.$id}`)}
-                                    icon={FileText}
-                                    label="Créer un devis"
-                                  />
-                                )}
-                                {hasPermission('clients.create') && p.status !== 'won' && (
-                                  <ActionMenuItem
-                                    onClick={() => setProspectToConvert(p)}
-                                    icon={UserCheck}
-                                    label="Convertir en client"
-                                  />
-                                )}
-                                {hasPermission('prospects.delete') && (
-                                  <ActionMenuItem
-                                    onClick={() => setProspectToArchive(p)}
-                                    icon={Archive}
-                                    label="Archiver"
-                                    danger
-                                  />
-                                )}
-                              </ActionMenu>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="md:hidden space-y-4">
-                {paginatedProspects.map((p) => (
-                  <div key={p.$id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Avatar client={toEntity(p)} size="lg" />
-                        <div className="min-w-0">
-                          <h3 className="font-bold text-slate-900 dark:text-white truncate text-base">{p.firstName} {p.lastName}</h3>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {p.companyName
-                              ? <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">{p.companyName}</span>
-                              : <DotLabel label={sourceLabels[p.source] || p.source} tone={sourceTones[p.source] || 'slate'} />
-                            }
-                          </div>
-                        </div>
-                      </div>
-                      <StatusIndicator status={p.status} />
-                    </div>
-                    <div className="space-y-2 mb-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
-                      {p.phone && <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm tabular-nums"><Phone size={14} className="text-slate-400" /> {p.phone}</div>}
-                      {p.email && <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm truncate"><Mail size={14} className="text-slate-400 flex-shrink-0" /> <span className="truncate">{p.email}</span></div>}
-                      {(p.city || p.postalCode) && <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm"><MapPin size={14} className="text-slate-400 flex-shrink-0" /> {p.postalCode} {p.city}</div>}
-                      {!p.phone && !p.email && !p.city && <div className="text-xs text-slate-400 italic text-center py-1">Aucune coordonnée renseignée</div>}
-                    </div>
-                    <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2">
-                      {viewMode === 'active' ? (
-                        <div className="flex items-center gap-2 flex-1">
-                          {hasPermission('quotes.create') && (
-                            <button onClick={() => navigate(`/quotes?prospectId=${p.$id}`)} className="flex-1 flex items-center justify-center gap-1.5 p-2.5 text-green-600 bg-green-50 dark:bg-green-900/30 rounded-lg active:scale-95 transition-transform text-xs font-medium">
-                              <FileText size={16} /> Devis
-                            </button>
-                          )}
-                          {hasPermission('clients.create') && p.status !== 'won' && (
-                            <button onClick={() => setProspectToConvert(p)} className="flex-1 flex items-center justify-center gap-1.5 p-2.5 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg active:scale-95 transition-transform text-xs font-medium">
-                              <UserCheck size={16} /> Client
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <button onClick={() => handleUnarchive(p.$id, `${p.firstName} ${p.lastName}`.trim())} className="w-full flex items-center justify-center gap-2 p-3 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg active:scale-95 transition-transform">
-                          <RotateCcw size={16} /><span>Désarchiver</span>
-                        </button>
-                      )}
-                      {viewMode === 'active' && (
-                        <ActionMenu>
-                          {p.status === 'new' && hasPermission('prospects.edit') && (
-                            <ActionMenuItem onClick={() => handleQuickStatusChange(p.$id, 'contacted')} icon={Phone} label="Marquer contacté" />
-                          )}
-                          {hasPermission('prospects.edit') && (
-                            <ActionMenuItem onClick={() => handleOpenEdit(p)} icon={Edit2} label="Modifier" />
-                          )}
-                          {hasPermission('prospects.delete') && (
-                            <ActionMenuItem onClick={() => setProspectToArchive(p)} icon={Archive} label="Archiver" danger />
-                          )}
-                        </ActionMenu>
-                      )}
-                    </div>
-                  </div>
-                ))}
               </div>
 
               <Pagination
@@ -903,7 +754,6 @@ export default function Prospects() {
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
                   <Building size={12} /> Entreprise
-                  <span className="text-[9px] font-normal text-slate-400 normal-case tracking-normal">(laisser vide si particulier)</span>
                 </label>
                 <input
                   type="text"
@@ -916,29 +766,25 @@ export default function Prospects() {
                     vatNumber: !e.target.value.trim() ? '' : form.vatNumber,
                   })}
                   className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
-                  placeholder="Dupont Plomberie SARL"
+                  placeholder="Nom de l'entreprise"
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
                   <Globe size={12} /> Pays *
                 </label>
+                {/* ✅ LISTE DYNAMIQUE DES PAYS DEPUIS LA CONFIGURATION */}
                 <select
                   value={form.country}
                   onChange={(e) => setForm({ ...form, country: e.target.value })}
                   className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
                 >
-                  <option value="FR">🇫🇷 France</option>
-                  <option value="BE">🇧🇪 Belgique</option>
-                  <option value="CH">🇨🇭 Suisse</option>
-                  <option value="LU">🇱🇺 Luxembourg</option>
-                  <option value="DE">🇩🇪 Allemagne</option>
-                  <option value="ES">🇪🇸 Espagne</option>
-                  <option value="IT">🇮🇹 Italie</option>
-                  <option value="GB">🇬🇧 Royaume-Uni</option>
-                  <option value="US">🇺🇸 États-Unis</option>
-                  <option value="CA">🇨🇦 Canada</option>
-                  <option value="OTHER">🌍 Autre</option>
+                  <option value="">-- Sélectionner un pays --</option>
+                  {listCountryOptions().map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -947,12 +793,9 @@ export default function Prospects() {
               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 flex gap-3">
                 <Shield size={20} className="text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-purple-900 dark:text-purple-200">
-                    Conformité Réforme 2026
-                  </p>
+                  <p className="text-sm font-semibold text-purple-900 dark:text-purple-200">Conformité Réforme 2026</p>
                   <p className="text-xs text-purple-800 dark:text-purple-300 mt-1">
-                    Pour un <strong>prospect professionnel en France</strong>, le SIREN et le SIRET seront obligatoires lors de la conversion en client
-                    (e-invoicing B2B via PDP/PPF).
+                    Pour un <strong>prospect professionnel en France</strong>, le SIREN et le SIRET seront obligatoires lors de la conversion en client.
                   </p>
                 </div>
               </div>
@@ -962,73 +805,29 @@ export default function Prospects() {
               <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
                   <Shield size={12} className="text-purple-600 dark:text-purple-400" />
-                  Identification fiscale (Obligatoire - Réforme 2026)
+                  Identification fiscale
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      SIREN (9 chiffres) *
-                    </label>
-                    <input
-                      type="text"
-                      value={form.siren}
-                      onChange={(e) => setForm({ ...form, siren: e.target.value.replace(/\D/g, '').slice(0, 9) })}
-                      placeholder="123456789"
-                      maxLength={9}
-                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono"
-                    />
-                    <p className="text-[9px] text-slate-400 mt-1">Identifie l'entreprise</p>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">SIREN (9 chiffres) *</label>
+                    <input type="text" value={form.siren} onChange={(e) => setForm({ ...form, siren: e.target.value.replace(/\D/g, '').slice(0, 9) })} placeholder="123456789" maxLength={9} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      SIRET (14 chiffres) *
-                    </label>
-                    <input
-                      type="text"
-                      value={form.siret}
-                      onChange={(e) => setForm({ ...form, siret: e.target.value.replace(/\D/g, '').slice(0, 14) })}
-                      placeholder="12345678901234"
-                      maxLength={14}
-                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono"
-                    />
-                    <p className="text-[9px] text-slate-400 mt-1">Identifie l'établissement</p>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">SIRET (14 chiffres) *</label>
+                    <input type="text" value={form.siret} onChange={(e) => setForm({ ...form, siret: e.target.value.replace(/\D/g, '').slice(0, 14) })} placeholder="12345678901234" maxLength={14} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono" />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      N° TVA intracommunautaire
-                    </label>
-                    <input
-                      type="text"
-                      value={form.vatNumber}
-                      onChange={(e) => setForm({ ...form, vatNumber: e.target.value.toUpperCase() })}
-                      placeholder="FR12345678901"
-                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono"
-                    />
-                    <p className="text-[9px] text-slate-400 mt-1">Format: FR + clé + 9 chiffres SIREN</p>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">N° TVA intracommunautaire</label>
+                    <input type="text" value={form.vatNumber} onChange={(e) => setForm({ ...form, vatNumber: e.target.value.toUpperCase() })} placeholder="FR12345678901" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono" />
                   </div>
                 </div>
-              </div>
-            )}
-
-            {isCompany && form.country !== 'FR' && (
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-                  N° TVA / Identification fiscale
-                </label>
-                <input
-                  type="text"
-                  value={form.vatNumber}
-                  onChange={(e) => setForm({ ...form, vatNumber: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm font-mono"
-                  placeholder="Ex: BE0123456789, CHE-123.456.789..."
-                />
               </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5"><Mail size={12} />Email</label>
-                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm" placeholder="jean@dupont.fr" />
+                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm" placeholder="email@exemple.com" />
               </div>
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5"><Phone size={12} />Téléphone</label>
@@ -1038,52 +837,20 @@ export default function Prospects() {
 
             <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
               <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Home size={12} className="text-purple-600 dark:text-purple-400" />
-                Adresse postale
+                <Home size={12} className="text-purple-600 dark:text-purple-400" /> Adresse postale
               </h4>
-
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5">
-                  <MapPin size={11} /> Adresse (n° et rue)
-                </label>
-                <input
-                  type="text"
-                  value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
-                  placeholder="123 rue de la Paix"
-                />
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5"><MapPin size={11} /> Adresse</label>
+                <input type="text" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm" placeholder="123 rue de la Paix" />
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5">
-                    <Hash size={11} /> Code postal
-                  </label>
-                  <input
-                    type="text"
-                    value={form.postalCode}
-                    onChange={(e) => setForm({
-                      ...form,
-                      postalCode: form.country === 'FR'
-                        ? e.target.value.replace(/\D/g, '').slice(0, 5)
-                        : e.target.value.slice(0, 10)
-                    })}
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm font-mono"
-                    placeholder={form.country === 'FR' ? '75000' : 'Code postal'}
-                  />
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5"><Hash size={11} /> Code postal</label>
+                  <input type="text" value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: form.country === 'FR' ? e.target.value.replace(/\D/g, '').slice(0, 5) : e.target.value.slice(0, 10) })} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm font-mono" placeholder={form.country === 'FR' ? '75000' : 'Code'} />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Ville
-                  </label>
-                  <input
-                    type="text"
-                    value={form.city}
-                    onChange={(e) => setForm({ ...form, city: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
-                    placeholder="Paris"
-                  />
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Ville</label>
+                  <input type="text" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm" placeholder="Ville" />
                 </div>
               </div>
             </div>
@@ -1104,10 +871,6 @@ export default function Prospects() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Besoins</label>
-              <textarea value={form.needs} onChange={(e) => setForm({ ...form, needs: e.target.value })} rows={2} className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none resize-none shadow-sm" placeholder="Décrivez les besoins..." />
-            </div>
-            <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Notes</label>
               <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none resize-none shadow-sm" placeholder="Notes internes..." />
             </div>
@@ -1115,98 +878,43 @@ export default function Prospects() {
         </Modal>
 
         {prospectToConvert && (
-          <Modal
-            open={!!prospectToConvert}
-            onClose={() => setProspectToConvert(null)}
-            title="Convertir en client ?"
-            icon={<UserCheck size={20} className="text-purple-600" />}
-            maxWidth="sm:max-w-md"
-            footer={
-              <>
-                <button onClick={() => setProspectToConvert(null)} className="flex-1 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">
-                  Annuler
-                </button>
-                <button onClick={handleConvertToClient} disabled={converting} className="flex-1 px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-700 hover:to-indigo-700 active:scale-95 transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 disabled:opacity-50">
-                  {converting
-                    ? <><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Conversion...</>
-                    : <><UserCheck size={16} /> Convertir</>
-                  }
-                </button>
-              </>
-            }
-          >
+          <Modal open={!!prospectToConvert} onClose={() => setProspectToConvert(null)} title="Convertir en client ?" icon={<UserCheck size={20} className="text-purple-600" />} maxWidth="sm:max-w-md" footer={
+            <>
+              <button onClick={() => setProspectToConvert(null)} className="flex-1 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">Annuler</button>
+              <button onClick={handleConvertToClient} disabled={converting} className="flex-1 px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-700 hover:to-indigo-700 active:scale-95 transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 disabled:opacity-50">
+                {converting ? <><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Conversion...</> : <><UserCheck size={16} /> Convertir</>}
+              </button>
+            </>
+          }>
             <div className="space-y-3">
               <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
-                <strong className="text-slate-700 dark:text-slate-200">{prospectToConvert.firstName} {prospectToConvert.lastName}</strong> deviendra un client actif et ce prospect sera marqué comme <strong className="text-slate-700 dark:text-slate-200">Gagné</strong>.
+                <strong className="text-slate-700 dark:text-slate-200">{prospectToConvert.firstName} {prospectToConvert.lastName}</strong> deviendra un client actif.
               </p>
-
               <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-500 dark:text-slate-400">Type</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">
-                    {prospectToConvert.companyName ? '🏢 Entreprise' : '👤 Particulier'}
-                  </span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{prospectToConvert.companyName ? '🏢 Entreprise' : '👤 Particulier'}</span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-500 dark:text-slate-400">Pays</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">{prospectToConvert.country || 'FR'}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{prospectToConvert.country || companyCountry || 'Non spécifié'}</span>
                 </div>
-                {(prospectToConvert.city || prospectToConvert.postalCode) && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">Ville</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{prospectToConvert.postalCode} {prospectToConvert.city}</span>
-                  </div>
-                )}
-                {prospectToConvert.companyName && (prospectToConvert.country || 'FR') === 'FR' && (
-                  <>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500 dark:text-slate-400">SIREN</span>
-                      <span className="font-semibold font-mono text-slate-900 dark:text-white">{prospectToConvert.siren || '❌ Manquant'}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500 dark:text-slate-400">SIRET</span>
-                      <span className="font-semibold font-mono text-slate-900 dark:text-white">{prospectToConvert.siret || '❌ Manquant'}</span>
-                    </div>
-                  </>
-                )}
               </div>
-
-              {prospectToConvert.companyName && (prospectToConvert.country || 'FR') === 'FR' && (
-                (!prospectToConvert.siren || !prospectToConvert.siret) && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                    <p className="text-xs text-red-800 dark:text-red-200 flex items-start gap-2">
-                      <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-                      <span>
-                        <strong>SIREN et SIRET requis</strong> pour convertir une entreprise française en client (obligatoire pour l'e-facturation B2B).
-                      </span>
-                    </p>
-                  </div>
-                )
-              )}
             </div>
           </Modal>
         )}
 
         {prospectToArchive && (
-          <Modal
-            open={!!prospectToArchive}
-            onClose={() => setProspectToArchive(null)}
-            title="Archiver ce prospect ?"
-            icon={<Archive size={20} className="text-red-600" />}
-            maxWidth="sm:max-w-md"
-            footer={
-              <>
-                <button onClick={() => setProspectToArchive(null)} className="flex-1 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">
-                  Annuler
-                </button>
-                <button onClick={handleArchive} className="flex-1 px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-xl hover:from-red-600 hover:to-red-700 active:scale-95 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2">
-                  <Archive size={16} /> Confirmer
-                </button>
-              </>
-            }
-          >
+          <Modal open={!!prospectToArchive} onClose={() => setProspectToArchive(null)} title="Archiver ce prospect ?" icon={<Archive size={20} className="text-red-600" />} maxWidth="sm:max-w-md" footer={
+            <>
+              <button onClick={() => setProspectToArchive(null)} className="flex-1 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">Annuler</button>
+              <button onClick={handleArchive} className="flex-1 px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-xl hover:from-red-600 hover:to-red-700 active:scale-95 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2">
+                <Archive size={16} /> Confirmer
+              </button>
+            </>
+          }>
             <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
-              Le prospect <strong className="text-slate-700 dark:text-slate-200">{prospectToArchive.firstName} {prospectToArchive.lastName}</strong> sera masqué de la liste principale. Son historique sera conservé.
+              Le prospect <strong className="text-slate-700 dark:text-slate-200">{prospectToArchive.firstName} {prospectToArchive.lastName}</strong> sera masqué de la liste principale.
             </p>
           </Modal>
         )}

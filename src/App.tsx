@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
+import BalanceComptable from './pages/BalanceComptable';
+import AuditLog from './pages/AuditLog';
 
 // ============================================================
 // 🔑 reCAPTCHA v3 — Clé publique (Site Key)
@@ -26,7 +28,7 @@ import Dashboard from './pages/Dashboard';
 // ============================================================
 
 // Pages publiques
-const LandingPage = lazy(() => import('./pages/LandingPage')); // ✅ AJOUTÉ
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 const PublicQuoteView = lazy(() => import('./pages/PublicQuoteView'));
 const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView'));
 const PublicRequest = lazy(() => import('./pages/PublicRequest'));
@@ -62,18 +64,22 @@ const ExportComptable = lazy(() => import('./pages/ExportComptable'));
 const AccountMapping = lazy(() => import('./pages/AccountMapping'));
 const ImportExport = lazy(() => import('./pages/ImportExport'));
 
+// ✅ NOUVELLES PAGES COMPTABILITÉ
+const Journal = lazy(() => import('./pages/Journal'));
+const GrandLivre = lazy(() => import('./pages/GrandLivre'));
+
 // Pages Admin & Configuration
 const TeamSettings = lazy(() => import('./pages/TeamSettings'));
 const CompanySettings = lazy(() => import('./pages/CompanySettings'));
 const BackupUtility = lazy(() => import('./pages/BackupUtility'));
-const Billing = lazy(() => import('./pages/Billing')); // ✅ AJOUTÉ
+const Billing = lazy(() => import('./pages/Billing'));
 const Pricing = lazy(() => import('./pages/Pricing'));
 
 // 📄 Pages légales (publiques)
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const LegalNotices = lazy(() => import('./pages/LegalNotices'));
-const RefundPolicy = lazy(() => import('./pages/RefundPolicy')); // ✅ AJOUTÉ
-const TermsOfService = lazy(() => import('./pages/TermsOfService')); // ✅ AJOUTÉ
+const RefundPolicy = lazy(() => import('./pages/RefundPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 
 // ============================================================
 // 🍪 COMPOSANTS GLOBAUX
@@ -123,7 +129,6 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  // ✅ Si l'utilisateur est déjà connecté, on le redirige vers le dashboard
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -153,7 +158,7 @@ function AppRoutes() {
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
         {/* ===== ROUTE D'ACCUEIL (Landing Page) ===== */}
-        <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} /> {/* ✅ MODIFIÉ */}
+        <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} />
         
         {/* ===== AUTRES ROUTES PUBLIQUES ===== */}
         <Route path="/v/:token" element={<PublicQuoteView />} />
@@ -174,8 +179,8 @@ function AppRoutes() {
         {/* ===== 📄 PAGES LÉGALES ===== */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
-       <Route path="/refund" element={<RefundPolicy />} />       {/* ✅ AJOUTÉ */}
-        <Route path="/terms" element={<TermsOfService />} />      {/* ✅ AJOUTÉ */}
+        <Route path="/refund" element={<RefundPolicy />} />
+        <Route path="/terms" element={<TermsOfService />} />
 
         {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -195,26 +200,27 @@ function AppRoutes() {
         <Route path="/reminders" element={<ProtectedRoute><Reminders /></ProtectedRoute>} />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
         
-        {/* Trésorerie & Compta */}
+        {/* Trésorerie */}
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
         <Route path="/treasury" element={<ProtectedRoute><Treasury /></ProtectedRoute>} />
         <Route path="/cash-operations" element={<ProtectedRoute><CashOperations /></ProtectedRoute>} />
-        <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
         <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
-        
-        
+
+        {/* ✅ COMPTABILITÉ — Cycle PCG complet */}
+        <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
+        <Route path="/grand-livre" element={<ProtectedRoute><GrandLivre /></ProtectedRoute>} />
+        <Route path="/balance-comptable" element={<ProtectedRoute><BalanceComptable /></ProtectedRoute>} />
+        <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
+
         {/* Paramètres & Admin */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
         <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
-<Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} /> {/* ✅ AJOUTÉ */}
-<Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
-        
+        <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
+        <Route path="/audit-log" element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
+        <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+        <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
 
-        {/* ===== ROUTES UTILITAIRES ===== */}
-       
-        <Route path="/backup" element={<BackupUtility />} />
-        
         {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

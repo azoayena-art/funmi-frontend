@@ -3,7 +3,7 @@
 // 📚 Relié au plan comptable (comptes personnalisés + standards)
 // 🎯 Vue analytique uniquement — la saisie se fait dans CashOperations
 // 🔐 Permissions centralisées + ActionMenu sur chaque mouvement
-// 🏦 Nouvel onglet "Relevés bancaires" (import CSV + rapprochement automatique)
+// 🏦 Onglet "Relevés bancaires" (import CSV + rapprochement automatique)
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import BankReconciliation from '../components/BankReconciliation';
@@ -22,7 +22,7 @@ import {
   ArrowDownLeft, ArrowUpRight, PiggyBank, AlertTriangle,
   BarChart3, Activity, CreditCard, Building2, Filter,
   RefreshCw, FileText, Archive, Percent, Eye, ArrowRight,
-  BookOpen, Hash, Globe, ArrowLeft, Landmark,
+  BookOpen, Hash, Globe, Landmark, Info, CheckCircle2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -35,10 +35,10 @@ import {
 
 import { getCountryConfig, type CountryConfig } from '../config/countries';
 import { loadCustomAccountMapping, type CustomAccount } from '../services/accountMappingService';
-import { getTeamPermissions } from '../utils/rowLevelPermissions';
+import { getTeamPermissions, verifyTeamAccessStrict } from '../utils/rowLevelPermissions';
 
 // ============================================================
-// 🎨 MAPPINGS STATIQUES (évite les classes Tailwind dynamiques)
+// 🎨 MAPPINGS STATIQUES
 // ============================================================
 const METHOD_ICONS: Record<string, any> = {
   bank_transfer: Building2, check: Receipt, credit_card: CreditCard,
@@ -150,7 +150,7 @@ export default function Treasury() {
   const [planLoading, setPlanLoading] = useState(true);
 
   // 📋 États UI
-  const [activeTab, setActiveTab] = useState<'movements' | 'bank'>('movements'); // 🏦 NOUVEAU
+  const [activeTab, setActiveTab] = useState<'movements' | 'bank'>('movements');
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -175,7 +175,7 @@ export default function Treasury() {
         ]);
         if (res.documents.length > 0) setCompanySettings(res.documents[0]);
       } catch (e) {
-        console.warn('⚠️ Paramètres entreprise non chargés:', e);
+        console.warn('Paramètres entreprise non chargés:', e);
       }
     })();
   }, [customTeamId]);
@@ -189,7 +189,7 @@ export default function Treasury() {
         const result = await loadCustomAccountMapping(customTeamId);
         setCustomAccounts(result.customAccounts || []);
       } catch (e) {
-        console.warn('⚠️ Plan comptable non chargé:', e);
+        console.warn('Plan comptable non chargé:', e);
       } finally {
         setPlanLoading(false);
       }
@@ -446,10 +446,11 @@ export default function Treasury() {
 
   useEffect(() => { setPage(1); }, [filterType, filterCategory, search]);
 
+  // ✅ TypeTabs nettoyés des émojis
   const typeTabs = [
     { key: 'all', label: 'Tous', count: transactions.filter(t => !t.isArchived).length },
-    { key: 'in', label: '💰 Encaissements', count: transactions.filter(t => t.type === 'in' && !t.isArchived).length },
-    { key: 'out', label: '💸 Décaissements', count: transactions.filter(t => t.type === 'out' && !t.isArchived).length },
+    { key: 'in', label: 'Encaissements', count: transactions.filter(t => t.type === 'in' && !t.isArchived).length },
+    { key: 'out', label: 'Décaissements', count: transactions.filter(t => t.type === 'out' && !t.isArchived).length },
   ];
 
   const categoryOptions = useMemo(() => {
@@ -467,7 +468,6 @@ export default function Treasury() {
     if (t.accountNumber) {
       return { number: t.accountNumber, label: t.accountLabel };
     }
-    // Chercher dans les comptes personnalisés
     const custom = customAccounts.find(acc =>
       acc.key.includes(t.category) || acc.label.toLowerCase().includes((t.label || '').toLowerCase())
     );
@@ -479,14 +479,14 @@ export default function Treasury() {
   // 💾 HANDLERS
   // ============================================================
   const handleArchive = async () => {
-    if (!archiveTarget || !user?.$id) return;
+    if (!archiveTarget || !user?.$id || !appwriteTeamId) return;
     setArchiving(true);
     try {
       const collection = archiveTarget.source === 'expense' ? 'expenses' : 'payments';
       await databases.updateDocument(
         DATABASE_ID, collection, archiveTarget.id,
         { isArchived: true },
-        getTeamPermissions(appwriteTeamId!)
+        getTeamPermissions(appwriteTeamId)
       );
       toast.success('Mouvement archivé');
       setArchiveTarget(null);
@@ -527,8 +527,8 @@ export default function Treasury() {
               <span className="inline-flex items-center gap-1.5 mr-2">
                 {companyConfig.flag} <strong>{companyConfig.name}</strong>
               </span>
-              • {currencyConfig?.symbol || '€'} {currency || 'EUR'}
-              {' • '}
+              — {currencyConfig?.symbol || '€'} {currency || 'EUR'}
+              {' — '}
               <span className="inline-flex items-center gap-1">
                 <BookOpen size={12} />
                 <strong>{standardLabel}</strong>
@@ -552,7 +552,6 @@ export default function Treasury() {
               >
                 <ArrowRight size={16} />
                 <span className="hidden sm:inline">Nouvelle opération</span>
-                <ArrowRight size={14} />
               </button>
             </div>
           }
@@ -564,10 +563,10 @@ export default function Treasury() {
           <Alert tone="info" icon={Globe} title={`Plan comptable ${standardLabel} actif`}>
             <div className="text-sm">
               Les mouvements sont rattachés automatiquement au référentiel <strong>{standardLabel}</strong> adapté à {companyConfig.flag} <strong>{companyConfig.name}</strong>.
-              TVA : <strong>{companyConfig.vat?.label || 'TVA'} {companyConfig.vat?.standardRates[0] || 0}%</strong> •
+              TVA : <strong>{companyConfig.vat?.label || 'TVA'} {companyConfig.vat?.standardRates[0] || 0}%</strong> —
               Conservation : <strong>{companyConfig.retentionYears} ans</strong>
-              {companyConfig.vat?.isEU && ' • 🇪🇺 UE (VIES applicable)'}
-              {['XOF', 'XAF'].includes(companyConfig.currency) && ' • 🌍 Zone CFA (OHADA)'}
+              {companyConfig.vat?.isEU && ' — UE (VIES applicable)'}
+              {['XOF', 'XAF'].includes(companyConfig.currency) && ' — Zone CFA (OHADA)'}
             </div>
           </Alert>
 
@@ -582,7 +581,7 @@ export default function Treasury() {
               }`}
             >
               <TrendingUp size={16} />
-              💰 Mouvements
+              Mouvements
             </button>
             <button
               onClick={() => setActiveTab('bank')}
@@ -593,7 +592,7 @@ export default function Treasury() {
               }`}
             >
               <Landmark size={16} />
-              🏦 Relevés bancaires
+              Relevés bancaires
             </button>
           </div>
 
@@ -607,7 +606,7 @@ export default function Treasury() {
           )}
 
           {/* ============================================================ */}
-          {/* 💰 ONGLET : MOUVEMENTS (tout le contenu existant)             */}
+          {/* 💰 ONGLET : MOUVEMENTS                                         */}
           {/* ============================================================ */}
           {activeTab === 'movements' && (
             <>
@@ -641,7 +640,7 @@ export default function Treasury() {
                   <StatCell
                     label="Flux net de la période"
                     value={`${treasuryKpis.fluxNet >= 0 ? '+' : ''}${fm(treasuryKpis.fluxNet)}`}
-                    sublabel="Encaissements − Décaissements"
+                    sublabel="Encaissements - Décaissements"
                     trend={Math.sign(treasuryKpis.fluxNet)}
                   />
                   <StatCell
@@ -688,12 +687,12 @@ export default function Treasury() {
                     <StatCell
                       label={`${companyConfig.vat.label} collectée nette`}
                       value={fm(treasuryKpis.tvaCollectee)}
-                      sublabel="Brute − Régularisation"
+                      sublabel="Brute - Régularisation"
                       trend={treasuryKpis.tvaCollectee > 0 ? -1 : 0}
                     />
                   </KPIGrid>
                   {treasuryKpis.tvaAReverser < 0 && (
-                    <Alert tone="info" icon={TrendingUp} title={`💡 Crédit de ${companyConfig.vat.label} détecté`}>
+                    <Alert tone="info" icon={CheckCircle2} title={`Crédit de ${companyConfig.vat.label} détecté`}>
                       Votre {companyConfig.vat.label.toLowerCase()} déductible dépasse votre collectée nette de <strong>{fm(Math.abs(treasuryKpis.tvaAReverser))}</strong>.
                       Ce crédit est reportable ou peut faire l'objet d'une demande de remboursement.
                     </Alert>
@@ -729,14 +728,14 @@ export default function Treasury() {
                   <StatCell
                     label="Solde projeté (30j)"
                     value={fm(treasuryKpis.soldeProjete)}
-                    sublabel={`Solde actuel + À encaisser − À décaisser`}
+                    sublabel="Solde actuel + À encaisser - À décaisser"
                     trend={treasuryKpis.soldeProjete >= 0 ? 1 : -1}
                   />
                 </KPIGrid>
               </div>
 
               {treasuryKpis.soldeProjete < 0 && (
-                <Alert tone="error" icon={AlertTriangle} title="⚠️ Tension de trésorerie prévue">
+                <Alert tone="error" icon={AlertTriangle} title="Tension de trésorerie prévue">
                   Votre solde projeté à 30 jours est négatif (<strong>{fm(treasuryKpis.soldeProjete)}</strong>).
                   Anticipez les encaissements clients ou réduisez les décaissements fournisseurs.
                 </Alert>

@@ -1,3 +1,4 @@
+// src/components/Sidebar.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
@@ -10,7 +11,7 @@ import {
   Bell, Wallet, FileCheck, LogOut, ChevronLeft,
   ChevronRight, Moon, Sun, Menu, X, Building2, Shield,
   BarChart3, FileOutput, FileInput, BookOpen, ArrowRightLeft,
-  Save, CreditCard,
+  Save, CreditCard, Scale, BookOpenCheck, BookText, FileDown,
   LucideIcon,
 } from 'lucide-react';
 
@@ -21,7 +22,7 @@ interface SidebarProps {
 interface NavItem {
   path: string;
   label: string;
-  icon: LucideIcon; // ✅ Typage strict au lieu de 'any'
+  icon: LucideIcon;
   permissions: string[];
   badge?: number;
   color: string;
@@ -43,7 +44,10 @@ export default function Sidebar({ children }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem('darkMode') === 'true';
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('darkMode') === 'true';
+    }
+    return false;
   });
 
   const [pendingRemindersCount, setPendingRemindersCount] = useState(0);
@@ -122,7 +126,7 @@ export default function Sidebar({ children }: SidebarProps) {
 
         setPendingRemindersCount(count);
       } catch (e) {
-        // Erreur silencieuse en production pour ne pas polluer la console
+        // Erreur silencieuse
       }
     };
     loadRemindersCount();
@@ -198,7 +202,6 @@ export default function Sidebar({ children }: SidebarProps) {
     setMobileOpen(false);
   };
 
-  // ✅ Typage sécurisé sans 'as any' global
   const safeUser = user as { name?: string; email?: string; profile?: { firstName?: string } } | null;
   const displayName = safeUser?.profile?.firstName || safeUser?.name || 'Utilisateur';
   const userEmail = safeUser?.email || '';
@@ -244,7 +247,16 @@ export default function Sidebar({ children }: SidebarProps) {
       items: [
         { path: '/treasury', label: 'Trésorerie', icon: Wallet, permissions: ['treasury.view', 'invoices.view', 'reports.view', 'dashboard'], color: 'text-purple-600' },
         { path: '/cash-operations', label: 'Entrées & Sorties', icon: ArrowRightLeft, permissions: ['treasury.view', 'invoices.view', 'dashboard'], color: 'text-emerald-600' },
-        { path: '/export-comptable', label: 'Export comptable', icon: BookOpen, permissions: ['reports.export', 'reports.view', 'dashboard'], color: 'text-indigo-600' },
+      ],
+    },
+    {
+      // ✅ NOUVELLE SECTION : Cycle comptable PCG/SYSCOHADA
+      title: 'Comptabilité',
+      items: [
+        { path: '/journal', label: 'Journal', icon: BookText, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-blue-600' },
+        { path: '/grand-livre', label: 'Grand Livre', icon: BookOpenCheck, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-indigo-600' },
+        { path: '/balance-comptable', label: 'Balance', icon: Scale, permissions: ['reports.view', 'reports.export', 'dashboard'], color: 'text-purple-600' },
+        { path: '/export-comptable', label: 'Export FEC / Logiciels', icon: FileDown, permissions: ['reports.export', 'reports.view', 'dashboard'], color: 'text-emerald-600' },
       ],
     },
   ];
@@ -254,6 +266,7 @@ export default function Sidebar({ children }: SidebarProps) {
     { path: '/company-settings', label: 'Mon Entreprise', icon: Building2, permissions: ['settings.view'], color: 'text-slate-600' },
     { path: '/account-mapping', label: 'Plan Comptable', icon: BookOpen, permissions: ['settings.edit', 'settings.view'], color: 'text-purple-600' },
     { path: '/backup', label: 'Sauvegardes', icon: Save, permissions: ['settings.edit', 'settings.view'], color: 'text-emerald-600' },
+    { path: '/audit-log', label: 'Historique & Audit', icon: Shield, permissions: ['settings.view'], color: 'text-blue-600' },
     { path: '/billing', label: 'Mon Abonnement', icon: CreditCard, permissions: ['settings.view'], color: 'text-amber-600' },
   ];
 
@@ -276,6 +289,14 @@ export default function Sidebar({ children }: SidebarProps) {
         tooltipText = 'Sauvegardes & Restaurations';
       } else if (item.path === '/billing') {
         tooltipText = 'Gérer mon abonnement';
+      } else if (item.path === '/journal') {
+        tooltipText = 'Journal des écritures comptables';
+      } else if (item.path === '/grand-livre') {
+        tooltipText = 'Grand Livre - Détail par compte';
+      } else if (item.path === '/balance-comptable') {
+        tooltipText = 'Balance comptable (soldes par compte)';
+      } else if (item.path === '/export-comptable') {
+        tooltipText = 'Export FEC, Sage, Cegid, EBP...';
       } else {
         tooltipText = item.label;
       }
@@ -339,13 +360,13 @@ export default function Sidebar({ children }: SidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-2.5 custom-scrollbar" role="navigation" aria-label="Menu principal">
-        <div className="space-y-3"> {/* ✅ Réduit de space-y-5 à space-y-3 */}
+        <div className="space-y-3">
           {navSections.map((section, idx) => {
             const filteredItems = section.items.filter(item => hasAnyPermission(item.permissions));
             if (filteredItems.length === 0) return null;
 
             return (
-              <div key={section.title} className="space-y-0.5"> {/* ✅ Interligne réduit entre les items */}
+              <div key={section.title} className="space-y-0.5">
                 {!collapsed && (
                   <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                     {section.title}
@@ -362,7 +383,7 @@ export default function Sidebar({ children }: SidebarProps) {
           })}
         </div>
 
-        <div className="my-3 border-t border-slate-200 dark:border-slate-700"></div> {/* ✅ Réduit de my-5 à my-3 */}
+        <div className="my-3 border-t border-slate-200 dark:border-slate-700"></div>
 
         <div className="space-y-0.5">
           {!collapsed && (

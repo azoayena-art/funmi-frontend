@@ -10,24 +10,9 @@ import { useTeam } from '../context/TeamContext';
 import { toast } from 'sonner';
 import Modal from '../components/ui/Modal';
 import {
-  PageHeader,
-  TypeTabs,
-  KPIGrid,
-  StatCell,
-  EmptyState,
-  SkeletonCard,
-  FormField,
-  Textarea,
-  Alert,
-  Pagination,
-  SearchFilter,
-  SelectFilter,
-  MobileCard,
-  DataTable,
-  Card,
-  SectionTitle,
-  Badge,
-  type DotTone,
+  PageHeader, TypeTabs, KPIGrid, StatCell, EmptyState, SkeletonCard,
+  FormField, Textarea, Alert, Pagination, SearchFilter, SelectFilter,
+  MobileCard, DataTable, Card, SectionTitle, Badge, type DotTone,
 } from '../components/ui/SharedUI';
 import {
   Bell, FileText, Receipt, AlertCircle, Clock, Send,
@@ -108,27 +93,27 @@ interface ReminderItem {
 }
 
 // ============================================================
-// 🎨 CONFIGURATION VISUELLE
+// 🎨 CONFIGURATION VISUELLE (Sans émojis)
 // ============================================================
 
 const urgencyConfig: Record<string, { label: string; tone: 'blue' | 'amber' | 'orange' | 'red'; iconTone: DotTone }> = {
-  info:     { label: '🔵 Information',    tone: 'blue',   iconTone: 'sky' },
-  warning:  { label: '🟡 À surveiller',   tone: 'amber',  iconTone: 'amber' },
-  danger:   { label: '🟠 Urgent',         tone: 'orange', iconTone: 'orange' },
-  critical: { label: '🔴 Critique',       tone: 'red',    iconTone: 'red' },
+  info:     { label: 'Information',    tone: 'blue',   iconTone: 'sky' },
+  warning:  { label: 'À surveiller',   tone: 'amber',  iconTone: 'amber' },
+  danger:   { label: 'Urgent',         tone: 'orange', iconTone: 'orange' },
+  critical: { label: 'Critique',       tone: 'red',    iconTone: 'red' },
 };
 
 const methodConfig: Record<string, { label: string; icon: any; tone: DotTone }> = {
-  email: { label: '📧 Email',      icon: Mail,         tone: 'sky' },
-  phone: { label: '📞 Téléphone',  icon: Phone,        tone: 'teal' },
-  sms:   { label: '💬 SMS',        icon: MessageSquare, tone: 'violet' },
-  mail:  { label: '✉️ Courrier',   icon: MailPlus,     tone: 'indigo' },
+  email: { label: 'Email',      icon: Mail,         tone: 'sky' },
+  phone: { label: 'Téléphone',  icon: Phone,        tone: 'teal' },
+  sms:   { label: 'SMS',        icon: MessageSquare, tone: 'violet' },
+  mail:  { label: 'Courrier',   icon: MailPlus,     tone: 'indigo' },
 };
 
 const levelConfig: Record<number, { label: string; tone: 'amber' | 'orange' | 'red' }> = {
-  1: { label: 'Niveau 1 — Relance douce',     tone: 'amber' },
-  2: { label: 'Niveau 2 — Relance ferme',     tone: 'orange' },
-  3: { label: 'Niveau 3 — Mise en demeure',   tone: 'red' },
+  1: { label: 'Relance douce',     tone: 'amber' },
+  2: { label: 'Relance ferme',     tone: 'orange' },
+  3: { label: 'Mise en demeure',   tone: 'red' },
 };
 
 const quoteTemplates: Record<number, string> = {
@@ -155,8 +140,6 @@ export default function Reminders() {
   const { hasPermission, loading: permLoading } = usePermissions();
   const navigate = useNavigate();
   const { fm, loading: settingsLoading, companyName } = useCompanySettings();
-  
-  // ✅ CORRECTION : importer customTeamId ET appwriteTeamId
   const { customTeamId, appwriteTeamId } = useTeam();
 
   const [loading, setLoading] = useState(true);
@@ -179,35 +162,22 @@ export default function Reminders() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historySearchInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ Debounce sur la recherche
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearch(searchInput);
-    }, SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(() => { setSearch(searchInput); }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ============================================================
-  // ⌨️ RACCOURCIS CLAVIER CTRL+K
-  // ============================================================
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        if (activeTab === 'todo') {
-          searchInputRef.current?.focus();
-        } else {
-          historySearchInputRef.current?.focus();
-        }
+        if (activeTab === 'todo') searchInputRef.current?.focus();
+        else historySearchInputRef.current?.focus();
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [activeTab]);
-
-  // ============================================================
-  // ✅ HELPERS COMPTABLES
-  // ============================================================
 
   const readJson = (raw: unknown): any => {
     if (!raw) return {};
@@ -224,28 +194,18 @@ export default function Reminders() {
     if (journalSum > 0) return round2(journalSum);
     let payments: any[] = [];
     try {
-      if (typeof invoice.payments === 'string' && invoice.payments.trim()) {
-        payments = JSON.parse(invoice.payments);
-      } else if (Array.isArray(invoice.payments)) {
-        payments = invoice.payments;
-      }
+      if (typeof invoice.payments === 'string' && invoice.payments.trim()) payments = JSON.parse(invoice.payments);
+      else if (Array.isArray(invoice.payments)) payments = invoice.payments;
     } catch { payments = []; }
     return round2(payments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0));
   };
 
-  const getNetRemaining = (
-    invoice: Invoice,
-    allInvoices: Invoice[],
-    metadataMap: Map<string, any>,
-    journalPayments: any[]
-  ): number => {
+  const getNetRemaining = (invoice: Invoice, allInvoices: Invoice[], metadataMap: Map<string, any>, journalPayments: any[]): number => {
     if (invoice.type === 'credit') return 0;
     let paidAmount = getPaidAmount(invoice, journalPayments);
     if ((invoice.type === 'standard' || invoice.type === 'balance') && invoice.originalInvoiceId) {
       const advanceInvoice = allInvoices.find(i => i.$id === invoice.originalInvoiceId && i.type === 'advance');
-      if (advanceInvoice && advanceInvoice.status === 'paid') {
-        paidAmount += (advanceInvoice.total || 0);
-      }
+      if (advanceInvoice && advanceInvoice.status === 'paid') paidAmount += (advanceInvoice.total || 0);
     }
     const allocatedCredits = allInvoices
       .filter(inv => inv.type === 'credit' && inv.originalInvoiceId === invoice.$id && inv.status !== 'cancelled')
@@ -253,8 +213,7 @@ export default function Reminders() {
         const meta = metadataMap.get(inv.$id);
         if (!meta) {
           const original = allInvoices.find(i => i.$id === inv.originalInvoiceId);
-          const originalPaid = !!original && original.status === 'paid';
-          return sum + (originalPaid ? 0 : (inv.total || 0));
+          return sum + ((original && original.status === 'paid') ? 0 : (inv.total || 0));
         }
         const creditData = meta.creditData || {};
         const status = creditData.creditStatus;
@@ -264,10 +223,6 @@ export default function Reminders() {
       }, 0);
     return round2(Math.max(0, (invoice.total || 0) - paidAmount - allocatedCredits));
   };
-
-  // ============================================================
-  // 🆕 HELPERS RELANCES
-  // ============================================================
 
   const buildMessage = (item: ReminderItem): string => {
     const template = item.type === 'quote' ? quoteTemplates[item.level] : invoiceTemplates[item.level];
@@ -281,11 +236,8 @@ export default function Reminders() {
       .replace(/{lastReminderDate}/g, new Date().toLocaleDateString('fr-FR'));
   };
 
-  // ✅ CORRECTION CRITIQUE : Utiliser appwriteTeamId pour les permissions natives
   const getDocPerms = useCallback(() => {
-    if (!appwriteTeamId) {
-      throw new Error('Sécurité : appwriteTeamId requis');
-    }
+    if (!appwriteTeamId) throw new Error('Sécurité : appwriteTeamId requis');
     return [
       Permission.read(Role.team(appwriteTeamId)),
       Permission.update(Role.team(appwriteTeamId)),
@@ -293,38 +245,16 @@ export default function Reminders() {
     ];
   }, [appwriteTeamId]);
 
-  // ✅ Enregistre la relance dans followups avec permissions natives
-  const recordFollowup = async (
-    item: ReminderItem,
-    channel: string,
-    message: string,
-    recipientEmail: string = ''
-  ): Promise<void> => {
+  const recordFollowup = async (item: ReminderItem, channel: string, message: string, recipientEmail: string = ''): Promise<void> => {
     if (!customTeamId || !user) return;
     const now = new Date().toISOString();
-    const perms = getDocPerms();
-    
     await databases.createDocument(DATABASE_ID, 'followups', ID.unique(), {
-      scheduledAt: now,
-      teamId: customTeamId,
-      userId: user.$id,
-      targetType: item.type,
-      targetId: item.id,
-      relatedNumber: item.number,
-      clientName: item.clientName,
-      level: String(item.level),
-      followupType: 'relance',
-      channel,
-      sentAt: now,
-      status: 'sent',
-      message,
-      recipientEmail,
-    }, perms);
+      scheduledAt: now, teamId: customTeamId, userId: user.$id,
+      targetType: item.type, targetId: item.id, relatedNumber: item.number,
+      clientName: item.clientName, level: String(item.level), followupType: 'relance',
+      channel, sentAt: now, status: 'sent', message, recipientEmail,
+    }, getDocPerms());
   };
-
-  // ============================================================
-  // 📥 CHARGEMENT DES DONNÉES
-  // ============================================================
 
   useEffect(() => {
     if (!permLoading && !hasPermission('invoices.view')) navigate('/dashboard');
@@ -340,23 +270,14 @@ export default function Reminders() {
     if (!user || !customTeamId) return;
     try {
       setLoading(true);
-
       const [quotesRes, invoicesRes, historyRes, metadataRes, journalRes] = await Promise.all([
         databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
-databases.listDocuments(DATABASE_ID, 'followups', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
-databases.listDocuments(DATABASE_ID, 'invoice_metadata', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
-databases.listDocuments(DATABASE_ID, 'invoice_payments', [
-  Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)
-]),
+        databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
+        databases.listDocuments(DATABASE_ID, 'followups', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
+        databases.listDocuments(DATABASE_ID, 'invoice_metadata', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
+        databases.listDocuments(DATABASE_ID, 'invoice_payments', [Query.equal('teamId', customTeamId), Query.orderDesc('$createdAt'), Query.limit(100)]),
       ]);
 
-      // ✅ Vérification côté UI que tous les documents appartiennent au team
       const safeHistory = historyRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Reminder[];
       setHistory(safeHistory);
 
@@ -379,7 +300,6 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
       const today = new Date();
       const allInvoices = invoicesRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Invoice[];
 
-      // --- DEVIS ---
       (quotesRes.documents.filter((d: any) => d.teamId === customTeamId) as unknown as Quote[]).forEach(quote => {
         if (quote.status !== 'Envoyé') return;
         const issueDate = new Date(quote.issueDate || '');
@@ -400,7 +320,6 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
         }
       });
 
-      // --- FACTURES ---
       allInvoices.forEach(invoice => {
         if (invoice.status === 'paid' || invoice.status === 'cancelled' || invoice.type === 'credit') return;
         const netRemaining = getNetRemaining(invoice, allInvoices, metadataMap, journalPayments);
@@ -409,26 +328,11 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
         if (invoice.isElectronic && invoice.transmissionStatus === 'transmitted') {
           const transmittedDate = new Date(invoice.$updatedAt || invoice.issueDate || '');
           const daysSinceTransmitted = Math.floor((today.getTime() - transmittedDate.getTime()) / (1000 * 60 * 60 * 24));
-          
           if (daysSinceTransmitted >= 7) {
-            items.push({ 
-              id: invoice.$id, type: 'invoice', number: invoice.invoiceNumber, 
-              clientName: invoice.clientName, amount: netRemaining, 
-              days: daysSinceTransmitted, level: 2, urgency: 'danger', 
-              label: `E-Facture transmise sans réponse depuis ${daysSinceTransmitted} jours`, 
-              email: invoice.clientEmail, token: invoice.clientToken,
-              isElectronic: true
-            });
+            items.push({ id: invoice.$id, type: 'invoice', number: invoice.invoiceNumber, clientName: invoice.clientName, amount: netRemaining, days: daysSinceTransmitted, level: 2, urgency: 'danger', label: `E-Facture transmise sans réponse depuis ${daysSinceTransmitted} jours`, email: invoice.clientEmail, token: invoice.clientToken, isElectronic: true });
             return;
           } else if (daysSinceTransmitted >= 3) {
-            items.push({ 
-              id: invoice.$id, type: 'invoice', number: invoice.invoiceNumber, 
-              clientName: invoice.clientName, amount: netRemaining, 
-              days: daysSinceTransmitted, level: 1, urgency: 'warning', 
-              label: `E-Facture transmise sans réponse depuis ${daysSinceTransmitted} jours`, 
-              email: invoice.clientEmail, token: invoice.clientToken,
-              isElectronic: true
-            });
+            items.push({ id: invoice.$id, type: 'invoice', number: invoice.invoiceNumber, clientName: invoice.clientName, amount: netRemaining, days: daysSinceTransmitted, level: 1, urgency: 'warning', label: `E-Facture transmise sans réponse depuis ${daysSinceTransmitted} jours`, email: invoice.clientEmail, token: invoice.clientToken, isElectronic: true });
             return;
           }
         }
@@ -460,10 +364,6 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
     }
   };
 
-  // ============================================================
-  // ⚙️ ACTIONS
-  // ============================================================
-
   const openSendModal = (item: ReminderItem) => {
     setSelectedReminder(item);
     setSendForm({ method: 'email', message: buildMessage(item) });
@@ -475,11 +375,9 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
     setSending(true);
     try {
       let emailResult: { success: boolean; error?: string } | null = null;
-
       if (sendForm.method === 'email' && selectedReminder.email) {
         const subject = `Relance - ${selectedReminder.type === 'quote' ? 'Devis' : 'Facture'} n°${selectedReminder.number}`;
         emailResult = await sendRawEmail(selectedReminder.email, subject, sendForm.message, customTeamId);
-
         if (!emailResult.success) {
           const mailtoLink = document.createElement('a');
           mailtoLink.href = `mailto:${selectedReminder.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(sendForm.message)}`;
@@ -489,25 +387,17 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
           document.body.removeChild(mailtoLink);
         }
       }
-
       await recordFollowup(selectedReminder, sendForm.method, sendForm.message, selectedReminder.email || '');
-
       setShowSendModal(false);
       setSelectedReminder(null);
       await loadReminders();
 
       if (emailResult?.success) {
-        toast.success('📧 Relance envoyée par email !', {
-          description: `${selectedReminder.clientName} — ${selectedReminder.email}`
-        });
+        toast.success('Relance envoyée par email', { description: `${selectedReminder.clientName} — ${selectedReminder.email}` });
       } else if (emailResult && !emailResult.success) {
-        toast.warning('Relance enregistrée — EmailJS indisponible, client mail ouvert', {
-          description: emailResult.error || 'Vérifiez la configuration EmailJS'
-        });
+        toast.warning('Relance enregistrée — Client mail ouvert', { description: emailResult.error || 'Vérifiez la configuration EmailJS' });
       } else {
-        toast.success('Relance enregistrée avec succès !', {
-          description: `${selectedReminder.clientName} — ${selectedReminder.number}`
-        });
+        toast.success('Relance enregistrée avec succès', { description: `${selectedReminder.clientName} — ${selectedReminder.number}` });
       }
     } catch (error: any) {
       console.error('Erreur envoi relance:', error);
@@ -519,22 +409,12 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
 
   const handleSendAllEmailReminders = async () => {
     const targets = reminders.filter(r => r.email);
-    if (targets.length === 0) {
-      toast.warning('Aucune relance avec email client disponible.');
-      return;
-    }
-    if (targets.length > 50) {
-      toast.warning(`Attention : vous allez envoyer ${targets.length} emails. Cette opération peut prendre du temps.`);
-    }
-    if (!confirm(
-      `Envoyer ${targets.length} relance(s) automatiquement par email ?\n\n` +
-      `Chaque client recevra le message adapté à son niveau de relance.\n` +
-      `Chaque envoi sera enregistré dans l'historique.`
-    )) return;
+    if (targets.length === 0) { toast.warning('Aucune relance avec email client disponible.'); return; }
+    if (targets.length > 50) toast.warning(`Attention : vous allez envoyer ${targets.length} emails.`);
+    if (!confirm(`Envoyer ${targets.length} relance(s) automatiquement par email ?\n\nChaque client recevra le message adapté à son niveau de relance.`)) return;
 
     setSendingAll(true);
-    let ok = 0;
-    let ko = 0;
+    let ok = 0, ko = 0;
     const failedNames: string[] = [];
 
     for (const item of targets) {
@@ -549,34 +429,18 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
           ko++;
           failedNames.push(item.clientName);
         }
-      } catch (e) {
+      } catch {
         ko++;
         failedNames.push(item.clientName);
       }
-      
-      // Petit délai pour éviter le rate limiting
-      if (targets.indexOf(item) % 10 === 9) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+      if (targets.indexOf(item) % 10 === 9) await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     setSendingAll(false);
     await loadReminders();
-
-    if (ko === 0) {
-      toast.success(`📨 ${ok} relance(s) envoyée(s) avec succès`, {
-        description: 'Tous les emails sont partis et tracés dans l\'historique.'
-      });
-    } else {
-      toast.warning(`📨 ${ok} envoyée(s) • ${ko} échec(s)`, {
-        description: `Échecs : ${failedNames.slice(0, 3).join(', ')}${failedNames.length > 3 ? '...' : ''}. Vérifiez la config EmailJS.`
-      });
-    }
+    if (ko === 0) toast.success(`${ok} relance(s) envoyée(s) avec succès`);
+    else toast.warning(`${ok} envoyée(s) • ${ko} échec(s)`, { description: `Échecs : ${failedNames.slice(0, 3).join(', ')}${failedNames.length > 3 ? '...' : ''}` });
   };
-
-  // ============================================================
-  // ✅ CALCULS & FILTRAGE
-  // ============================================================
 
   const filteredReminders = useMemo(() => reminders.filter(r => {
     const matchType = filterType === 'all' || r.type === filterType;
@@ -588,10 +452,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
 
   const filteredHistory = useMemo(() => {
     const searchStr = search.toLowerCase();
-    return history.filter(h => {
-      if (search === '') return true;
-      return `${h.relatedNumber} ${h.clientName}`.toLowerCase().includes(searchStr);
-    });
+    return history.filter(h => search === '' || `${h.relatedNumber} ${h.clientName}`.toLowerCase().includes(searchStr));
   }, [history, search]);
 
   const quoteReminders = filteredReminders.filter(r => r.type === 'quote');
@@ -609,54 +470,38 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
   const historyEndIndex = historyStartIndex + ITEMS_PER_PAGE;
   const paginatedHistory = filteredHistory.slice(historyStartIndex, historyEndIndex);
 
-  const handleRemindersPageChange = (page: number) => {
-    setRemindersPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  useEffect(() => { setRemindersPage(1); setHistoryPage(1); }, [search, filterType, filterUrgency, activeTab]);
 
-  const handleHistoryPageChange = (page: number) => {
-    setHistoryPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    setRemindersPage(1);
-    setHistoryPage(1);
-  }, [search, filterType, filterUrgency, activeTab]);
-
+  // ✅ CORRECTION : Suppression des émojis dans les onglets et filtres
   const tabs = [
-    { key: 'todo', label: '📋 À relancer', count: reminders.length },
-    { key: 'history', label: '📜 Historique', count: history.length },
+    { key: 'todo', label: 'À relancer', count: reminders.length },
+    { key: 'history', label: 'Historique', count: history.length },
   ];
 
   const typeOptions = [
     { value: 'all', label: 'Tous les types' },
-    { value: 'quote', label: '📄 Devis uniquement' },
-    { value: 'invoice', label: '🧾 Factures uniquement' },
+    { value: 'quote', label: 'Devis uniquement' },
+    { value: 'invoice', label: 'Factures uniquement' },
   ];
 
   const urgencyOptions = [
     { value: 'all', label: 'Toutes les urgences' },
-    { value: 'critical', label: '🔴 Critique' },
-    { value: 'danger', label: '🟠 Urgent' },
-    { value: 'warning', label: '🟡 À surveiller' },
-    { value: 'info', label: '🔵 Information' },
+    { value: 'critical', label: 'Critique' },
+    { value: 'danger', label: 'Urgent' },
+    { value: 'warning', label: 'À surveiller' },
+    { value: 'info', label: 'Information' },
   ];
 
-  const emailableCount = useMemo(
-    () => reminders.filter(r => r.email).length,
-    [reminders]
-  );
-
-  // ============================================================
-  // 🎨 RENDU
-  // ============================================================
+  const emailableCount = useMemo(() => reminders.filter(r => r.email).length, [reminders]);
 
   if (permLoading || settingsLoading) {
     return (
       <Sidebar>
         <div className="flex items-center justify-center h-full w-full">
-          <div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">Vérification des droits...</div>
+          <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+            <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium">Chargement...</span>
+          </div>
         </div>
       </Sidebar>
     );
@@ -669,34 +514,24 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
           icon={Bell}
           iconColor="amber"
           title="Relances"
-          description={
-            <>
-              <span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">{reminders.length}</span>{' '}
-              élément(s) à traiter
-            </>
-          }
+          description={<><span className="font-semibold text-slate-900 dark:text-white tabular-nums">{reminders.length}</span> élément(s) à traiter</>}
           action={
             <button
               onClick={handleSendAllEmailReminders}
               disabled={sendingAll || emailableCount === 0}
-              className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-orange-700 hover:to-red-700 transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-orange-500/20"
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               {sendingAll ? (
                 <><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Envoi en cours...</>
               ) : (
-                <>📨 Envoyer toutes les relances ({emailableCount})</>
+                <><Send size={16} /> Envoyer les relances ({emailableCount})</>
               )}
             </button>
           }
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <TypeTabs
-            tabs={tabs}
-            activeTab={activeTab}
-            onTabChange={(key) => setActiveTab(key as 'todo' | 'history')}
-            color="purple"
-          />
+          <TypeTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as 'todo' | 'history')} color="purple" />
 
           {activeTab === 'todo' ? (
             <>
@@ -708,13 +543,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
               </KPIGrid>
 
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                <SearchFilter 
-                  value={searchInput} 
-                  onChange={setSearchInput} 
-                  placeholder="Rechercher (n°, client...)" 
-                  shortcut="⌘K"
-                  inputRef={searchInputRef}
-                />
+                <SearchFilter value={searchInput} onChange={setSearchInput} placeholder="Rechercher (n°, client...)" shortcut="⌘K" inputRef={searchInputRef} />
                 <SelectFilter value={filterType} onChange={(v) => setFilterType(v as any)} options={typeOptions} placeholder="Type" />
                 <SelectFilter value={filterUrgency} onChange={(v) => setFilterUrgency(v as any)} options={urgencyOptions} placeholder="Urgence" />
               </div>
@@ -722,7 +551,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
               {loading ? (
                 <div className="space-y-4"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
               ) : filteredReminders.length === 0 ? (
-                <EmptyState icon={CheckCircle2} title="Aucune relance à effectuer" description="Tous vos devis et factures sont à jour. Excellent travail ! 🎉" tone="emerald" />
+                <EmptyState icon={CheckCircle2} title="Aucune relance à effectuer" description="Tous vos devis et factures sont à jour." tone="emerald" />
               ) : (
                 <div className="space-y-6">
                   {quoteReminders.length > 0 && (
@@ -737,22 +566,22 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
                             <MobileCard key={item.id}>
                               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                    <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
-                                      <Hash size={11} /> {item.number}
-                                    </span>
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <span className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-400">{item.number}</span>
                                     <Badge tone={urgInfo.tone}>{urgInfo.label}</Badge>
-                                    <Badge tone="slate">Niveau {item.level}</Badge>
                                   </div>
-                                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{item.clientName}</p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate mb-1">{item.clientName}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
                                     <Clock size={12} className="flex-shrink-0" />
                                     <span>{item.label}</span>
                                     <span className="text-slate-300 dark:text-slate-600">•</span>
                                     <span className="font-semibold text-slate-700 dark:text-slate-300">{fm(item.amount)}</span>
                                   </p>
                                 </div>
-                                <button onClick={() => openSendModal(item)} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-amber-700 hover:to-orange-700 transition-all active:scale-95 shadow-sm shadow-amber-500/20">
+                                <button 
+                                  onClick={() => openSendModal(item)} 
+                                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-all active:scale-95 shadow-sm"
+                                >
                                   <Send size={14} /> Relancer
                                 </button>
                               </div>
@@ -775,25 +604,23 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
                             <MobileCard key={item.id}>
                               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                    <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
-                                      <Hash size={11} /> {item.number}
-                                    </span>
-                                    {item.isElectronic && (
-                                      <Badge tone="sky"><Zap size={10} className="mr-1" /> E-Facture</Badge>
-                                    )}
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <span className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-400">{item.number}</span>
+                                    {item.isElectronic && <Badge tone="sky"><Zap size={10} className="mr-1" /> E-Facture</Badge>}
                                     <Badge tone={urgInfo.tone}>{urgInfo.label}</Badge>
-                                    <Badge tone="slate">Niveau {item.level}</Badge>
                                   </div>
-                                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{item.clientName}</p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate mb-1">{item.clientName}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
                                     <AlertCircle size={12} className="flex-shrink-0" />
                                     <span>{item.label}</span>
                                     <span className="text-slate-300 dark:text-slate-600">•</span>
                                     <span className="font-semibold text-slate-700 dark:text-slate-300">Reste : {fm(item.amount)}</span>
                                   </p>
                                 </div>
-                                <button onClick={() => openSendModal(item)} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-orange-700 hover:to-red-700 transition-all active:scale-95 shadow-sm shadow-orange-500/20">
+                                <button 
+                                  onClick={() => openSendModal(item)} 
+                                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-all active:scale-95 shadow-sm"
+                                >
                                   <Send size={14} /> Relancer
                                 </button>
                               </div>
@@ -805,7 +632,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
                   )}
 
                   {remindersTotalPages > 1 && (
-                    <Pagination currentPage={remindersPage} totalPages={remindersTotalPages} onPageChange={handleRemindersPageChange} startItem={remindersStartIndex + 1} endItem={Math.min(remindersEndIndex, filteredReminders.length)} totalItems={filteredReminders.length} itemName="relance" />
+                    <Pagination currentPage={remindersPage} totalPages={remindersTotalPages} onPageChange={(p) => { setRemindersPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }} startItem={remindersStartIndex + 1} endItem={Math.min(remindersEndIndex, filteredReminders.length)} totalItems={filteredReminders.length} itemName="relance" />
                   )}
                 </div>
               )}
@@ -814,13 +641,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
             <Card>
               <SectionTitle icon={Clock}>Historique des relances</SectionTitle>
               <div className="mb-4">
-                <SearchFilter 
-                  value={searchInput} 
-                  onChange={setSearchInput} 
-                  placeholder="Rechercher dans l'historique..." 
-                  shortcut="⌘K"
-                  inputRef={historySearchInputRef}
-                />
+                <SearchFilter value={searchInput} onChange={setSearchInput} placeholder="Rechercher dans l'historique..." shortcut="⌘K" inputRef={historySearchInputRef} />
               </div>
 
               {filteredHistory.length === 0 ? (
@@ -828,12 +649,8 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
               ) : (
                 <>
                   <DataTable headers={[
-                    { label: 'Date', align: 'left' },
-                    { label: 'Type', align: 'left' },
-                    { label: 'Document', align: 'left' },
-                    { label: 'Client', align: 'left' },
-                    { label: 'Niveau', align: 'left' },
-                    { label: 'Moyen', align: 'left' },
+                    { label: 'Date', align: 'left' }, { label: 'Type', align: 'left' }, { label: 'Document', align: 'left' },
+                    { label: 'Client', align: 'left' }, { label: 'Niveau', align: 'left' }, { label: 'Moyen', align: 'left' },
                   ]}>
                     {paginatedHistory.map(h => {
                       const lvl = levelConfig[parseInt(String(h.level)) || 1] || levelConfig[1];
@@ -841,26 +658,15 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
                       return (
                         <tr key={h.$id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                           <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                            <div className="flex items-center gap-2">
-                              <Calendar size={14} className="text-slate-400" />
-                              {new Date(h.sentAt).toLocaleDateString('fr-FR')}
-                            </div>
+                            <div className="flex items-center gap-2"><Calendar size={14} className="text-slate-400" />{new Date(h.sentAt).toLocaleDateString('fr-FR')}</div>
                           </td>
-                          <td className="px-6 py-4">
-                            <Badge tone={h.type === 'quote' ? 'blue' : 'purple'}>
-                              {h.type === 'quote' ? '📄 Devis' : '🧾 Facture'}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center gap-1 text-sm font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
-                              <Hash size={12} /> {h.relatedNumber}
-                            </span>
-                          </td>
+                          <td className="px-6 py-4"><Badge tone={h.type === 'quote' ? 'blue' : 'purple'}>{h.type === 'quote' ? 'Devis' : 'Facture'}</Badge></td>
+                          <td className="px-6 py-4"><span className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">{h.relatedNumber}</span></td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">{h.clientName}</td>
                           <td className="px-6 py-4"><Badge tone={lvl.tone}>{lvl.label}</Badge></td>
                           <td className="px-6 py-4">
                             {h.followupType === 'relance_auto' ? (
-                              <Badge tone="emerald">🤖 Auto</Badge>
+                              <Badge tone="emerald">Automatique</Badge>
                             ) : (
                               <Badge tone={mth.tone}>{mth.label}</Badge>
                             )}
@@ -871,7 +677,7 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
                   </DataTable>
 
                   {historyTotalPages > 1 && (
-                    <Pagination currentPage={historyPage} totalPages={historyTotalPages} onPageChange={handleHistoryPageChange} startItem={historyStartIndex + 1} endItem={Math.min(historyEndIndex, filteredHistory.length)} totalItems={filteredHistory.length} itemName="relance" />
+                    <Pagination currentPage={historyPage} totalPages={historyTotalPages} onPageChange={(p) => { setHistoryPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }} startItem={historyStartIndex + 1} endItem={Math.min(historyEndIndex, filteredHistory.length)} totalItems={filteredHistory.length} itemName="relance" />
                   )}
                 </>
               )}
@@ -884,23 +690,23 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
           open={showSendModal && !!selectedReminder}
           onClose={() => { setShowSendModal(false); setSelectedReminder(null); }}
           title="Envoyer une relance"
-          icon={<Send className="text-orange-600" size={20} />}
+          icon={<Send className="text-indigo-600" size={20} />}
           maxWidth="sm:max-w-2xl"
           footer={
             <>
               <button onClick={() => { setShowSendModal(false); setSelectedReminder(null); }} className="flex-1 sm:flex-none px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">
                 Annuler
               </button>
-              <button onClick={handleSendReminder} disabled={sending || !sendForm.message.trim()} className="flex-1 sm:flex-none px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-orange-600 to-red-600 rounded-lg hover:from-orange-700 hover:to-red-700 disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-orange-500/20">
-                {sending ? (<><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Envoi...</>) : (<><Send size={16} /> Enregistrer & Envoyer</>)}
+              <button onClick={handleSendReminder} disabled={sending || !sendForm.message.trim()} className="flex-1 sm:flex-none px-4 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 transition-all shadow-sm">
+                {sending ? (<><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Envoi...</>) : (<><Send size={16} /> Enregistrer et envoyer</>)}
               </button>
             </>
           }
         >
           {selectedReminder && (
             <div className="space-y-5">
-              <Card padding={false} className="bg-slate-50 dark:bg-slate-700/30 border-slate-200 dark:border-slate-600 p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <Card padding={false} className="bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Document :</span><strong className="text-slate-900 dark:text-white font-mono">{selectedReminder.number}</strong></div>
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Client :</span><strong className="text-slate-900 dark:text-white">{selectedReminder.clientName}</strong></div>
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Montant :</span><strong className="text-slate-900 dark:text-white">{fm(selectedReminder.amount)}</strong></div>
@@ -911,7 +717,17 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
               <FormField label="Moyen de contact" required>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {Object.entries(methodConfig).map(([key, config]) => (
-                    <button key={key} type="button" onClick={() => setSendForm({ ...sendForm, method: key })} className={`p-3 border rounded-lg text-sm font-medium transition-all active:scale-95 flex flex-col items-center gap-1.5 ${sendForm.method === key ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 ring-2 ring-orange-500/20' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600'}`}>
+                    <button 
+                      key={key} 
+                      type="button" 
+                      onClick={() => setSendForm({ ...sendForm, method: key })} 
+                      className={`p-3 border rounded-lg text-sm font-medium transition-all active:scale-95 flex flex-col items-center gap-1.5 ${
+                        sendForm.method === key 
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/20' 
+                          : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <config.icon size={18} />
                       <span>{config.label}</span>
                     </button>
                   ))}
@@ -919,14 +735,14 @@ databases.listDocuments(DATABASE_ID, 'invoice_payments', [
               </FormField>
 
               <FormField label="Message" required hint="Personnalisez le message avant envoi">
-                <Textarea rows={10} value={sendForm.message} onChange={e => setSendForm({ ...sendForm, message: e.target.value })} placeholder="Votre message..." />
+                <Textarea rows={10} value={sendForm.message} onChange={e => setSendForm({ ...sendForm, message: e.target.value })} placeholder="Votre message..." className="font-mono text-xs leading-relaxed" />
               </FormField>
 
               <Alert tone="info" icon={AlertCircle}>
                 <p className="text-xs">
-                  <strong>💡 Astuce :</strong> Le lien de paiement/consultation a été automatiquement inséré.
+                  Le lien de consultation a été automatiquement inséré.
                   {sendForm.method === 'email' && selectedReminder.email && (
-                    <> L'email sera <strong>envoyé directement</strong> à <code className="px-1 bg-slate-200 dark:bg-slate-600 rounded text-[10px]">{selectedReminder.email}</code> via EmailJS.</>
+                    <> L'email sera envoyé directement à <code className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded text-[10px] font-mono">{selectedReminder.email}</code>.</>
                   )}
                 </p>
               </Alert>

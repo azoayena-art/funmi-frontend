@@ -1,3 +1,4 @@
+// src/pages/Catalogue.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
@@ -10,41 +11,20 @@ import Sidebar from '../components/Sidebar';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import {
-  Plus, Search, Edit2, X, Package, Filter, Archive, RotateCcw, Tag, DollarSign, Percent, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download, Settings, Trash2
+  Plus, Edit2, X, Package, Archive, RotateCcw, Tag, DollarSign, Percent, Upload, AlertCircle, CheckCircle2, Download, Settings, Trash2
 } from 'lucide-react';
-// 🔒 RLS : Import Permission & Role
-import { Query, ID, Permission, Role } from 'appwrite';
+import { Query, ID } from 'appwrite';
 import Modal from '../components/ui/Modal';
 import ActionMenu, { ActionMenuItem } from '../components/ui/ActionMenu';
 import {
-  PageHeader,
-  TypeTabs,
-  KPIGrid,
-  StatCell,
-  EmptyState,
-  Avatar,
-  StatusIndicator,
-  TypeLabel,
-  SkeletonRow,
-  SkeletonCard,
-  ConfirmDialog,
-  FormField,
-  Input,
-  Select,
-  Textarea,
-  Alert,
-  Pagination,
-  ViewTabs,
-  SearchFilter,
-  SelectFilter,
-  MobileCard,
-  DataTable,
-  Card,
-  SectionTitle,
-  Badge,
-  statusLabels,
-  type Entity,
+  PageHeader, TypeTabs, KPIGrid, StatCell, EmptyState, Avatar, StatusIndicator,
+  TypeLabel, SkeletonRow, SkeletonCard, ConfirmDialog, FormField, Input, Select,
+  Textarea, Alert, Pagination, ViewTabs, SearchFilter, SelectFilter, MobileCard,
+  DataTable, Card, SectionTitle, Badge, statusLabels, type Entity,
 } from '../components/ui/SharedUI';
+
+// 🔐 RLS : Permissions centralisées
+import { getTeamPermissions, verifyTeamAccessStrict } from '../utils/rowLevelPermissions';
 
 // ============================================================
 // 📋 INTERFACES
@@ -110,7 +90,7 @@ interface ImportedProduct {
 // ============================================================
 
 const statusColors: Record<string, string> = {
-  active: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  active: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
   archived: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
 };
 
@@ -126,7 +106,6 @@ const emptyProductForm = {
   unit: 'Forfait', unitPrice: '', tvaRate: '20', status: 'active'
 };
 
-// ⚙️ Pagination
 const ITEMS_PER_PAGE = 20;
 
 // ============================================================
@@ -162,25 +141,8 @@ export default function Catalogue() {
   const { hasPermission, loading: permLoading } = usePermissions();
   const navigate = useNavigate();
   const { fm: fmCurrency, currency, currencyConfig } = useCompanySettings();
-  
-  // 🔒 RLS : Récupération de l'ID natif Appwrite de la team
   const { customTeamId, appwriteTeamId } = useTeam();
   const SYM = currencyConfig?.symbol || '€';
-
-  // ============================================================
-  // 🔐 HELPER RLS — PERMISSIONS MULTI-TENANT
-  // ============================================================
-  const getTeamPermissions = (): string[] => {
-    if (!appwriteTeamId) {
-      console.error('🚨 getTeamPermissions: appwriteTeamId manquant ! Document privé par défaut.');
-      return [];
-    }
-    return [
-      Permission.read(Role.team(appwriteTeamId)),
-      Permission.update(Role.team(appwriteTeamId)),
-      Permission.delete(Role.team(appwriteTeamId)),
-    ];
-  };
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -211,7 +173,7 @@ export default function Catalogue() {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   
-  // ✅ PAGINATION
+  // Pagination
   const [productsPage, setProductsPage] = useState(1);
   const [categoriesPage, setCategoriesPage] = useState(1);
 
@@ -273,16 +235,13 @@ export default function Catalogue() {
   const loadData = async () => {
     try {
       setLoading(true);
-      
       const teamId = customTeamId;
       if (!teamId) {
-        console.warn('⚠️ Catalogue: customTeamId non résolu, attente...');
+        console.warn('Catalogue: customTeamId non résolu, attente...');
         setLoading(false);
         return;
       }
-      
       setCurrentTeamId(teamId);
-      console.log('📦 Catalogue: Chargement avec customTeamId:', teamId);
 
       const [catRes, prodRes, settingsRes] = await Promise.all([
         databases.listDocuments(DATABASE_ID, 'categories', [Query.equal('teamId', teamId), Query.orderDesc('$createdAt'), Query.limit(500)]),
@@ -359,7 +318,7 @@ export default function Catalogue() {
   const handleDeleteUnit = (idx: number, unit: string) => {
     const usedBy = products.filter(p => p.unit === unit && p.status !== 'archived');
     if (usedBy.length > 0) {
-      if (!confirm(`⚠️ L'unité "${unit}" est utilisée par ${usedBy.length} produit(s) actif(s).\n\nVoulez-vous vraiment la supprimer ? Les produits concernés conserveront l'ancienne valeur mais elle ne sera plus proposée dans la liste.`)) return;
+      if (!confirm(`Attention : L'unité "${unit}" est utilisée par ${usedBy.length} produit(s) actif(s).\n\nVoulez-vous vraiment la supprimer ? Les produits concernés conserveront l'ancienne valeur mais elle ne sera plus proposée dans la liste.`)) return;
     } else {
       if (!confirm(`Supprimer l'unité "${unit}" ?`)) return;
     }
@@ -368,7 +327,7 @@ export default function Catalogue() {
   };
 
   const handleSaveUnits = async () => {
-    if (!currentTeamId) {
+    if (!currentTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -376,8 +335,7 @@ export default function Catalogue() {
     setSavingUnits(true);
     try {
       const dataToSave = { customUnits: JSON.stringify(unitsList) };
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      const permissions = getTeamPermissions(appwriteTeamId);
       
       if (companySettings && (companySettings as any).$id) {
         await databases.updateDocument(DATABASE_ID, 'company_settings', (companySettings as any).$id, dataToSave, permissions);
@@ -555,7 +513,7 @@ export default function Catalogue() {
   };
 
   const handleConfirmImport = async () => {
-    if (!currentTeamId) {
+    if (!currentTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -567,8 +525,7 @@ export default function Catalogue() {
     setImportStep('importing');
 
     let successCount = 0, failCount = 0;
-    // 🔒 RLS : Permissions multi-tenant pour les produits
-    const permissions = getTeamPermissions();
+    const permissions = getTeamPermissions(appwriteTeamId);
 
     const batchSize = 10;
     for (let i = 0; i < validProducts.length; i += batchSize) {
@@ -625,7 +582,12 @@ export default function Catalogue() {
   };
 
   const handleOpenEditCategory = (cat: Category) => {
-    if (cat.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
+    try {
+      verifyTeamAccessStrict(cat, currentTeamId, 'Catalogue.handleOpenEditCategory');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
     setEditingCategoryId(cat.$id);
     setCategoryForm({ name: cat.name || '', description: cat.description || '', status: cat.status || 'active' });
     setShowCategoryModal(true);
@@ -633,7 +595,7 @@ export default function Catalogue() {
 
   const handleSaveCategory = async () => {
     if (!categoryForm.name.trim()) { toast.error('Veuillez saisir un nom.'); return; }
-    if (!currentTeamId) {
+    if (!currentTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -647,12 +609,17 @@ export default function Catalogue() {
     setSavingCategory(true);
     try {
       const data = { ...categoryForm, teamId: currentTeamId, userId: user.$id };
-      // 🔒 RLS : Permissions multi-tenant pour les catégories
-      const permissions = getTeamPermissions();
+      const permissions = getTeamPermissions(appwriteTeamId);
       
       if (editingCategoryId) {
         const existingDoc = await databases.getDocument(DATABASE_ID, 'categories', editingCategoryId);
-        if (existingDoc.teamId !== currentTeamId) { toast.error('Accès refusé'); setSavingCategory(false); return; }
+        try {
+          verifyTeamAccessStrict(existingDoc, currentTeamId, 'Catalogue.handleSaveCategory');
+        } catch {
+          toast.error('Accès refusé');
+          setSavingCategory(false);
+          return;
+        }
         await databases.updateDocument(DATABASE_ID, 'categories', editingCategoryId, data, permissions);
         toast.success('Catégorie mise à jour !');
       } else {
@@ -669,17 +636,22 @@ export default function Catalogue() {
   };
 
   const handleArchiveCategory = async (id: string, name: string) => {
+    if (!currentTeamId || !appwriteTeamId) return;
     const linkedCount = products.filter(p => p.categoryId === id && p.status !== 'archived').length;
     if (linkedCount > 0) {
-      if (!confirm(`⚠️ Cette catégorie contient ${linkedCount} produit(s) actif(s).\n\nArchiver quand même ?`)) return;
+      if (!confirm(`Attention : Cette catégorie contient ${linkedCount} produit(s) actif(s).\n\nArchiver quand même ?`)) return;
     } else {
       if (!confirm(`Archiver la catégorie "${name}" ?`)) return;
     }
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'categories', id);
-      if (doc.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      try {
+        verifyTeamAccessStrict(doc, currentTeamId, 'Catalogue.handleArchiveCategory');
+      } catch {
+        toast.error('Accès refusé');
+        return;
+      }
+      const permissions = getTeamPermissions(appwriteTeamId);
       await databases.updateDocument(DATABASE_ID, 'categories', id, { status: 'archived' }, permissions);
       toast.success(`Catégorie "${name}" archivée.`);
       await loadData();
@@ -687,11 +659,16 @@ export default function Catalogue() {
   };
 
   const handleUnarchiveCategory = async (id: string, name: string) => {
+    if (!currentTeamId || !appwriteTeamId) return;
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'categories', id);
-      if (doc.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      try {
+        verifyTeamAccessStrict(doc, currentTeamId, 'Catalogue.handleUnarchiveCategory');
+      } catch {
+        toast.error('Accès refusé');
+        return;
+      }
+      const permissions = getTeamPermissions(appwriteTeamId);
       await databases.updateDocument(DATABASE_ID, 'categories', id, { status: 'active' }, permissions);
       toast.success(`Catégorie "${name}" désarchivée.`);
       await loadData();
@@ -711,7 +688,12 @@ export default function Catalogue() {
   };
 
   const handleOpenEditProduct = (prod: Product) => {
-    if (prod.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
+    try {
+      verifyTeamAccessStrict(prod, currentTeamId, 'Catalogue.handleOpenEditProduct');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
     setEditingProductId(prod.$id);
     setProductForm({
       categoryId: prod.categoryId || '', reference: prod.reference || '',
@@ -726,7 +708,7 @@ export default function Catalogue() {
     if (!productForm.name.trim()) { toast.error('Veuillez saisir un nom.'); return; }
     const price = parseFrenchNumber(productForm.unitPrice);
     if (price <= 0) { toast.error(`Le prix unitaire doit être supérieur à 0 (${SYM}).`); return; }
-    if (!currentTeamId) {
+    if (!currentTeamId || !appwriteTeamId) {
       toast.error('Erreur de sécurité : équipe non identifiée. Reconnectez-vous.');
       return;
     }
@@ -746,12 +728,17 @@ export default function Catalogue() {
     setSavingProduct(true);
     try {
       const data = { ...productForm, teamId: currentTeamId, userId: user.$id, unitPrice: price.toString() };
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      const permissions = getTeamPermissions(appwriteTeamId);
       
       if (editingProductId) {
         const existingDoc = await databases.getDocument(DATABASE_ID, 'products', editingProductId);
-        if (existingDoc.teamId !== currentTeamId) { toast.error('Accès refusé'); setSavingProduct(false); return; }
+        try {
+          verifyTeamAccessStrict(existingDoc, currentTeamId, 'Catalogue.handleSaveProduct');
+        } catch {
+          toast.error('Accès refusé');
+          setSavingProduct(false);
+          return;
+        }
         await databases.updateDocument(DATABASE_ID, 'products', editingProductId, data, permissions);
         toast.success('Produit mis à jour !');
       } else {
@@ -768,12 +755,17 @@ export default function Catalogue() {
   };
 
   const handleArchiveProduct = async (id: string, name: string) => {
+    if (!currentTeamId || !appwriteTeamId) return;
     if (!confirm(`Archiver le produit "${name}" ?\nIl ne sera plus proposé dans les devis.`)) return;
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'products', id);
-      if (doc.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      try {
+        verifyTeamAccessStrict(doc, currentTeamId, 'Catalogue.handleArchiveProduct');
+      } catch {
+        toast.error('Accès refusé');
+        return;
+      }
+      const permissions = getTeamPermissions(appwriteTeamId);
       await databases.updateDocument(DATABASE_ID, 'products', id, { status: 'archived' }, permissions);
       toast.success(`Produit "${name}" archivé.`);
       await loadData();
@@ -781,11 +773,16 @@ export default function Catalogue() {
   };
 
   const handleUnarchiveProduct = async (id: string, name: string) => {
+    if (!currentTeamId || !appwriteTeamId) return;
     try {
       const doc = await databases.getDocument(DATABASE_ID, 'products', id);
-      if (doc.teamId !== currentTeamId) { toast.error('Accès refusé'); return; }
-      // 🔒 RLS : Permissions multi-tenant
-      const permissions = getTeamPermissions();
+      try {
+        verifyTeamAccessStrict(doc, currentTeamId, 'Catalogue.handleUnarchiveProduct');
+      } catch {
+        toast.error('Accès refusé');
+        return;
+      }
+      const permissions = getTeamPermissions(appwriteTeamId);
       await databases.updateDocument(DATABASE_ID, 'products', id, { status: 'active' }, permissions);
       toast.success(`Produit "${name}" désarchivé.`);
       await loadData();
@@ -948,7 +945,7 @@ export default function Catalogue() {
                   {paginatedCategories.map(cat => {
                     const linkedProducts = products.filter(p => p.categoryId === cat.$id && p.status !== 'archived').length;
                     return (
-                      <tr key={cat.$id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                      <tr key={cat.$id} className="group hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="font-medium text-slate-900 dark:text-white flex items-center gap-2">
                             <Tag size={16} className="text-purple-500" />
@@ -967,26 +964,22 @@ export default function Catalogue() {
                             {statusLabelsLocal[cat.status]}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {viewMode === 'active' ? (
-                              <>
-                                {hasPermission('products.edit') && (
-                                  <button onClick={() => handleOpenEditCategory(cat)} className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors" title="Modifier">
-                                    <Edit2 size={16} />
-                                  </button>
-                                )}
-                                {hasPermission('products.delete') && (
-                                  <button onClick={() => handleArchiveCategory(cat.$id, cat.name)} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg transition-colors" title="Archiver">
-                                    <Archive size={16} />
-                                  </button>
-                                )}
-                              </>
-                            ) : (
-                              <button onClick={() => handleUnarchiveCategory(cat.$id, cat.name)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors">
-                                <RotateCcw size={14} /><span>Désarchiver</span>
-                              </button>
-                            )}
+                        <td className="px-2 py-4 w-12 relative overflow-visible">
+                          <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200 [&:has([aria-expanded='true'])]:opacity-100">
+                            <ActionMenu>
+                              {viewMode === 'active' ? (
+                                <>
+                                  {hasPermission('products.edit') && (
+                                    <ActionMenuItem onClick={() => handleOpenEditCategory(cat)} icon={Edit2} label="Modifier" />
+                                  )}
+                                  {hasPermission('products.delete') && (
+                                    <ActionMenuItem onClick={() => handleArchiveCategory(cat.$id, cat.name)} icon={Archive} label="Archiver" danger />
+                                  )}
+                                </>
+                              ) : (
+                                <ActionMenuItem onClick={() => handleUnarchiveCategory(cat.$id, cat.name)} icon={RotateCcw} label="Désarchiver" />
+                              )}
+                            </ActionMenu>
                           </div>
                         </td>
                       </tr>
@@ -994,6 +987,7 @@ export default function Catalogue() {
                   })}
                 </DataTable>
 
+                {/* Version Mobile */}
                 <div className="md:hidden space-y-4 mt-4">
                   {paginatedCategories.map(cat => {
                     const linkedProducts = products.filter(p => p.categoryId === cat.$id && p.status !== 'archived').length;
@@ -1030,7 +1024,7 @@ export default function Catalogue() {
                               )}
                             </div>
                           ) : (
-                            <button onClick={() => handleUnarchiveCategory(cat.$id, cat.name)} className="w-full flex items-center justify-center gap-2 p-3 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg active:scale-95 transition-transform">
+                            <button onClick={() => handleUnarchiveCategory(cat.$id, cat.name)} className="w-full flex items-center justify-center gap-2 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg active:scale-95 transition-transform">
                               <RotateCcw size={16} /><span>Désarchiver</span>
                             </button>
                           )}
@@ -1083,7 +1077,7 @@ export default function Catalogue() {
                   { label: '', align: 'right', width: 'w-12' }
                 ]}>
                   {paginatedProducts.map(prod => (
-                    <tr key={prod.$id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <tr key={prod.$id} className="group hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
                          {prod.reference || '—'}
@@ -1103,7 +1097,7 @@ export default function Catalogue() {
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-900 dark:text-white">
-                          <DollarSign size={14} className="text-green-600" />
+                          <DollarSign size={14} className="text-emerald-600" />
                           {fm(prod.unitPrice)}
                         </span>
                       </td>
@@ -1119,32 +1113,29 @@ export default function Catalogue() {
                           {statusLabelsLocal[prod.status]}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {viewMode === 'active' ? (
-                            <>
-                              {hasPermission('products.edit') && (
-                                <button onClick={() => handleOpenEditProduct(prod)} className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors" title="Modifier">
-                                  <Edit2 size={16} />
-                                </button>
-                              )}
-                              {hasPermission('products.delete') && (
-                                <button onClick={() => handleArchiveProduct(prod.$id, prod.name)} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg transition-colors" title="Archiver">
-                                  <Archive size={16} />
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <button onClick={() => handleUnarchiveProduct(prod.$id, prod.name)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors">
-                              <RotateCcw size={14} /><span>Désarchiver</span>
-                            </button>
-                          )}
+                      <td className="px-2 py-4 w-12 relative overflow-visible">
+                        <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200 [&:has([aria-expanded='true'])]:opacity-100">
+                          <ActionMenu>
+                            {viewMode === 'active' ? (
+                              <>
+                                {hasPermission('products.edit') && (
+                                  <ActionMenuItem onClick={() => handleOpenEditProduct(prod)} icon={Edit2} label="Modifier" />
+                                )}
+                                {hasPermission('products.delete') && (
+                                  <ActionMenuItem onClick={() => handleArchiveProduct(prod.$id, prod.name)} icon={Archive} label="Archiver" danger />
+                                )}
+                              </>
+                            ) : (
+                              <ActionMenuItem onClick={() => handleUnarchiveProduct(prod.$id, prod.name)} icon={RotateCcw} label="Désarchiver" />
+                            )}
+                          </ActionMenu>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </DataTable>
 
+                {/* Version Mobile */}
                 <div className="md:hidden space-y-4 mt-4">
                   {paginatedProducts.map(prod => (
                     <MobileCard key={prod.$id}>
@@ -1163,7 +1154,7 @@ export default function Catalogue() {
                       <div className="grid grid-cols-2 gap-2 py-3 border-t border-b border-slate-100 dark:border-slate-700 mb-3 text-sm">
                         <div>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Prix</p>
-                          <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1"><DollarSign size={12} className="text-green-600" />{fm(prod.unitPrice)}</p>
+                          <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1"><DollarSign size={12} className="text-emerald-600" />{fm(prod.unitPrice)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Unité / TVA</p>
@@ -1191,7 +1182,7 @@ export default function Catalogue() {
                             )}
                           </>
                         ) : (
-                          <button onClick={() => handleUnarchiveProduct(prod.$id, prod.name)} className="col-span-2 flex items-center justify-center gap-2 p-3 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg active:scale-95 transition-transform">
+                          <button onClick={() => handleUnarchiveProduct(prod.$id, prod.name)} className="col-span-2 flex items-center justify-center gap-2 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg active:scale-95 transition-transform">
                             <RotateCcw size={16} /><span>Désarchiver</span>
                           </button>
                         )}
@@ -1382,7 +1373,7 @@ export default function Catalogue() {
                       />
                       <button
                         onClick={handleSaveEditUnit}
-                        className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded"
+                        className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded"
                         title="Valider"
                       >
                         <CheckCircle2 size={18} />
@@ -1518,9 +1509,9 @@ export default function Catalogue() {
                     <p className="text-xs text-slate-500 dark:text-slate-400 uppercase">Total</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-white">{importStats.total}</p>
                   </div>
-                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
-                    <p className="text-xs text-green-700 dark:text-green-300 uppercase">Valides</p>
-                    <p className="text-2xl font-bold text-green-700 dark:text-green-300">{importStats.valid}</p>
+                  <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3 text-center">
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 uppercase">Valides</p>
+                    <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{importStats.valid}</p>
                   </div>
                   <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 text-center">
                     <p className="text-xs text-amber-700 dark:text-amber-300 uppercase">Doublons</p>
@@ -1552,9 +1543,9 @@ export default function Catalogue() {
                           <td className="px-3 py-2 text-sm text-slate-900 dark:text-white truncate max-w-xs">{p.name}</td>
                           <td className="px-3 py-2 text-sm font-semibold">{fm(p.unitPrice)}</td>
                           <td className="px-3 py-2">
-                            {p.status === 'valid' && <span className="text-xs font-semibold text-green-700 dark:text-green-300">✓ Valide</span>}
-                            {p.status === 'duplicate' && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">⚠ {p.duplicateOf}</span>}
-                            {p.status === 'error' && <span className="text-xs font-semibold text-red-700 dark:text-red-300">✗ {p.error}</span>}
+                            {p.status === 'valid' && <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1"><CheckCircle2 size={12} /> Valide</span>}
+                            {p.status === 'duplicate' && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1"><AlertCircle size={12} /> {p.duplicateOf}</span>}
+                            {p.status === 'error' && <span className="text-xs font-semibold text-red-700 dark:text-red-300 flex items-center gap-1"><X size={12} /> {p.error}</span>}
                           </td>
                         </tr>
                       ))}
@@ -1591,15 +1582,15 @@ export default function Catalogue() {
 
             {importStep === 'done' && (
               <div className="text-center py-6">
-                <CheckCircle2 size={48} className="mx-auto text-green-600 mb-4" />
+                <CheckCircle2 size={48} className="mx-auto text-emerald-600 mb-4" />
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Import terminé !</h3>
                 <div className="flex justify-center gap-4 text-sm mb-4">
-                  <span className="text-green-600">✓ {importResult.success} créé(s)</span>
-                  {importResult.failed > 0 && <span className="text-red-600">✗ {importResult.failed} échec(s)</span>}
+                  <span className="text-emerald-600 flex items-center gap-1"><CheckCircle2 size={14} /> {importResult.success} créé(s)</span>
+                  {importResult.failed > 0 && <span className="text-red-600 flex items-center gap-1"><X size={14} /> {importResult.failed} échec(s)</span>}
                 </div>
                 <button
                   onClick={() => { setShowImportModal(false); setImportStep('upload'); setImportedProducts([]); }}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 active:scale-95 transition-all"
+                  className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 active:scale-95 transition-all"
                 >
                   Fermer
                 </button>

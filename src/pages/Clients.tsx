@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
@@ -49,8 +49,11 @@ import {
   validateVatNumber 
 } from '../utils/eInvoicing';
 
-// ✅ CORRECTION CRITIQUE : Import des permissions multi-tenant (comme dans Quotes.tsx)
+// ✅ CORRECTION CRITIQUE : Import des permissions multi-tenant
 import { getTeamPermissions } from '../utils/rowLevelPermissions';
+
+// ✅ IMPORT DYNAMIQUE DE LA LISTE DES PAYS
+import { listCountryOptions } from '../config/countries';
 
 interface Client {
   $id: string;
@@ -84,26 +87,6 @@ const statusLabels: Record<string, string> = {
   archived: 'Archivé'
 };
 
-const emptyForm = {
-  type: 'particulier',
-  country: 'FR',
-  firstName: '',
-  lastName: '',
-  companyName: '',
-  email: '',
-  phone: '',
-  address: '',
-  postalCode: '',
-  city: '',
-  billingAddress: '',
-  siren: '',
-  siret: '',
-  vatNumber: '',
-  taxNumber: '',
-  notes: '',
-  status: 'active'
-};
-
 export default function Clients() {
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
@@ -117,14 +100,38 @@ export default function Clients() {
     loading: settingsLoading 
   } = useCompanySettings();
   
-  // ✅ CORRECTION : Récupérer appwriteTeamId en plus de customTeamId
   const { customTeamId, appwriteTeamId } = useTeam();
+
+  // ✅ Récupération STRICTE du pays de l'entreprise
+  const companyCountry = companySettings?.country || '';
 
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  
+  // ✅ Factory fonction : utilise companyCountry. Si indéfini, laisse vide (''), PAS de 'FR' en dur.
+  const getDefaultForm = useCallback(() => ({
+    type: 'particulier',
+    country: companyCountry || '',
+    firstName: '',
+    lastName: '',
+    companyName: '',
+    email: '',
+    phone: '',
+    address: '',
+    postalCode: '',
+    city: '',
+    billingAddress: '',
+    siren: '',
+    siret: '',
+    vatNumber: '',
+    taxNumber: '',
+    notes: '',
+    status: 'active'
+  }), [companyCountry]);
+
+  const [form, setForm] = useState(getDefaultForm());
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
@@ -140,11 +147,9 @@ export default function Clients() {
   
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const companyCountry = companySettings?.country || 'FR';
-
   const isCompany = form.type === 'entreprise';
-  const visible = getVisibleFields(companyCountry, form.country, isCompany);
-  const eInvoiceRequired = isEInvoiceRequired(companyCountry, {
+  const visible = getVisibleFields(companyCountry || 'FR', form.country, isCompany);
+  const eInvoiceRequired = isEInvoiceRequired(companyCountry || 'FR', {
     country: form.country,
     type: form.type as 'entreprise' | 'particulier',
     companyName: form.companyName,
@@ -171,6 +176,13 @@ export default function Clients() {
     loadClients();
   }, [user, viewMode, customTeamId]);
 
+  // ✅ Met à jour le formulaire si le pays de l'entreprise change en arrière-plan
+  useEffect(() => {
+    if (!showModal && !editingId && companyCountry && !form.country) {
+      setForm(prev => ({ ...prev, country: companyCountry }));
+    }
+  }, [companyCountry, showModal, editingId, form.country]);
+
   useEffect(() => {
     const editId = searchParams.get('edit');
     if (editId && clients.length > 0 && !showModal) {
@@ -185,7 +197,8 @@ export default function Clients() {
         setDuplicateFound(null);
         setForm({
           type: clientToEdit.type || 'particulier',
-          country: clientToEdit.country || 'FR',
+          // ✅ Priorité : Pays du client > Pays de l'entreprise > Vide (pas de 'FR' forcé)
+          country: clientToEdit.country || companyCountry || '',
           firstName: clientToEdit.firstName || '',
           lastName: clientToEdit.lastName || '',
           companyName: clientToEdit.companyName || '',
@@ -206,7 +219,7 @@ export default function Clients() {
         setSearchParams({}, { replace: true });
       }
     }
-  }, [searchParams, clients, showModal, currentTeamId]);
+  }, [searchParams, clients, showModal, currentTeamId, companyCountry]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -223,7 +236,6 @@ export default function Clients() {
       }
       
       setCurrentTeamId(customTeamId);
-      console.log('📄 Clients: Chargement avec customTeamId:', customTeamId);
       
       const response = await databases.listDocuments(
         DATABASE_ID, 'clients',
@@ -313,7 +325,8 @@ export default function Clients() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setDuplicateFound(null);
-    setForm(emptyForm);
+    // ✅ Utilise strictement la factory qui dépend de companyCountry
+    setForm(getDefaultForm());
     setShowModal(true);
   };
 
@@ -336,7 +349,8 @@ export default function Clients() {
     setDuplicateFound(null);
     setForm({
       type: client.type || 'particulier',
-      country: client.country || 'FR',
+      // ✅ Priorité : Pays du client > Pays de l'entreprise > Vide
+      country: client.country || companyCountry || '',
       firstName: client.firstName || '',
       lastName: client.lastName || '',
       companyName: client.companyName || '',
@@ -362,7 +376,7 @@ export default function Clients() {
       return;
     }
 
-    const eInvoiceValidation = validateEInvoiceFields(companyCountry, {
+    const eInvoiceValidation = validateEInvoiceFields(companyCountry || 'FR', {
       country: form.country,
       type: form.type as 'entreprise' | 'particulier',
       companyName: form.companyName,
@@ -426,7 +440,6 @@ export default function Clients() {
       if (!editingId) {
         data.clientId = await getNextClientNumber();
         
-        // ✅ CORRECTION CRITIQUE : Appliquer les permissions multi-tenant exactement comme dans Quotes.tsx
         const clientPermissions = getTeamPermissions(appwriteTeamId, { isPublic: false });
         
         await databases.createDocument(
@@ -459,6 +472,8 @@ export default function Clients() {
       
       setShowModal(false);
       setDuplicateFound(null);
+      setEditingId(null);
+      setForm(getDefaultForm());
       await loadClients();
     } catch (error: any) {
       console.error('❌ Erreur handleSave:', error);
@@ -783,7 +798,8 @@ export default function Clients() {
                         )}
                         <span className="flex items-center text-xs text-slate-500 dark:text-slate-400">
                           <Globe size={13} className="mr-1.5 text-slate-400 flex-shrink-0" />
-                          {c.country || 'FR'}
+                          {/* ✅ Affichage dynamique sans fallback 'FR' forcé */}
+                          {c.country || companyCountry || 'Non spécifié'}
                         </span>
                         {!c.city && !c.postalCode && <span className="text-xs text-slate-400 italic">Non renseigné</span>}
                       </div>
@@ -969,22 +985,18 @@ export default function Clients() {
               <FormField label="Pays" required>
                 <div className="relative">
                   <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  {/* ✅ LISTE DYNAMIQUE DES PAYS DEPUIS LA CONFIGURATION */}
                   <Select 
                     value={form.country} 
                     onChange={(e) => setForm({ ...form, country: e.target.value })}
                     className="pl-9"
                   >
-                    <option value="FR">🇫🇷 France</option>
-                    <option value="BE">🇧🇪 Belgique</option>
-                    <option value="CH">🇨🇭 Suisse</option>
-                    <option value="LU">🇱🇺 Luxembourg</option>
-                    <option value="DE">🇩🇪 Allemagne</option>
-                    <option value="ES">🇪🇸 Espagne</option>
-                    <option value="IT">🇮🇹 Italie</option>
-                    <option value="GB">🇬🇧 Royaume-Uni</option>
-                    <option value="US">🇺🇸 États-Unis</option>
-                    <option value="CA">🇨🇦 Canada</option>
-                    <option value="OTHER">🌍 Autre</option>
+                    <option value="">-- Sélectionner un pays --</option>
+                    {listCountryOptions().map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </Select>
                 </div>
               </FormField>
@@ -1074,7 +1086,7 @@ export default function Clients() {
                       type="text"
                       value={form.city}
                       onChange={(e) => setForm({ ...form, city: e.target.value })}
-                      placeholder="Paris"
+                      placeholder="Ville"
                     />
                   </FormField>
                 </div>

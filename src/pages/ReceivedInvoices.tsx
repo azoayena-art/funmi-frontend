@@ -3,10 +3,10 @@
 // 📎 Validation binaire : VERT (validé) / ROUGE (rejeté) / ORANGE (en attente)
 // 🌍 Internationalisation multi-pays
 // 🔐 RLS centralisé via utils/rowLevelPermissions
-// ✅ CORRIGÉ : Preview PDF via getFileView() + fallback multi-buckets
+// ✅ Preview PDF via getFileView() + fallback multi-buckets
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { databases, storage, DATABASE_ID } from '../appwrite'; // ✅ storage ajouté
+import { databases, storage, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
@@ -24,7 +24,7 @@ import {
   Upload, Eye, Receipt, AlertCircle,
   CreditCard, FileText, FileMinus, Calendar,
   Archive, RotateCcw, FileX, Sparkles, Camera, Keyboard, Mail, CheckCircle2,
-  Paperclip, Shield, Info, Globe, X, Clock,
+  Paperclip, Shield, Info, Globe, X, Clock, Send, Zap,
 } from 'lucide-react';
 import { Query, ID } from 'appwrite';
 import { getFilePreviewUrl } from '../utils/storage';
@@ -34,7 +34,7 @@ import SupplierInvoiceImportModal from '../components/SupplierInvoiceImportModal
 import { createTreasuryMovement } from '../utils/treasuryGuard';
 
 // 🔐 RLS centralisé
-import { getTeamPermissions } from '../utils/rowLevelPermissions';
+import { getTeamPermissions, verifyTeamAccessStrict } from '../utils/rowLevelPermissions';
 
 // 📎 Module justification des dépenses
 import JustificationModal, { JustifiableExpense } from '../components/JustificationModal';
@@ -103,6 +103,7 @@ interface ReceivedInvoice {
   paymentMethods?: string;
   vatRate?: number;
   supplierSecondaryId?: string;
+  bucketId?: string;
 }
 
 interface ImportResult {
@@ -136,14 +137,14 @@ interface JustificationSummary {
 const ITEMS_PER_PAGE = 10;
 
 // ============================================================
-// 🏷️ LIBELLÉS SOURCE
+// 🏷️ LIBELLÉS SOURCE (Nettoyé des émojis)
 // ============================================================
 const sourceLabels: Record<string, { label: string; icon: any; tone: string }> = {
-  manual_upload: { label: '📤 Fichier', icon: Upload, tone: 'blue' },
-  photo_ocr:     { label: '📷 OCR',     icon: Sparkles, tone: 'violet' },
-  manual_entry:  { label: '⌨️ Manuel',  icon: Keyboard, tone: 'slate' },
-  email:         { label: '✉️ Email',   icon: Mail, tone: 'amber' },
-  ppf_pull:      { label: '⚡ PPF',     icon: Camera, tone: 'emerald' },
+  manual_upload: { label: 'Fichier', icon: Upload, tone: 'blue' },
+  photo_ocr:     { label: 'OCR',     icon: Sparkles, tone: 'violet' },
+  manual_entry:  { label: 'Manuel',  icon: Keyboard, tone: 'slate' },
+  email:         { label: 'Email',   icon: Mail, tone: 'amber' },
+  ppf_pull:      { label: 'PPF',     icon: Zap, tone: 'emerald' },
 };
 
 const PAYMENT_METHOD_MAP: Record<string, string> = {
@@ -223,7 +224,7 @@ export default function ReceivedInvoices() {
           setCompanySettings(res.documents[0]);
         }
       } catch (e) {
-        console.warn('⚠️ Impossible de charger les paramètres entreprise:', e);
+        console.warn('Impossible de charger les paramètres entreprise:', e);
       }
     })();
   }, [customTeamId, user]);
@@ -379,7 +380,7 @@ export default function ReceivedInvoices() {
           }
         });
       } catch (e) {
-        console.warn(`⚠️ Erreur chargement justificatifs chunk ${i}:`, e);
+        console.warn(`Erreur chargement justificatifs chunk ${i}:`, e);
       }
     }
     
@@ -407,7 +408,7 @@ export default function ReceivedInvoices() {
       setLoading(true);
       const teamId = customTeamId;
       if (!teamId) {
-        console.warn('⚠️ ReceivedInvoices: customTeamId non résolu');
+        console.warn('ReceivedInvoices: customTeamId non résolu');
         setLoading(false);
         return;
       }
@@ -423,7 +424,7 @@ export default function ReceivedInvoices() {
         
         const needsMigration = docs.filter(d => !d.supplierCountry || !d.supplierCountry.trim());
         if (needsMigration.length > 0 && appwriteTeamId) {
-          console.log(`🌍 Migration de ${needsMigration.length} facture(s) sans pays fournisseur...`);
+          console.log(`Migration de ${needsMigration.length} facture(s) sans pays fournisseur...`);
           
           for (const inv of needsMigration) {
             try {
@@ -449,7 +450,7 @@ export default function ReceivedInvoices() {
                 docs[idx] = { ...docs[idx], supplierCountry: detectedCountry };
               }
             } catch (e) {
-              console.warn(`⚠️ Migration échouée pour ${inv.$id}:`, e);
+              console.warn(`Migration échouée pour ${inv.$id}:`, e);
             }
           }
         }
@@ -460,7 +461,7 @@ export default function ReceivedInvoices() {
         try {
           await loadJustificationStatuses(teamId, docs.map(d => d.$id));
         } catch (jErr) {
-          console.warn('⚠️ Justificatifs non chargés:', jErr);
+          console.warn('Justificatifs non chargés:', jErr);
           setJustificationStatuses({});
         }
       } catch (dbError: any) {
@@ -520,6 +521,15 @@ export default function ReceivedInvoices() {
 
   const handleConfirmPayment = async () => {
     if (!invoiceToPay || !currentTeamId || !appwriteTeamId || !user) return;
+    
+    // 🔒 Vérification d'accès
+    try {
+      verifyTeamAccessStrict(invoiceToPay, currentTeamId, 'ReceivedInvoices.handleConfirmPayment');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
+    
     const amount = parseFloat(paymentForm.amount);
     const remaining = getRemainingAmount(invoiceToPay);
 
@@ -590,9 +600,9 @@ export default function ReceivedInvoices() {
       });
 
       if (!movementResult.success) {
-        console.warn('⚠️ Mouvement trésorerie non créé :', movementResult.error);
+        console.warn('Mouvement trésorerie non créé :', movementResult.error);
       } else if (!movementResult.created) {
-        console.warn('⚠️ Paiement fournisseur déjà tracé en trésorerie (doublon ignoré).');
+        console.warn('Paiement fournisseur déjà tracé en trésorerie (doublon ignoré).');
       }
 
       try {
@@ -609,7 +619,7 @@ export default function ReceivedInvoices() {
           createdAt: new Date().toISOString(),
         }, getTeamPermissions(appwriteTeamId));
       } catch (eventError) {
-        console.warn('⚠️ Événement comptable non tracé:', eventError);
+        console.warn('Événement comptable non tracé:', eventError);
       }
 
       setShowPaymentModal(false);
@@ -622,7 +632,7 @@ export default function ReceivedInvoices() {
         });
       } else {
         toast.success(`Paiement de ${fm(amount)} enregistré`, {
-          description: `Reste à payer : ${fm(newRemaining)} • Trésorerie mise à jour`,
+          description: `Reste à payer : ${fm(newRemaining)} — Trésorerie mise à jour`,
         });
       }
     } catch (e: any) {
@@ -642,23 +652,16 @@ export default function ReceivedInvoices() {
     }
 
     // ✅ Buckets à tester par ordre de priorité (dédupliqués)
-    const preferredBucket = (inv as any).bucketId || 'documents';
+    const preferredBucket = inv.bucketId || 'documents';
     const bucketsToTry = [preferredBucket, 'documents', 'justifications', 'expense-receipts']
       .filter((v, i, a) => a.indexOf(v) === i);
 
     for (const bucketId of bucketsToTry) {
       try {
-        // Vérifier l'existence du fichier
         await storage.getFile(bucketId, fileId);
-
-        // ✅ getFileView() = fichier ORIGINAL avec bon Content-Type
-        // → PDF s'affiche dans le viewer natif du navigateur
-        // → Images s'affichent directement
         const url = storage.getFileView(bucketId, fileId).toString();
-
         window.open(url, '_blank', 'noopener,noreferrer');
 
-        // Mettre à jour le bucketId si trouvé dans un autre bucket
         if (bucketId !== preferredBucket && appwriteTeamId) {
           try {
             await databases.updateDocument(
@@ -668,24 +671,24 @@ export default function ReceivedInvoices() {
               { bucketId },
               getTeamPermissions(appwriteTeamId)
             );
-            console.log(`🔄 bucketId corrigé pour ${inv.invoiceNumber}: ${preferredBucket} → ${bucketId}`);
+            console.log(`bucketId corrigé pour ${inv.invoiceNumber}: ${preferredBucket} → ${bucketId}`);
           } catch {}
         }
         return;
       } catch (e: any) {
-        if (e.code === 404) continue; // Pas dans ce bucket, essayer le suivant
+        if (e.code === 404) continue;
         if (e.code === 401) {
-          toast.error('🔒 Accès refusé au document', {
+          toast.error('Accès refusé au document', {
             description: `Permissions insuffisantes sur le bucket "${bucketId}". Vérifiez Appwrite Console → Storage → ${bucketId} → Permissions (ajoutez Any: Read).`,
             duration: 8000,
           });
           return;
         }
-        console.warn(`⚠️ Erreur bucket ${bucketId}:`, e.message);
+        console.warn(`Erreur bucket ${bucketId}:`, e.message);
       }
     }
 
-    toast.error('📁 Document introuvable', {
+    toast.error('Document introuvable', {
       description: `Le fichier de la facture ${inv.invoiceNumber} n'existe dans aucun bucket (${bucketsToTry.join(', ')}).`,
       duration: 8000,
     });
@@ -724,7 +727,7 @@ export default function ReceivedInvoices() {
           getTeamPermissions(appwriteTeamId)
         );
       } catch (e) {
-        console.warn('⚠️ Impossible de mettre à jour le pays fournisseur:', e);
+        console.warn('Impossible de mettre à jour le pays fournisseur:', e);
       }
     }
 
@@ -750,7 +753,7 @@ export default function ReceivedInvoices() {
         );
 
         if (existingCheck.documents.length > 0) {
-          console.log('ℹ️ Justificatif déjà attaché, doublon ignoré');
+          console.log('Justificatif déjà attaché, doublon ignoré');
           toast.success(`Facture ${result.invoiceNumber} importée`);
           return;
         }
@@ -781,19 +784,19 @@ export default function ReceivedInvoices() {
 
         await loadJustificationStatuses(currentTeamId, [result.invoiceId]);
 
-        const detectedConfig = getCountryConfig(result.supplierCountry);
+        const detectedConfig = getCountryConfig(result.supplierCountry || 'FR');
         const detectedLabel = getPrimaryIdentifier(detectedConfig)?.shortLabel || 'ID';
 
-        toast.success(`✅ Facture ${result.invoiceNumber} importée`, {
+        toast.success(`Facture ${result.invoiceNumber} importée`, {
           description: result.supplierCountry
-            ? `${detectedConfig.flag} ${detectedConfig.name} • ${detectedLabel} : ${result.supplierRegistrationId || 'à saisir'} • À valider`
-            : 'Justificatif attaché automatiquement • À valider',
+            ? `${detectedConfig.flag} ${detectedConfig.name} — ${detectedLabel} : ${result.supplierRegistrationId || 'à saisir'} — À valider`
+            : 'Justificatif attaché automatiquement — À valider',
           duration: 5000,
         });
       } catch (justifError: any) {
-        console.warn('⚠️ Justificatif auto non créé:', justifError);
+        console.warn('Justificatif auto non créé:', justifError);
         toast.success(`Facture ${result.invoiceNumber} importée`, {
-          description: '⚠️ Justificatif à attacher manuellement',
+          description: 'Justificatif à attacher manuellement',
         });
       }
     } else {
@@ -806,7 +809,16 @@ export default function ReceivedInvoices() {
   };
 
   const handleRejectInvoice = async (inv: ReceivedInvoice) => {
-    if (!currentTeamId) return;
+    if (!currentTeamId || !appwriteTeamId) return;
+    
+    // 🔒 Vérification d'accès
+    try {
+      verifyTeamAccessStrict(inv, currentTeamId, 'ReceivedInvoices.handleRejectInvoice');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
+    
     const reason = prompt(`Motif du rejet de la facture ${inv.invoiceNumber} :`);
     if (!reason) return;
     try {
@@ -825,7 +837,16 @@ export default function ReceivedInvoices() {
   };
 
   const handleArchive = async (inv: ReceivedInvoice) => {
-    if (!currentTeamId) return;
+    if (!currentTeamId || !appwriteTeamId) return;
+    
+    // 🔒 Vérification d'accès
+    try {
+      verifyTeamAccessStrict(inv, currentTeamId, 'ReceivedInvoices.handleArchive');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
+    
     if (!confirm(`Archiver la facture ${inv.invoiceNumber} ?`)) return;
     try {
       await databases.updateDocument(
@@ -843,7 +864,16 @@ export default function ReceivedInvoices() {
   };
 
   const handleUnarchive = async (inv: ReceivedInvoice) => {
-    if (!currentTeamId) return;
+    if (!currentTeamId || !appwriteTeamId) return;
+    
+    // 🔒 Vérification d'accès
+    try {
+      verifyTeamAccessStrict(inv, currentTeamId, 'ReceivedInvoices.handleUnarchive');
+    } catch {
+      toast.error('Accès refusé');
+      return;
+    }
+    
     try {
       await databases.updateDocument(
         DATABASE_ID,
@@ -889,14 +919,15 @@ export default function ReceivedInvoices() {
     });
   }, [invoices, search, statusTab, filterFormat, filterType, filterSource, filterCountry]);
 
+  // ✅ Onglets nettoyés des émojis
   const statusTabs = [
     { key: 'all', label: 'Toutes', count: invoices.filter(i => i.status !== 'archived').length },
-    { key: 'validated', label: '✅ Validées', count: invoices.filter(i => i.status === 'validated').length },
-    { key: 'partial', label: '💳 Partielles', count: invoices.filter(i => i.status === 'partial').length },
-    { key: 'paid', label: '💰 Payées', count: invoices.filter(i => i.status === 'paid').length },
-    { key: 'pending', label: '⏳ À valider', count: invoices.filter(i => i.status === 'pending').length },
-    { key: 'rejected', label: '❌ Rejetées', count: invoices.filter(i => i.status === 'rejected').length },
-    { key: 'archived', label: '🗃️ Archivées', count: invoices.filter(i => i.status === 'archived').length },
+    { key: 'validated', label: 'Validées', count: invoices.filter(i => i.status === 'validated').length },
+    { key: 'partial', label: 'Partielles', count: invoices.filter(i => i.status === 'partial').length },
+    { key: 'paid', label: 'Payées', count: invoices.filter(i => i.status === 'paid').length },
+    { key: 'pending', label: 'À valider', count: invoices.filter(i => i.status === 'pending').length },
+    { key: 'rejected', label: 'Rejetées', count: invoices.filter(i => i.status === 'rejected').length },
+    { key: 'archived', label: 'Archivées', count: invoices.filter(i => i.status === 'archived').length },
   ];
 
   // ============================================================
@@ -993,7 +1024,7 @@ export default function ReceivedInvoices() {
           description={
             <>
               <span className="font-semibold tabular-nums">{filtered.length}</span>
-              {' '}facture(s) fournisseur(s) • {supplierCountries.length} pays
+              {' '}facture(s) fournisseur(s) — {supplierCountries.length} pays
             </>
           }
           currency={currency || 'EUR'}
@@ -1041,7 +1072,8 @@ export default function ReceivedInvoices() {
                   </p>
                 )}
                 <p className="text-[11px] text-rose-600 dark:text-rose-300">
-                  📅 Conservation : {companyConfig.retentionYears} ans (selon pays de votre entreprise)
+                  <Clock size={10} className="inline mr-1" />
+                  Conservation : {companyConfig.retentionYears} ans (selon pays de votre entreprise)
                 </p>
               </div>
             </div>
@@ -1051,7 +1083,7 @@ export default function ReceivedInvoices() {
             <StatCell
               label="Total reçu"
               value={activeInvoices.length.toString()}
-              sublabel={`${creditCount} avoir(s) • ${fm(totalAll)}`}
+              sublabel={`${creditCount} avoir(s) — ${fm(totalAll)}`}
               trend={0}
             />
             <StatCell
@@ -1069,7 +1101,7 @@ export default function ReceivedInvoices() {
             <StatCell
               label="Partielles (versé)"
               value={fm(partialPaidAmount)}
-              sublabel={`${partialInvoices.length} facture(s) • Reste : ${fm(partialRemainingAmount)}`}
+              sublabel={`${partialInvoices.length} facture(s) — Reste : ${fm(partialRemainingAmount)}`}
               trend={partialInvoices.length > 0 ? 1 : 0}
             />
             <StatCell
@@ -1138,7 +1170,7 @@ export default function ReceivedInvoices() {
               value={filterCountry}
               onChange={setFilterCountry}
               options={[
-                { value: 'all', label: '🌍 Tous pays' },
+                { value: 'all', label: 'Tous pays' },
                 ...supplierCountries.map(code => {
                   const cfg = getCountryConfig(code);
                   return { value: code, label: `${cfg.flag} ${cfg.name}` };
@@ -1150,8 +1182,8 @@ export default function ReceivedInvoices() {
               value={filterType}
               onChange={setFilterType}
               options={[
-                { value: '380', label: '📄 Factures' },
-                { value: '381', label: '⚡ Avoirs' },
+                { value: '380', label: 'Factures' },
+                { value: '381', label: 'Avoirs' },
               ]}
               placeholder="Tous types"
             />
@@ -1163,8 +1195,8 @@ export default function ReceivedInvoices() {
                 { value: 'cii', label: 'CII' },
                 { value: 'ubl', label: 'UBL' },
                 { value: 'pdf', label: 'PDF simple' },
-                { value: 'photo', label: '📷 Photo OCR' },
-                { value: 'manual', label: '⌨️ Manuel' },
+                { value: 'photo', label: 'Photo OCR' },
+                { value: 'manual', label: 'Manuel' },
               ]}
               placeholder="Tous formats"
             />
@@ -1172,9 +1204,9 @@ export default function ReceivedInvoices() {
               value={filterSource}
               onChange={setFilterSource}
               options={[
-                { value: 'manual_upload', label: '📤 Fichier' },
-                { value: 'photo_ocr', label: '📷 OCR' },
-                { value: 'manual_entry', label: '⌨️ Manuel' },
+                { value: 'manual_upload', label: 'Fichier' },
+                { value: 'photo_ocr', label: 'OCR' },
+                { value: 'manual_entry', label: 'Manuel' },
               ]}
               placeholder="Toutes sources"
             />
@@ -1258,7 +1290,9 @@ export default function ReceivedInvoices() {
                             </span>
                           )}
                           {inv.isElectronic && inv.einvoiceStatus && (
-                            <span className="text-[10px] text-blue-600 dark:text-blue-400">⚡ {inv.einvoiceStatus}</span>
+                            <span className="text-[10px] text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                              <Zap size={10} /> {inv.einvoiceStatus}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -1284,9 +1318,10 @@ export default function ReceivedInvoices() {
                           </div>
                           {inv.supplierSiret && (
                             <div className="flex items-center gap-1 mt-0.5">
-                              <span className={`text-[11px] ${isIdValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                {isIdValid ? '✓' : '✗'}
-                              </span>
+                              {isIdValid 
+                                ? <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400" />
+                                : <X size={11} className="text-rose-600 dark:text-rose-400" />
+                              }
                               <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                 {supplierIdLabel} : {inv.supplierSiret}
                               </span>
@@ -1294,9 +1329,10 @@ export default function ReceivedInvoices() {
                           )}
                           {inv.supplierVatNumber && supplierCfg.vat?.enabled && (
                             <div className="flex items-center gap-1 mt-0.5">
-                              <span className={`text-[11px] ${isVatValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                {isVatValid ? '✓' : '✗'}
-                              </span>
+                              {isVatValid 
+                                ? <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400" />
+                                : <X size={11} className="text-rose-600 dark:text-rose-400" />
+                              }
                               <span className="text-[11px] text-slate-500 dark:text-slate-400">
                                 {supplierCfg.vat.label} : {inv.supplierVatNumber}
                               </span>
@@ -1394,7 +1430,7 @@ export default function ReceivedInvoices() {
                             <ActionMenuItem
                               onClick={() => handleOpenJustifications(inv)}
                               icon={Paperclip}
-                              label={justifSummary.count > 0 ? `Justificatifs (${justifSummary.count})` : '⚠️ Ajouter un justificatif'}
+                              label={justifSummary.count > 0 ? `Justificatifs (${justifSummary.count})` : 'Ajouter un justificatif'}
                             />
                             {!fullyPaid && inv.status !== 'archived' && inv.status !== 'rejected' && (
                               <ActionMenuItem onClick={() => handleMarkPaid(inv)} icon={CreditCard} label="Enregistrer paiement" />
@@ -1571,7 +1607,7 @@ export default function ReceivedInvoices() {
                     <span className="text-4xl">{cfg.flag}</span>
                     <div>
                       <h3 className="font-bold text-emerald-900 dark:text-emerald-100">{cfg.name}</h3>
-                      <p className="text-xs text-emerald-700 dark:text-emerald-300 font-mono">{cfg.code} • {cfg.currency}</p>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300 font-mono">{cfg.code} — {cfg.currency}</p>
                     </div>
                   </div>
                 </div>
@@ -1583,8 +1619,8 @@ export default function ReceivedInvoices() {
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Identifiant principal</p>
                       <p className="text-sm font-bold text-slate-900 dark:text-white mt-1">{primary?.shortLabel || 'ID'}</p>
                       <p className="text-[10px] text-slate-600 dark:text-slate-300 mt-0.5">{primary?.label || 'Identifiant'}</p>
-                      <p className={`text-[10px] mt-1 font-mono ${idValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                        {idValid ? '✓ Valide' : '✗ Invalide'}
+                      <p className={`text-[10px] mt-1 font-mono flex items-center gap-1 ${idValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {idValid ? <><CheckCircle2 size={10} /> Valide</> : <><X size={10} /> Invalide</>}
                       </p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
@@ -1594,8 +1630,8 @@ export default function ReceivedInvoices() {
                         {cfg.vat?.enabled ? `${cfg.vat.standardRates.join('%, ')}%` : 'Non applicable'}
                       </p>
                       {selectedInvoiceForInfo.supplierVatNumber && (
-                        <p className={`text-[10px] mt-1 font-mono ${vatValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {vatValid ? '✓ Valide' : '✗ Invalide'}
+                        <p className={`text-[10px] mt-1 font-mono flex items-center gap-1 ${vatValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {vatValid ? <><CheckCircle2 size={10} /> Valide</> : <><X size={10} /> Invalide</>}
                         </p>
                       )}
                     </div>
@@ -1606,11 +1642,11 @@ export default function ReceivedInvoices() {
                   <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Obligations légales</h4>
                   <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 space-y-1.5">
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-300">📅 Conservation légale</span>
+                      <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1"><Clock size={10} /> Conservation légale</span>
                       <span className="font-bold text-slate-900 dark:text-white">{retention} ans</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-300">💰 Seuil facture simplifiée</span>
+                      <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1"><CreditCard size={10} /> Seuil facture simplifiée</span>
                       <span className="font-bold text-slate-900 dark:text-white">
                         {cfg.simplifiedInvoiceThreshold > 0
                           ? `${cfg.simplifiedInvoiceThreshold.toLocaleString('fr-FR')} ${cfg.currency}`
@@ -1618,13 +1654,13 @@ export default function ReceivedInvoices() {
                       </span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-300">🌍 Zone OHADA</span>
+                      <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1"><Shield size={10} /> Zone OHADA</span>
                       <span className={`font-bold ${isOhada ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
                         {isOhada ? 'Oui (RCCM requis)' : 'Non'}
                       </span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-300">🇪🇺 Membre UE</span>
+                      <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1"><Globe size={10} /> Membre UE</span>
                       <span className={`font-bold ${cfg.vat?.isEU ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`}>
                         {cfg.vat?.isEU ? 'Oui (VIES)' : 'Non'}
                       </span>
@@ -1638,7 +1674,7 @@ export default function ReceivedInvoices() {
                     <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-1">
                       {cfg.identifiers.slice(1).map(idf => (
                         <div key={idf.key} className="flex items-center gap-2 text-xs">
-                          <span className="text-amber-600 dark:text-amber-400">▸</span>
+                          <span className="text-amber-600 dark:text-amber-400">•</span>
                           <span className="text-slate-700 dark:text-slate-300">
                             <strong>{idf.shortLabel}</strong> — {idf.label}
                           </span>

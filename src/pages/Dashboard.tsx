@@ -1,8 +1,4 @@
-// src/pages/Dashboard.tsx — Tableau de bord stable avec section Trésorerie
-// ✅ SUPPRIMÉ : TreasuryDebug (cause de clignotement)
-// ✅ AJOUTÉ : Section Trésorerie via hook useTreasury
-// ✅ STABILITÉ : useRef + hasLoaded + useCallback sans dépendances instables
-
+// src/pages/Dashboard.tsx — Tableau de bord premium avec section Comptabilité
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
@@ -19,7 +15,8 @@ import {
 import {
   Clock, AlertCircle, CheckCircle2, ArrowUpRight, ArrowDownLeft,
   Calendar, Activity, Bell, Receipt, FileText,
-  Users, FilePlus, UserPlus, TrendingUp, Wallet, Percent,
+  Users, FilePlus, UserPlus, TrendingUp, Wallet, Loader2,
+  BookOpenCheck, BookText, Scale, FileDown, ChevronRight,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -86,7 +83,6 @@ export default function Dashboard() {
     loading: settingsLoading, companyName,
   } = useCompanySettings();
 
-  // ✅ Trésorerie via hook dédié (stable)
   const { kpis: treasuryKpis, loading: treasuryLoading } = useTreasury();
 
   // États dashboard
@@ -120,7 +116,7 @@ export default function Dashboard() {
   useEffect(() => { isSubjectToVATRef.current = isSubjectToVAT; }, [isSubjectToVAT]);
 
   // ============================================================
-  // 📥 CHARGEMENT (sans dépendances instables)
+  // 📥 CHARGEMENT OPTIMISÉ
   // ============================================================
   const loadDashboardData = useCallback(async (tid: string) => {
     try {
@@ -145,8 +141,7 @@ export default function Dashboard() {
       // 2. Chargement parallèle des données
       const [quotesRes, invoicesRes] = await Promise.all([
         databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', tid), Query.orderDesc('$createdAt'), Query.limit(200)]),
-databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Query.orderDesc('$createdAt'), Query.limit(200)]),
-databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Query.orderDesc('$createdAt'), Query.limit(200)]),
+        databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Query.orderDesc('$createdAt'), Query.limit(200)]),
       ]);
 
       const quotes = quotesRes.documents;
@@ -180,7 +175,7 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
         if ((i.type === 'standard' || i.type === 'balance') && originalsWithAdvance.has(i.$id)) return false;
         return true;
       };
-   console.log("🚀 MISE À JOUR VERCEL FORCÉE - VERSION DU 19/10/2026");
+
       const getPaidAmount = (invoice: Invoice): number => {
         let payments: any[] = [];
         try {
@@ -338,7 +333,7 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
           title: `${overdue.length} facture(s) en retard`,
           description: `Total : ${fmRef.current(overdueAmountTotal)} • Prêt à relancer`,
           action: 'Lancer les relances',
-          actionLink: '/relances',
+          actionLink: '/reminders',
           count: overdue.length,
         });
       }
@@ -378,12 +373,14 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
 
     } catch (error) {
       console.error('Erreur chargement dashboard:', error);
-      toast.error('Erreur lors du chargement du tableau de bord');
+      toast.warning('Données partielles', {
+        description: 'Impossible de charger toutes les statistiques. Veuillez rafraîchir la page.'
+      });
     } finally {
       setLoading(false);
       setHasLoaded(true);
     }
-  }, []); // ✅ Aucune dépendance instable
+  }, []);
 
   // ✅ useEffect principal : se déclenche UNE SEULE FOIS
   useEffect(() => {
@@ -393,7 +390,7 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
   }, [user?.$id, permLoading, settingsLoading, customTeamId, hasLoaded, loadDashboardData]);
 
   // ============================================================
-  // 📊 KPIs TRÉSORERIE (dérivés du hook useTreasury)
+  // 📊 KPIs TRÉSORERIE
   // ============================================================
   const treasuryStats = useMemo(() => {
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -433,8 +430,9 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
   if (permLoading || settingsLoading || !customTeamId || (loading && !hasLoaded)) {
     return (
       <Sidebar>
-        <div className="flex items-center justify-center h-full w-full">
-          <div className="text-slate-500 dark:text-slate-400 text-lg animate-pulse">
+        <div className="flex flex-col items-center justify-center h-full w-full gap-3">
+          <Loader2 size={32} className="text-purple-600 animate-spin" />
+          <div className="text-slate-500 dark:text-slate-400 text-sm font-medium">
             Chargement du tableau de bord...
           </div>
         </div>
@@ -443,6 +441,8 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
   }
 
   if (!user) return null;
+
+  const canAccessAccounting = hasPermission('reports.view') || hasPermission('reports.export');
 
   return (
     <Sidebar>
@@ -485,7 +485,7 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
         />
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          {/* ========== ✅ SECTION TRÉSORERIE (remplace TreasuryDebug) ========== */}
+          {/* ========== SECTION TRÉSORERIE ========== */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
@@ -527,12 +527,94 @@ databases.listDocuments(DATABASE_ID, 'invoices', [Query.equal('teamId', tid), Qu
             </KPIGrid>
           </div>
 
-          {/* Alerte solde négatif */}
           {treasuryStats.balance < 0 && (
             <Alert tone="error" icon={AlertCircle} title="⚠️ Trésorerie négative">
               Votre solde de trésorerie est négatif (<strong>{fm(treasuryStats.balance)}</strong>).
               Consultez la page <button onClick={() => navigate('/treasury')} className="underline font-semibold">Trésorerie</button> pour analyser les mouvements.
             </Alert>
+          )}
+
+          {/* ========== 🆕 SECTION COMPTABILITÉ (ACCÈS RAPIDE) ========== */}
+          {canAccessAccounting && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <BookOpenCheck size={16} className="text-indigo-600" />
+                  Comptabilité
+                </h2>
+                <Badge tone="indigo">PCG / SYSCOHADA</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Widget Journal */}
+                <button
+                  onClick={() => navigate('/journal')}
+                  className="group relative overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-blue-300 dark:hover:border-blue-700 transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-11 h-11 rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center ring-1 ring-blue-100 dark:ring-blue-900/50">
+                      <BookText size={20} className="text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">Journal</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Chronologie des écritures comptables
+                  </p>
+                </button>
+
+                {/* Widget Grand Livre */}
+                <button
+                  onClick={() => navigate('/grand-livre')}
+                  className="group relative overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-11 h-11 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center ring-1 ring-indigo-100 dark:ring-indigo-900/50">
+                      <BookOpenCheck size={20} className="text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">Grand Livre</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Détail par compte avec soldes progressifs
+                  </p>
+                </button>
+
+                {/* Widget Balance */}
+                <button
+                  onClick={() => navigate('/balance-comptable')}
+                  className="group relative overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-purple-300 dark:hover:border-purple-700 transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-11 h-11 rounded-lg bg-purple-50 dark:bg-purple-950/30 flex items-center justify-center ring-1 ring-purple-100 dark:ring-purple-900/50">
+                      <Scale size={20} className="text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">Balance</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Synthèse des soldes par compte
+                  </p>
+                </button>
+
+                {/* Widget Export FEC */}
+                <button
+                  onClick={() => navigate('/export-comptable')}
+                  className="group relative overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-11 h-11 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center ring-1 ring-emerald-100 dark:ring-emerald-900/50">
+                      <FileDown size={20} className="text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">Export FEC</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    FEC, Sage, Cegid, EBP, QuickBooks
+                  </p>
+                </button>
+              </div>
+            </div>
           )}
 
           {/* ========== KPIs COMMERCIAUX ========== */}
