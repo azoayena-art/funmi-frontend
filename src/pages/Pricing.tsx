@@ -1,5 +1,5 @@
 // src/pages/Pricing.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePaddle } from '../context/PaddleContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,8 +18,20 @@ export default function Pricing() {
   const navigate = useNavigate();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
+  // 🔍 DEBUG : Vérifier ce qui est chargé au montage du composant
+  useEffect(() => {
+    console.log('🔍 [DEBUG PRICING] STARTER_PRICE_ID:', STARTER_PRICE_ID);
+    console.log('🔍 [DEBUG PRICING] PRO_PRICE_ID:', PRO_PRICE_ID);
+    console.log('🔍 [DEBUG PRICING] Paddle isReady:', isReady);
+    console.log('🔍 [DEBUG PRICING] Paddle instance:', paddle);
+    console.log('🔍 [DEBUG PRICING] customTeamId:', customTeamId);
+  }, [isReady, paddle, customTeamId]);
+
   const handleCheckout = async (priceId: string, planName: string) => {
+    console.log('🔍 [DEBUG] handleCheckout appelé avec priceId:', priceId, 'planName:', planName);
+    
     if (!isReady || !paddle) {
+      console.error('❌ [DEBUG] Paddle n\'est pas prêt. isReady=', isReady, 'paddle=', paddle);
       toast.error('Paddle n\'est pas encore chargé. Veuillez réessayer dans un instant.');
       return;
     }
@@ -32,27 +44,32 @@ export default function Pricing() {
 
     setLoadingPlan(planName);
 
-    // URL de retour après succès (à adapter selon votre domaine)
+    // URL de retour après succès
     const successUrl = `${window.location.origin}/billing?success=true&plan=${planName}`;
 
-    paddle.Checkout.open({
-      settings: {
-        displayMode: 'overlay',
-        theme: 'light',
-        locale: 'fr',
-        successUrl: successUrl,
-      },
-      items: [{ priceId, quantity: 1 }],
-      customer: {
-        email: user.email, // Pré-remplir l'email
-      },
-      customData: {
-        teamId: customTeamId, // CRUCIAL : On passe le teamId pour le webhook
-        userId: user.$id,
-      },
-    });
-
-    setLoadingPlan(null);
+    try {
+      paddle.Checkout.open({
+        settings: {
+          displayMode: 'overlay',
+          theme: 'light',
+          locale: 'fr',
+          successUrl: successUrl,
+        },
+        items: [{ priceId, quantity: 1 }],
+        customer: {
+          email: user.email,
+        },
+        customData: {
+          teamId: customTeamId,
+          userId: user.$id,
+        },
+      });
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'ouverture du checkout Paddle:', error);
+      toast.error('Erreur lors du lancement du paiement.');
+    } finally {
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -108,10 +125,22 @@ export default function Pricing() {
 
             <button
               onClick={() => handleCheckout(STARTER_PRICE_ID, 'starter')}
-              disabled={loadingPlan !== null}
-              className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              disabled={!isReady || loadingPlan !== null}
+              className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loadingPlan === 'starter' ? <Loader2 size={16} className="animate-spin" /> : 'Commencer l\'essai'}
+              {!isReady ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Chargement du paiement...
+                </>
+              ) : loadingPlan === 'starter' ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Redirection...
+                </>
+              ) : (
+                'Commencer l\'essai'
+              )}
             </button>
           </div>
 
@@ -155,10 +184,22 @@ export default function Pricing() {
 
             <button
               onClick={() => handleCheckout(PRO_PRICE_ID, 'pro')}
-              disabled={loadingPlan !== null}
-              className="w-full py-3 px-4 rounded-lg font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-50"
+              disabled={!isReady || loadingPlan !== null}
+              className="w-full py-3 px-4 rounded-lg font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loadingPlan === 'pro' ? <Loader2 size={16} className="animate-spin" /> : 'Passer à Funmi Pro'}
+              {!isReady ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Chargement du paiement...
+                </>
+              ) : loadingPlan === 'pro' ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Redirection...
+                </>
+              ) : (
+                'Passer à Funmi Pro'
+              )}
             </button>
           </div>
 

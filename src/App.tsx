@@ -6,8 +6,10 @@ import type { ReactNode } from 'react';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
+import { PaddleProvider } from './context/PaddleContext';
 import BalanceComptable from './pages/BalanceComptable';
 import AuditLog from './pages/AuditLog';
+import SuperAdminRoute from './components/SuperAdminRoute'; // ✅ NOUVEAU
 
 // ============================================================
 // 🔑 reCAPTCHA v3 — Clé publique (Site Key)
@@ -74,6 +76,9 @@ const CompanySettings = lazy(() => import('./pages/CompanySettings'));
 const BackupUtility = lazy(() => import('./pages/BackupUtility'));
 const Billing = lazy(() => import('./pages/Billing'));
 const Pricing = lazy(() => import('./pages/Pricing'));
+
+// 🛡️ SUPER ADMIN
+const SuperAdmin = lazy(() => import('./pages/SuperAdmin')); // ✅ NOUVEAU
 
 // 📄 Pages légales (publiques)
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -182,6 +187,18 @@ function AppRoutes() {
         <Route path="/refund" element={<RefundPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />
 
+        {/* ===== 🛡️ SUPER ADMIN (URL obscure) ===== */}
+        <Route 
+          path="/tunemetrouveraspas/admin" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminRoute>
+                <SuperAdmin />
+              </SuperAdminRoute>
+            </ProtectedRoute>
+          } 
+        />
+
         {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
@@ -246,25 +263,27 @@ export default function App() {
     >
       <AuthProvider>
         <TeamProvider>
-          <Toaster
-            position="top-right"
-            richColors
-            closeButton
-            theme="system"
-            toastOptions={{
-              style: {
-                fontSize: '14px',
-              },
-            }}
-          />
-          <BrowserRouter>
-            <AppRoutes />
-            
-            {/* 🍪 BANDEAU COOKIES RGPD */}
-            <Suspense fallback={null}>
-              <CookieConsentBanner />
-            </Suspense>
-          </BrowserRouter>
+          <PaddleProvider>
+            <Toaster
+              position="top-right"
+              richColors
+              closeButton
+              theme="system"
+              toastOptions={{
+                style: {
+                  fontSize: '14px',
+                },
+              }}
+            />
+            <BrowserRouter>
+              <AppRoutes />
+              
+              {/* 🍪 BANDEAU COOKIES RGPD */}
+              <Suspense fallback={null}>
+                <CookieConsentBanner />
+              </Suspense>
+            </BrowserRouter>
+          </PaddleProvider>
         </TeamProvider>
       </AuthProvider>
     </GoogleReCaptchaProvider>
