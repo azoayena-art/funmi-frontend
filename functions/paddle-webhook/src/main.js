@@ -1,41 +1,83 @@
 
 export default async ({ req, res, log, error }) => {
-  log("1. ✅ Début de la fonction");
+  log("🚀 PADDLE WEBHOOK - DÉBUT");
 
-  // ==========================================
-  // CONFIGURATION
-  // ==========================================
+  // ============================================================
+  // 1. CONFIGURATION APPWRITE
+  // ============================================================
 
-  const endpoint = (
-    process.env.APPWRITE_ENDPOINT || "https://fra.cloud.appwrite.io"
-  ).replace(/\/+$/, "");
+  let endpoint = (
+    process.env.APPWRITE_ENDPOINT ||
+    "https://fra.cloud.appwrite.io"
+  ).trim().replace(/\/+$/, "");
 
-  const projectId = process.env.APPWRITE_PROJECT_ID;
-  const apiKey = process.env.APPWRITE_API_KEY;
-  const dbId = process.env.APPWRITE_DATABASE_ID || "relancepro_db";
+  // Garantir un seul /v1
+  endpoint = endpoint.replace(/(?:\/v1)+$/i, "");
+  endpoint += "/v1";
 
-  log(
-    `2. Variables: endpoint=${endpoint}, projectId=${projectId ? "OK" : "MANQUANT"}, apiKey=${apiKey ? "OK" : "MANQUANT"}, dbId=${dbId}`
-  );
+  const projectId = (process.env.APPWRITE_PROJECT_ID || "").trim();
+  const apiKey = (process.env.APPWRITE_API_KEY || "").trim();
+  const dbId = (
+    process.env.APPWRITE_DATABASE_ID || "relancepro_db"
+  ).trim();
 
-  if (!projectId || !apiKey) {
+  log(`1. Endpoint API : ${endpoint}`);
+  log(`Project ID : ${projectId ? "OK" : "MANQUANT"}`);
+  log(`API Key : ${apiKey ? "OK" : "MANQUANTE"}`);
+  log(`Database ID : ${dbId}`);
+
+  if (!projectId || !apiKey || !dbId) {
+    error("Configuration Appwrite manquante");
+
     return res.json({
       success: false,
       error: "Configuration Appwrite manquante"
     }, 500);
   }
 
+  // ============================================================
+  // 2. OUTILS REST APPWRITE
+  // ============================================================
+
+  const headers = {
+    "X-Appwrite-Project": projectId,
+    "X-Appwrite-Key": apiKey,
+    "Content-Type": "application/json"
+  };
+
+  const readResponse = async (response) => {
+    const text = await response.text();
+
+    let data;
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text.slice(0, 1500) };
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      data
+    };
+  };
+
+  const apiUrl = (path) => `${endpoint}${path}`;
+
   try {
-    // ==========================================
-    // ÉTAPE 1 : EXTRACTION DES DONNÉES PADDLE
-    // ==========================================
+    // ============================================================
+    // 3. EXTRACTION DES DONNÉES PADDLE
+    // ============================================================
 
     let eventData = req.body;
 
-    if (typeof req.body === "string") {
+    if (typeof eventData === "string") {
       try {
-        eventData = JSON.parse(req.body);
-      } catch (e) {
+        eventData = JSON.parse(eventData);
+      } catch {
+        error("Corps de requête JSON invalide");
+
         return res.json({
           success: false,
           error: "Invalid JSON"
@@ -45,13 +87,32 @@ export default async ({ req, res, log, error }) => {
 
     const data = eventData?.data || eventData;
 
-    const teamId = data?.custom_data?.teamId;
+    const customData =
+      data?.custom_data ||
+      eventData?.custom_data ||
+      {};
 
-    const priceId =
-      data?.items?.[0]?.price?.id ||
-      data?.price_id;
+    const teamId = String(
+      customData.teamId ||
+      customData.team_id ||
+      ""
+    ).trim();
 
-    log(`3. Données extraites: teamId=${teamId}, priceId=${priceId}`);
+    const firstItem = data?.items?.[0];
+
+    const rawPriceId =
+      firstItem?.price?.id ||
+      firstItem?.price_id ||
+      data?.price_id ||
+      data?.price?.id ||
+      null;
+
+    const priceId = String(rawPriceId || "").trim();
+
+    log("2. Événement Paddle reçu");
+    log(`Type : ${eventData?.event_type || "Non précisé"}`);
+    log(`Team ID : ${teamId || "ABSENT"}`);
+    log(`Price ID reçu : ${priceId || "ABSENT"}`);
 
     if (!teamId || !priceId) {
       log("Données teamId ou priceId absentes");
@@ -62,121 +123,173 @@ export default async ({ req, res, log, error }) => {
       }, 200);
     }
 
-    // ==========================================
-    // ÉTAPE A : TROUVER LE PLAN
-    // ==========================================
+    // ============================================================
+    // 4. RECHERCHE DES PLANS
+    // ============================================================
 
-    log("4. Recherche du plan...");
+    log("3. Recherche des plans dans Appwrite");
 
-    const plansUrl =
-      `${endpoint}/v1/databases/${dbId}/collections/plans/documents?limit=100`;
+    const plansParams = new URLSearchParams();
 
-    const plansRes = await fetch(plansUrl, {
-      headers: {
-        "X-Appwrite-Project": projectId,
-        "X-Appwrite-Key": apiKey
-      }
+    plansParams.append(
+      "queries[]",
+      JSON.stringify({
+        method: "limit",
+        values: [100]
+      })
+    );
+
+    const plansUrl = apiUrl(
+      `/databases/${encodeURIComponent(dbId)}` +
+      `/collections/plans/documents?${plansParams.toString()}`
+    );
+
+    log(`URL Plans : ${plansUrl}`);
+
+    const plansResponse = await fetch(plansUrl, {
+      method: "GET",
+      headers
     });
 
-    log(`5. Réponse Plans: status=${plansRes.status}`);
+    const plansResult = await readResponse(plansResponse);
 
-    if (!plansRes.ok) {
-      const msg = await plansRes.text();
+    log(`Réponse Plans : HTTP ${plansResult.status}`);
 
-      log(`ERREUR PLANS: ${msg}`);
+    if (!plansResult.ok) {
+      error(`Erreur lecture plans : ${JSON.stringify(plansResult.data)}`);
 
       return res.json({
         success: false,
-        error: "Failed to fetch plans",
-        details: msg
+        step: "read_plans",
+        status: plansResult.status,
+        details: plansResult.data
       }, 500);
     }
 
-    const plansData = await plansRes.json();
+    const plans = plansResult.data.documents || [];
 
-    const matchedPlan = plansData.documents?.find(p =>
-      p.paddlePriceIdMonthly === priceId ||
-      p.paddlePriceIdYearly === priceId
-    );
+    log(`Nombre de plans récupérés : ${plans.length}`);
+
+    // Afficher les identifiants enregistrés pour le diagnostic
+    for (const plan of plans) {
+      log(
+        `Plan ${plan.name} : ` +
+        `mensuel=${plan.paddlePriceIdMonthly || "NULL"}, ` +
+        `annuel=${plan.paddlePriceIdYearly || "NULL"}`
+      );
+    }
+
+    const matchedPlan = plans.find((plan) => {
+      const monthlyId = String(
+        plan.paddlePriceIdMonthly || ""
+      ).trim();
+
+      const yearlyId = String(
+        plan.paddlePriceIdYearly || ""
+      ).trim();
+
+      return monthlyId === priceId || yearlyId === priceId;
+    });
 
     if (!matchedPlan) {
-      log(`Plan non trouvé pour priceId=${priceId}`);
+      error(`Aucun plan trouvé pour priceId=${priceId}`);
 
       return res.json({
         success: false,
-        error: "Plan not found"
+        step: "find_plan",
+        error: "Plan not found",
+        receivedPriceId: priceId,
+        availablePlans: plans.map((plan) => ({
+          name: plan.name,
+          monthlyPriceId: plan.paddlePriceIdMonthly,
+          yearlyPriceId: plan.paddlePriceIdYearly
+        }))
       }, 404);
     }
 
-    log(`6. Plan trouvé: ${matchedPlan.name}`);
+    log(`4. Plan trouvé : ${matchedPlan.name}`);
+    log(`Identifiant du plan : ${matchedPlan.$id}`);
 
-    // ==========================================
-    // ÉTAPE B : TROUVER LES SETTINGS
-    // ==========================================
+    // ============================================================
+    // 5. RECHERCHE DES PARAMÈTRES DE L'ÉQUIPE
+    // ============================================================
 
-    log("7. Recherche des paramètres de l'équipe...");
+    log("5. Recherche de company_settings");
 
-    const query = JSON.stringify({
-      method: "equal",
-      attribute: "teamId",
-      values: [teamId]
+    const settingsParams = new URLSearchParams();
+
+    settingsParams.append(
+      "queries[]",
+      JSON.stringify({
+        method: "equal",
+        attribute: "teamId",
+        values: [teamId]
+      })
+    );
+
+    settingsParams.append(
+      "queries[]",
+      JSON.stringify({
+        method: "limit",
+        values: [10]
+      })
+    );
+
+    const settingsUrl = apiUrl(
+      `/databases/${encodeURIComponent(dbId)}` +
+      `/collections/company_settings/documents?${settingsParams.toString()}`
+    );
+
+    log(`URL Settings : ${settingsUrl}`);
+
+    const settingsResponse = await fetch(settingsUrl, {
+      method: "GET",
+      headers
     });
 
-    const params = new URLSearchParams();
+    const settingsResult = await readResponse(settingsResponse);
 
-    // IMPORTANT : queries[] et non queries
-    params.append("queries[]", query);
+    log(`Réponse Settings : HTTP ${settingsResult.status}`);
 
-    const settingsUrl =
-      `${endpoint}/v1/databases/${dbId}/collections/company_settings/documents?${params.toString()}`;
-
-    log(`URL Settings: ${settingsUrl}`);
-
-    const settingsRes = await fetch(settingsUrl, {
-      headers: {
-        "X-Appwrite-Project": projectId,
-        "X-Appwrite-Key": apiKey
-      }
-    });
-
-    log(`8. Réponse Settings: status=${settingsRes.status}`);
-
-    if (!settingsRes.ok) {
-      const msg = await settingsRes.text();
-
-      log(`ERREUR SETTINGS: ${msg}`);
+    if (!settingsResult.ok) {
+      error(
+        `Erreur lecture settings : ${JSON.stringify(settingsResult.data)}`
+      );
 
       return res.json({
         success: false,
-        error: "Failed to fetch settings",
-        details: msg
+        step: "read_settings",
+        status: settingsResult.status,
+        details: settingsResult.data
       }, 500);
     }
 
-    const settingsData = await settingsRes.json();
+    const settingsDocuments =
+      settingsResult.data.documents || [];
 
-    if (!settingsData.documents || settingsData.documents.length === 0) {
-      log(`Aucun setting trouvé pour teamId=${teamId}`);
+    if (settingsDocuments.length === 0) {
+      error(`Aucun document trouvé pour teamId=${teamId}`);
 
       return res.json({
         success: false,
+        step: "find_settings",
         error: "Settings not found",
         teamId
       }, 404);
     }
 
-    const settingsDocument = settingsData.documents[0];
+    const settingsDocument = settingsDocuments[0];
     const docId = settingsDocument.$id;
 
-    log(`9. Document trouvé: ${docId}`);
+    log(`6. Document company_settings trouvé : ${docId}`);
 
-    // ==========================================
-    // ÉTAPE C : PRÉPARER LA MISE À JOUR
-    // ==========================================
+    // ============================================================
+    // 6. PRÉPARATION DE LA MISE À JOUR
+    // ============================================================
 
-    log("10. Préparation de la mise à jour...");
+    log("7. Préparation de la mise à jour");
 
-    const renewsAt =
+    const rawRenewsAt =
       data.current_billing_period?.ends_at ||
       data.next_billed_at ||
       data.billing_period?.ends_at ||
@@ -184,76 +297,95 @@ export default async ({ req, res, log, error }) => {
 
     let subscriptionRenewsAt = null;
 
-    if (renewsAt) {
-      const date = new Date(renewsAt);
+    if (rawRenewsAt) {
+      const date = new Date(rawRenewsAt);
 
       if (!isNaN(date.getTime())) {
         subscriptionRenewsAt = date.toISOString();
       } else {
-        log(`Date de renouvellement invalide: ${renewsAt}`);
+        log(`Date invalide : ${rawRenewsAt}`);
       }
     }
+
+    const paddleStatus = String(data.status || "").toLowerCase();
+
+    const statusMap = {
+      trialing: "trialing",
+      active: "active",
+      past_due: "past_due",
+      paused: "paused",
+      canceled: "canceled",
+      completed: "active"
+    };
+
+    const subscriptionStatus =
+      statusMap[paddleStatus] || "active";
 
     const updatePayload = {
       planTier: matchedPlan.name.toLowerCase(),
 
-      subscriptionStatus:
-        data.status === "trialing" ? "trialing" : "active",
+      subscriptionStatus,
 
       paddleSubscriptionId:
-        data.subscription_id || data.id || null,
+        data.subscription_id ||
+        data.id ||
+        settingsDocument.paddleSubscriptionId ||
+        null,
 
       paddleCustomerId:
-        data.customer_id || null,
+        data.customer_id ||
+        settingsDocument.paddleCustomerId ||
+        null,
 
       subscriptionRenewsAt
     };
 
-    log(`11. Données à mettre à jour: ${JSON.stringify(updatePayload)}`);
+    log(`8. Données préparées : ${JSON.stringify(updatePayload)}`);
 
-    // ==========================================
-    // ÉTAPE D : METTRE À JOUR COMPANY_SETTINGS
-    // ==========================================
+    // ============================================================
+    // 7. MISE À JOUR DE COMPANY_SETTINGS
+    // ============================================================
 
-    const updateUrl =
-      `${endpoint}/v1/databases/${dbId}/collections/company_settings/documents/${docId}`;
+    const updateUrl = apiUrl(
+      `/databases/${encodeURIComponent(dbId)}` +
+      `/collections/company_settings/documents/${encodeURIComponent(docId)}`
+    );
 
-    const updateRes = await fetch(updateUrl, {
+    const updateResponse = await fetch(updateUrl, {
       method: "PATCH",
-      headers: {
-        "X-Appwrite-Project": projectId,
-        "X-Appwrite-Key": apiKey,
-        "Content-Type": "application/json"
-      },
+      headers,
       body: JSON.stringify({
         data: updatePayload
       })
     });
 
-    log(`12. Réponse Update: status=${updateRes.status}`);
+    const updateResult = await readResponse(updateResponse);
 
-    if (!updateRes.ok) {
-      const msg = await updateRes.text();
+    log(`Réponse Update : HTTP ${updateResult.status}`);
 
-      log(`ERREUR UPDATE: ${msg}`);
+    if (!updateResult.ok) {
+      error(
+        `Erreur mise à jour : ${JSON.stringify(updateResult.data)}`
+      );
 
       return res.json({
         success: false,
-        error: "Update failed",
-        details: msg
+        step: "update_settings",
+        status: updateResult.status,
+        details: updateResult.data
       }, 500);
     }
 
-    const updatedDocument = await updateRes.json();
+    const updatedDocument = updateResult.data;
 
-    // ==========================================
-    // ÉTAPE E : CONFIRMATION
-    // ==========================================
+    // ============================================================
+    // 8. CONFIRMATION
+    // ============================================================
 
-    log("13. 🎉 SUCCÈS : Abonnement mis à jour !");
-    log(`Plan actif: ${updatedDocument.planTier}`);
-    log(`Statut: ${updatedDocument.subscriptionStatus}`);
-    log(`Document: ${updatedDocument.$id}`);
+    log("🎉 ABONNEMENT MIS À JOUR AVEC SUCCÈS");
+    log(`Plan actif : ${updatedDocument.planTier}`);
+    log(`Statut : ${updatedDocument.subscriptionStatus}`);
+    log(`Document : ${updatedDocument.$id}`);
 
     return res.json({
       success: true,
@@ -267,13 +399,14 @@ export default async ({ req, res, log, error }) => {
     }, 200);
 
   } catch (err) {
-    log(`ERREUR CRITIQUE: ${err.message}`);
-
-    error(err.stack || err.message);
+    error("ERREUR CRITIQUE PADDLE WEBHOOK");
+    error(`Message : ${err.message || "Inconnu"}`);
+    error(`Stack : ${err.stack || "Non disponible"}`);
 
     return res.json({
       success: false,
-      error: err.message
+      error: err.message || "Erreur inconnue",
+      type: err.name || null
     }, 500);
   }
 };
