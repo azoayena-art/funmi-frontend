@@ -26,6 +26,7 @@ export const MODULE_ACCESS: Record<string, PlanTier> = {
 
   // --- Niveau Essentiel requis ---
   statistics: 'essentiel',
+  backup: 'essentiel', // ✅ Ajouté : Les sauvegardes sont verrouillées pour le plan gratuit
 
   // --- Niveau PRO requis ---
   receivedInvoices: 'pro',

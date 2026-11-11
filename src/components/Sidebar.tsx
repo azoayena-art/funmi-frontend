@@ -4,7 +4,6 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
-import { useSubscription } from '../hooks/useSubscription';
 import { databases, DATABASE_ID } from '../appwrite';
 import { Query } from 'appwrite';
 import {
@@ -12,7 +11,7 @@ import {
   Bell, Wallet, FileCheck, LogOut, ChevronLeft, ChevronRight,
   Moon, Sun, Menu, X, Building2, Shield, BarChart3, FileOutput,
   FileInput, BookOpen, ArrowRightLeft, Save, CreditCard, Scale,
-  BookOpenCheck, BookText, FileDown, Lock
+  BookOpenCheck, BookText, FileDown
 } from 'lucide-react';
 import { BRAND } from '../config/brand';
 
@@ -27,7 +26,6 @@ interface NavItem {
   permissions: string[];
   badge?: number;
   color: string;
-  locked?: boolean;
 }
 
 interface NavSection {
@@ -39,7 +37,6 @@ export default function Sidebar({ children }: SidebarProps) {
   const { user, logout } = useAuth();
   const { hasPermission } = usePermissions();
   const { customTeamId } = useTeam();
-  const { isBusiness, isLoading: subLoading } = useSubscription();
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,11 +70,9 @@ export default function Sidebar({ children }: SidebarProps) {
       if (!user || !customTeamId) return;
       try {
         if (hasPermission('invoices.view')) {
-          // ... (ta logique de comptage existante) ...
           setPendingRemindersCount(0); 
         }
         if (hasPermission('prospects.view')) {
-          // ... (ta logique de comptage existante) ...
           setPendingPublicRequestsCount(0);
         }
       } catch (e) { /* Erreur silencieuse */ }
@@ -108,7 +103,8 @@ export default function Sidebar({ children }: SidebarProps) {
   const isActive = (path: string) => location.pathname === path;
   const hasAnyPermission = (permissions: string[]): boolean => permissions.some(p => p === 'dashboard' || hasPermission(p));
 
-  // ✅ useMemo stabilise le tableau pour éviter les re-renders qui cassent le scroll
+  // ✅ Les modules de comptabilité sont maintenant des éléments normaux.
+  // Le blocage visuel et le modal "Premium" sont gérés par ModuleGuard dans App.tsx.
   const navSections: NavSection[] = useMemo(() => [
     {
       title: 'Pilotage',
@@ -145,13 +141,13 @@ export default function Sidebar({ children }: SidebarProps) {
     {
       title: 'Comptabilité',
       items: [
-        { path: '/journal', label: 'Journal', icon: BookText, permissions: ['reports.view'], color: 'text-indigo-600', locked: !subLoading && !isBusiness },
-        { path: '/grand-livre', label: 'Grand Livre', icon: BookOpenCheck, permissions: ['reports.view'], color: 'text-indigo-600', locked: !subLoading && !isBusiness },
-        { path: '/balance-comptable', label: 'Balance', icon: Scale, permissions: ['reports.view'], color: 'text-indigo-600', locked: !subLoading && !isBusiness },
-        { path: '/export-comptable', label: 'Export Comptable', icon: FileDown, permissions: ['reports.export'], color: 'text-emerald-600', locked: !subLoading && !isBusiness },
+        { path: '/journal', label: 'Journal', icon: BookText, permissions: ['reports.view'], color: 'text-indigo-600' },
+        { path: '/grand-livre', label: 'Grand Livre', icon: BookOpenCheck, permissions: ['reports.view'], color: 'text-indigo-600' },
+        { path: '/balance-comptable', label: 'Balance', icon: Scale, permissions: ['reports.view'], color: 'text-indigo-600' },
+        { path: '/export-comptable', label: 'Export Comptable', icon: FileDown, permissions: ['reports.export'], color: 'text-emerald-600' },
       ],
     },
-  ], [isBusiness, subLoading, pendingPublicRequestsCount, pendingQuotesActionCount, receivedInvoicesCount, pendingRemindersCount]);
+  ], [pendingPublicRequestsCount, pendingQuotesActionCount, receivedInvoicesCount, pendingRemindersCount]);
 
   const settingsItems: NavItem[] = useMemo(() => [
     { path: '/team-settings', label: 'Équipe & Rôles', icon: Shield, permissions: ['team.view'], color: 'text-indigo-600' },
@@ -165,30 +161,22 @@ export default function Sidebar({ children }: SidebarProps) {
   const renderNavItem = (item: NavItem) => {
     const active = isActive(item.path);
     const showBadge = item.badge !== undefined && item.badge > 0;
-    const hasPermissionAccess = hasAnyPermission(item.permissions);
-    const isLocked = Boolean(item.locked);
-    const hasAccess = hasPermissionAccess && !isLocked;
+    const hasAccess = hasAnyPermission(item.permissions);
 
     return (
       <button
         key={item.path}
         onClick={() => {
-          if (isLocked) {
-            handleNavigation('/billing');
-            return;
-          }
           if (hasAccess) handleNavigation(item.path);
         }}
-        disabled={!hasPermissionAccess && !isLocked}
-        title={isLocked ? 'Disponible avec le forfait Business' : !hasPermissionAccess ? 'Permission insuffisante' : item.label}
+        disabled={!hasAccess}
+        title={!hasAccess ? 'Permission insuffisante' : item.label}
         className={`relative w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all duration-200 group ${
-          isLocked
-            ? 'opacity-50 cursor-pointer'
-            : !hasAccess
-              ? 'opacity-40 cursor-not-allowed'
-              : active
-                ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-medium shadow-sm ring-1 ring-indigo-200/60 dark:ring-indigo-800/50'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+          !hasAccess
+            ? 'opacity-40 cursor-not-allowed'
+            : active
+              ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-medium shadow-sm ring-1 ring-indigo-200/60 dark:ring-indigo-800/50'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
         } ${collapsed ? 'justify-center px-2' : ''}`}
       >
         <div className={`flex-shrink-0 p-1.5 rounded-lg ${active && hasAccess ? 'bg-white dark:bg-slate-900 shadow-sm' : ''}`}>
@@ -202,10 +190,8 @@ export default function Sidebar({ children }: SidebarProps) {
                 {item.badge! > 99 ? '99+' : item.badge}
               </span>
             )}
-            {isLocked && <Lock size={14} className="flex-shrink-0 text-amber-500" />}
           </>
         )}
-        {collapsed && isLocked && <Lock size={11} className="absolute top-0.5 right-0.5 text-amber-500" />}
         {collapsed && showBadge && (
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-[9px] flex items-center justify-center text-white rounded-full border-2 border-white dark:border-slate-800 shadow-sm">
             {item.badge! > 9 ? '9+' : item.badge}
@@ -215,7 +201,6 @@ export default function Sidebar({ children }: SidebarProps) {
     );
   };
 
-  // ✅ Fonction au lieu de composant pour éviter le démontage/remontage qui cassait le scroll
   const renderSidebarContent = () => (
     <div className="flex flex-col h-full min-h-0">
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-5 border-b border-slate-200/60 dark:border-slate-700/60 flex-shrink-0`}>
@@ -311,7 +296,6 @@ export default function Sidebar({ children }: SidebarProps) {
           <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white dark:ring-slate-700">{initials}</div>
         </header>
 
-        {/* ✅ Le main avec les classes magiques pour le scroll */}
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#fafaf6] dark:bg-slate-900">
           {children}
         </main>

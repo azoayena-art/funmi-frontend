@@ -126,7 +126,11 @@ function AppRoutes() {
         
         {/* Niveau Essentiel requis */}
         <Route path="/statistics" element={
-          <ProtectedRoute><ModuleGuard module="statistics"><Statistics /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="statistics">
+              <Statistics />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         
         {/* CRM (accessible à tous) */}
@@ -140,43 +144,87 @@ function AppRoutes() {
         <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
         <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
         <Route path="/received-invoices" element={
-          <ProtectedRoute><ModuleGuard module="receivedInvoices"><ReceivedInvoices /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="receivedInvoices">
+              <ReceivedInvoices />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
         
         {/* Niveau PRO requis */}
         <Route path="/reminders" element={
-          <ProtectedRoute><ModuleGuard module="reminders"><Reminders /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="reminders">
+              <Reminders />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
         <Route path="/treasury" element={
-          <ProtectedRoute><ModuleGuard module="treasury"><Treasury /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="treasury">
+              <Treasury />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/cash-operations" element={
-          <ProtectedRoute><ModuleGuard module="cashOperations"><CashOperations /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="cashOperations">
+              <CashOperations />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         
-        {/* Niveau Business requis (Comptabilité) */}
+        {/* Niveau Business requis (Comptabilité) — SANS cadenas (showLockIcon={false}) */}
         <Route path="/journal" element={
-          <ProtectedRoute><ModuleGuard module="journal"><Journal /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="journal" showLockIcon={false}>
+              <Journal />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/grand-livre" element={
-          <ProtectedRoute><ModuleGuard module="grandLivre"><GrandLivre /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="grandLivre" showLockIcon={false}>
+              <GrandLivre />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/balance-comptable" element={
-          <ProtectedRoute><ModuleGuard module="balance"><BalanceComptable /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="balance" showLockIcon={false}>
+              <BalanceComptable />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/export-comptable" element={
-          <ProtectedRoute><ModuleGuard module="exportComptable"><ExportComptable /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="exportComptable" showLockIcon={false}>
+              <ExportComptable />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/account-mapping" element={
-          <ProtectedRoute><ModuleGuard module="accountMapping"><AccountMapping /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="accountMapping" showLockIcon={false}>
+              <AccountMapping />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/import-export" element={
-          <ProtectedRoute><ModuleGuard module="importExport"><ImportExport /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="importExport" showLockIcon={false}>
+              <ImportExport />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         <Route path="/audit-log" element={
-          <ProtectedRoute><ModuleGuard module="audit"><AuditLog /></ModuleGuard></ProtectedRoute>
+          <ProtectedRoute>
+            <ModuleGuard module="audit" showLockIcon={false}>
+              <AuditLog />
+            </ModuleGuard>
+          </ProtectedRoute>
         } />
         
         {/* Administration & Paramètres (accessible à tous) */}
