@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
+import { usePermissions } from '../hooks/usePermissions'; // ✅ AJOUTÉ : Hook manquant
 import { databases, DATABASE_ID } from '../appwrite';
 import { Query } from 'appwrite';
 import { toast } from 'sonner';
@@ -34,7 +35,7 @@ interface AuditLog {
   userEmail?: string;
 }
 
-interface audit_logstate {
+interface AuditLogState {
   searchTerm: string;
   actionType: string;
   severity: string;
@@ -111,7 +112,8 @@ const ITEMS_PER_PAGE = 20;
 
 export default function AuditLog() {
   const { user } = useAuth();
-  const { customTeamId, isOwner, loading: teamLoading } = useTeam();
+  const { customTeamId, loading: teamLoading } = useTeam();
+  const { hasPermission, loading: permLoading } = usePermissions(); // ✅ AJOUTÉ : Déstructuration du hook
   const navigate = useNavigate();
 
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -120,7 +122,7 @@ export default function AuditLog() {
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-  const [audit_logs, setaudit_logs] = useState<audit_logstate>({
+  const [filters, setFilters] = useState<AuditLogState>({
     searchTerm: '',
     actionType: '',
     severity: '',
@@ -129,26 +131,27 @@ export default function AuditLog() {
     resourceType: '',
   });
 
-  // Vérification des permissions
+  // ✅ Vérification des permissions (Redirection si non autorisé)
   useEffect(() => {
     if (!permLoading && !hasPermission('settings.view')) {
       navigate('/dashboard');
     }
   }, [permLoading, hasPermission, navigate]);
 
-  // Chargement des logs
+  // ✅ Chargement des logs (déclenché quand l'équipe et les permissions sont prêtes)
   useEffect(() => {
-    if (!teamLoading && isOwner && customTeamId) loadAuditLogs();
-  }, [customTeamId, isOwner, teamLoading]);
+    if (!teamLoading && !permLoading && customTeamId && hasPermission('settings.view')) {
+      loadAuditLogs();
+    }
+  }, [customTeamId, teamLoading, permLoading, hasPermission]);
 
   const loadAuditLogs = async () => {
     setLoading(true);
     try {
-      // Filtrage sécurisé par teamId (multi-tenant)
       const queries = [
         Query.equal('teamId', customTeamId),
         Query.orderDesc('$createdAt'),
-        Query.limit(500), // Limite pour performance
+        Query.limit(500),
       ];
 
       const response = await databases.listDocuments(
@@ -157,8 +160,7 @@ export default function AuditLog() {
         queries
       );
 
-      const auditLogs = response.documents as unknown as AuditLog[];
-      setLogs(auditLogs);
+      setLogs(response.documents as unknown as AuditLog[]);
     } catch (error: any) {
       console.error('Erreur chargement logs:', error);
       toast.error('Erreur de chargement', {
@@ -172,9 +174,8 @@ export default function AuditLog() {
   // Filtrage côté client
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      // Recherche textuelle
-      if (audit_logs.searchTerm) {
-        const search = audit_logs.searchTerm.toLowerCase();
+      if (filters.searchTerm) {
+        const search = filters.searchTerm.toLowerCase();
         const actionLabel = ACTION_LABELS[log.action] || log.action;
         const resourceLabel = RESOURCE_TYPE_LABELS[log.resourceType] || log.resourceType;
         if (
@@ -187,38 +188,26 @@ export default function AuditLog() {
         }
       }
 
-      // Filtre par type d'action
-      if (audit_logs.actionType && log.action !== audit_logs.actionType) {
-        return false;
-      }
+      if (filters.actionType && log.action !== filters.actionType) return false;
+      if (filters.severity && log.severity !== filters.severity) return false;
+      if (filters.resourceType && log.resourceType !== filters.resourceType) return false;
 
-      // Filtre par sévérité
-      if (audit_logs.severity && log.severity !== audit_logs.severity) {
-        return false;
-      }
-
-      // Filtre par type de ressource
-      if (audit_logs.resourceType && log.resourceType !== audit_logs.resourceType) {
-        return false;
-      }
-
-      // Filtre par date
-      if (audit_logs.dateFrom) {
+      if (filters.dateFrom) {
         const logDate = new Date(log.$createdAt);
-        const fromDate = new Date(audit_logs.dateFrom);
+        const fromDate = new Date(filters.dateFrom);
         if (logDate < fromDate) return false;
       }
 
-      if (audit_logs.dateTo) {
+      if (filters.dateTo) {
         const logDate = new Date(log.$createdAt);
-        const toDate = new Date(audit_logs.dateTo);
+        const toDate = new Date(filters.dateTo);
         toDate.setHours(23, 59, 59, 999);
         if (logDate > toDate) return false;
       }
 
       return true;
     });
-  }, [logs, audit_logs]);
+  }, [logs, filters]);
 
   // Pagination
   const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
@@ -233,8 +222,8 @@ export default function AuditLog() {
     const critical = logs.filter((l) => l.severity === 'critical').length;
     const today = logs.filter((l) => {
       const logDate = new Date(l.$createdAt);
-      const today = new Date();
-      return logDate.toDateString() === today.toDateString();
+      const todayDate = new Date();
+      return logDate.toDateString() === todayDate.toDateString();
     }).length;
 
     return { total, critical, today };
@@ -252,13 +241,8 @@ export default function AuditLog() {
     }).format(date);
   };
 
-  const getActionLabel = (action: string) => {
-    return ACTION_LABELS[action] || action;
-  };
-
-  const getResourceLabel = (resourceType: string) => {
-    return RESOURCE_TYPE_LABELS[resourceType] || resourceType;
-  };
+  const getActionLabel = (action: string) => ACTION_LABELS[action] || action;
+  const getResourceLabel = (resourceType: string) => RESOURCE_TYPE_LABELS[resourceType] || resourceType;
 
   const handleExportCSV = () => {
     const headers = ['Date', 'Utilisateur', 'Action', 'Type de ressource', 'ID Ressource', 'Sévérité', 'Détails'];
@@ -295,8 +279,8 @@ export default function AuditLog() {
     setShowDetailsModal(true);
   };
 
-  const resetaudit_logs = () => {
-    setaudit_logs({
+  const resetFilters = () => {
+    setFilters({
       searchTerm: '',
       actionType: '',
       severity: '',
@@ -307,11 +291,11 @@ export default function AuditLog() {
     setCurrentPage(1);
   };
 
-  // Rendu
-  if (teamLoading || loading) {
+  // Rendu pendant le chargement
+  if (teamLoading || permLoading || loading) {
     return (
       <Sidebar>
-        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center min-h-screen">
           <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
@@ -370,50 +354,31 @@ export default function AuditLog() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Total Actions
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Actions</span>
                 <Database size={12} className="text-blue-500" />
               </div>
-              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-                {stats.total}
-              </div>
+              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">{stats.total}</div>
             </div>
-
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Aujourd'hui
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Aujourd'hui</span>
                 <Calendar size={12} className="text-emerald-500" />
               </div>
-              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-                {stats.today}
-              </div>
+              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">{stats.today}</div>
             </div>
-
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Critiques
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Critiques</span>
                 <AlertCircle size={12} className="text-red-500" />
               </div>
-              <div className="text-xl font-bold text-red-600 dark:text-red-400 tabular-nums">
-                {stats.critical}
-              </div>
+              <div className="text-xl font-bold text-red-600 dark:text-red-400 tabular-nums">{stats.critical}</div>
             </div>
-
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Affichés
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Affichés</span>
                 <Activity size={12} className="text-indigo-500" />
               </div>
-              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-                {filteredLogs.length}
-              </div>
+              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">{filteredLogs.length}</div>
             </div>
           </div>
 
@@ -421,109 +386,88 @@ export default function AuditLog() {
           <Card className="!p-5">
             <div className="flex items-center gap-2 mb-4">
               <Filter size={16} className="text-blue-600 dark:text-blue-400" />
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Filtres avancés
-              </h3>
-              {(audit_logs.searchTerm || audit_logs.actionType || audit_logs.severity || audit_logs.dateFrom || audit_logs.dateTo || audit_logs.resourceType) && (
-                <button
-                  onClick={resetaudit_logs}
-                  className="ml-auto text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                >
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Filtres avancés</h3>
+              {(filters.searchTerm || filters.actionType || filters.severity || filters.dateFrom || filters.dateTo || filters.resourceType) && (
+                <button onClick={resetFilters} className="ml-auto text-xs text-blue-600 dark:text-blue-400 hover:underline">
                   Réinitialiser
                 </button>
               )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* Recherche textuelle */}
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <Input
                   type="text"
                   placeholder="Rechercher..."
-                  value={audit_logs.searchTerm}
+                  value={filters.searchTerm}
                   onChange={(e: any) => {
-                    setaudit_logs({ ...audit_logs, searchTerm: e.target.value });
+                    setFilters({ ...filters, searchTerm: e.target.value });
                     setCurrentPage(1);
                   }}
                   className="pl-9 w-full"
                 />
               </div>
 
-              {/* Type d'action */}
               <Select
-                value={audit_logs.actionType}
+                value={filters.actionType}
                 onChange={(e: any) => {
-                  setaudit_logs({ ...audit_logs, actionType: e.target.value });
+                  setFilters({ ...filters, actionType: e.target.value });
                   setCurrentPage(1);
                 }}
               >
                 <option value="">Toutes les actions</option>
                 {Object.entries(ACTION_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
+                  <option key={key} value={key}>{label}</option>
                 ))}
               </Select>
 
-              {/* Type de ressource */}
               <Select
-                value={audit_logs.resourceType}
+                value={filters.resourceType}
                 onChange={(e: any) => {
-                  setaudit_logs({ ...audit_logs, resourceType: e.target.value });
+                  setFilters({ ...filters, resourceType: e.target.value });
                   setCurrentPage(1);
                 }}
               >
                 <option value="">Toutes les ressources</option>
                 {Object.entries(RESOURCE_TYPE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
+                  <option key={key} value={key}>{label}</option>
                 ))}
               </Select>
 
-              {/* Sévérité */}
               <Select
-                value={audit_logs.severity}
+                value={filters.severity}
                 onChange={(e: any) => {
-                  setaudit_logs({ ...audit_logs, severity: e.target.value });
+                  setFilters({ ...filters, severity: e.target.value });
                   setCurrentPage(1);
                 }}
               >
                 <option value="">Toutes les sévérités</option>
                 {Object.entries(SEVERITY_CONFIG).map(([key, config]) => (
-                  <option key={key} value={key}>
-                    {config.label}
-                  </option>
+                  <option key={key} value={key}>{config.label}</option>
                 ))}
               </Select>
 
-              {/* Date de début */}
               <div>
-                <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Du
-                </label>
+                <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Du</label>
                 <input
                   type="date"
-                  value={audit_logs.dateFrom}
+                  value={filters.dateFrom}
                   onChange={(e) => {
-                    setaudit_logs({ ...audit_logs, dateFrom: e.target.value });
+                    setFilters({ ...filters, dateFrom: e.target.value });
                     setCurrentPage(1);
                   }}
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-slate-900 dark:text-white"
                 />
               </div>
 
-              {/* Date de fin */}
               <div>
-                <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Au
-                </label>
+                <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Au</label>
                 <input
                   type="date"
-                  value={audit_logs.dateTo}
+                  value={filters.dateTo}
                   onChange={(e) => {
-                    setaudit_logs({ ...audit_logs, dateTo: e.target.value });
+                    setFilters({ ...filters, dateTo: e.target.value });
                     setCurrentPage(1);
                   }}
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-slate-900 dark:text-white"
@@ -538,9 +482,7 @@ export default function AuditLog() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-blue-600" />
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Journal d'audit
-                  </h3>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Journal d'audit</h3>
                   <Badge tone="slate">{filteredLogs.length}</Badge>
                 </div>
               </div>
@@ -551,13 +493,9 @@ export default function AuditLog() {
                 <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center mx-auto mb-4">
                   <Activity size={24} className="text-blue-600 dark:text-blue-400" />
                 </div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
-                  Aucune action trouvée
-                </h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">Aucune action trouvée</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                  {logs.length === 0
-                    ? 'Aucune action n\'a été enregistrée pour cette équipe.'
-                    : 'Aucune action ne correspond aux filtres sélectionnés.'}
+                  {logs.length === 0 ? 'Aucune action n\'a été enregistrée pour cette équipe.' : 'Aucune action ne correspond aux filtres sélectionnés.'}
                 </p>
               </div>
             ) : (
@@ -566,24 +504,12 @@ export default function AuditLog() {
                   <table className="w-full">
                     <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
                       <tr>
-                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Date & Heure
-                        </th>
-                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Action
-                        </th>
-                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Ressource
-                        </th>
-                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Utilisateur
-                        </th>
-                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Sévérité
-                        </th>
-                        <th className="text-right px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                          Actions
-                        </th>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date & Heure</th>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Action</th>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ressource</th>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Utilisateur</th>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sévérité</th>
+                        <th className="text-right px-4 py-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -592,63 +518,42 @@ export default function AuditLog() {
                         const SeverityIcon = severityConfig.icon;
 
                         return (
-                          <tr
-                            key={log.$id}
-                            className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors"
-                          >
+                          <tr key={log.$id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                                 <Clock size={12} />
-                                <span className="tabular-nums">
-                                  {formatDate(log.$createdAt)}
-                                </span>
+                                <span className="tabular-nums">{formatDate(log.$createdAt)}</span>
                               </div>
                             </td>
-
                             <td className="px-4 py-3">
-                              <div className="text-xs font-medium text-slate-900 dark:text-white">
-                                {getActionLabel(log.action)}
-                              </div>
+                              <div className="text-xs font-medium text-slate-900 dark:text-white">{getActionLabel(log.action)}</div>
                               {log.resourceId && (
                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                                   ID: {log.resourceId.substring(0, 12)}...
                                 </div>
                               )}
                             </td>
-
                             <td className="px-4 py-3">
-                              <Badge tone="slate">
-                                {getResourceLabel(log.resourceType)}
-                              </Badge>
+                              <Badge tone="slate">{getResourceLabel(log.resourceType)}</Badge>
                             </td>
-
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1.5">
                                 <User size={12} className="text-slate-400" />
-                                <div className="text-xs text-slate-700 dark:text-slate-300">
-                                  {log.userName || 'Système'}
-                                </div>
+                                <div className="text-xs text-slate-700 dark:text-slate-300">{log.userName || 'Système'}</div>
                               </div>
                             </td>
-
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
                                 <SeverityIcon
                                   size={12}
                                   className={
-                                    log.severity === 'critical'
-                                      ? 'text-red-500'
-                                      : log.severity === 'warning'
-                                      ? 'text-amber-500'
-                                      : 'text-blue-500'
+                                    log.severity === 'critical' ? 'text-red-500' :
+                                    log.severity === 'warning' ? 'text-amber-500' : 'text-blue-500'
                                   }
                                 />
-                                <Badge tone={severityConfig.tone}>
-                                  {severityConfig.label}
-                                </Badge>
+                                <Badge tone={severityConfig.tone}>{severityConfig.label}</Badge>
                               </div>
                             </td>
-
                             <td className="px-4 py-3 text-right">
                               <button
                                 onClick={() => handleViewDetails(log)}
@@ -668,9 +573,7 @@ export default function AuditLog() {
                 {/* Pagination */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Page {currentPage} / {totalPages}
-                    </span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Page {currentPage} / {totalPages}</span>
                     <div className="flex gap-1.5">
                       <button
                         onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -721,15 +624,10 @@ export default function AuditLog() {
               <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <div className="flex items-center gap-2">
                   <FileText size={18} className="text-blue-600" />
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Détails de l'action
-                  </h3>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Détails de l'action</h3>
                 </div>
                 <button
-                  onClick={() => {
-                    setShowDetailsModal(false);
-                    setSelectedLog(null);
-                  }}
+                  onClick={() => { setShowDetailsModal(false); setSelectedLog(null); }}
                   className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 transition-colors"
                 >
                   ✕
@@ -737,37 +635,20 @@ export default function AuditLog() {
               </div>
 
               <div className="p-5 space-y-4">
-                {/* Informations principales */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Date & Heure
-                    </label>
-                    <div className="text-sm text-slate-900 dark:text-white font-medium">
-                      {formatDate(selectedLog.$createdAt)}
-                    </div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Date & Heure</label>
+                    <div className="text-sm text-slate-900 dark:text-white font-medium">{formatDate(selectedLog.$createdAt)}</div>
                   </div>
-
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Sévérité
-                    </label>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Sévérité</label>
                     <div className="flex items-center gap-1">
                       {(() => {
                         const config = SEVERITY_CONFIG[selectedLog.severity || 'info'];
                         const Icon = config.icon;
                         return (
                           <>
-                            <Icon
-                              size={14}
-                              className={
-                                selectedLog.severity === 'critical'
-                                  ? 'text-red-500'
-                                  : selectedLog.severity === 'warning'
-                                  ? 'text-amber-500'
-                                  : 'text-blue-500'
-                              }
-                            />
+                            <Icon size={14} className={selectedLog.severity === 'critical' ? 'text-red-500' : selectedLog.severity === 'warning' ? 'text-amber-500' : 'text-blue-500'} />
                             <Badge tone={config.tone}>{config.label}</Badge>
                           </>
                         );
@@ -776,111 +657,66 @@ export default function AuditLog() {
                   </div>
                 </div>
 
-                {/* Action */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Action
-                  </label>
-                  <div className="text-sm text-slate-900 dark:text-white font-medium">
-                    {getActionLabel(selectedLog.action)}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                    {selectedLog.action}
-                  </div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Action</label>
+                  <div className="text-sm text-slate-900 dark:text-white font-medium">{getActionLabel(selectedLog.action)}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">{selectedLog.action}</div>
                 </div>
 
-                {/* Ressource */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Type de ressource
-                    </label>
-                    <Badge tone="slate">
-                      {getResourceLabel(selectedLog.resourceType)}
-                    </Badge>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Type de ressource</label>
+                    <Badge tone="slate">{getResourceLabel(selectedLog.resourceType)}</Badge>
                   </div>
-
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      ID Ressource
-                    </label>
-                    <div className="text-sm text-slate-900 dark:text-white font-mono">
-                      {selectedLog.resourceId || '—'}
-                    </div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">ID Ressource</label>
+                    <div className="text-sm text-slate-900 dark:text-white font-mono">{selectedLog.resourceId || '—'}</div>
                   </div>
                 </div>
 
-                {/* Utilisateur */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Utilisateur
-                  </label>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Utilisateur</label>
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
                       {(selectedLog.userName || 'S').charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div className="text-sm text-slate-900 dark:text-white font-medium">
-                        {selectedLog.userName || 'Système'}
-                      </div>
-                      {selectedLog.userEmail && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                          {selectedLog.userEmail}
-                        </div>
-                      )}
+                      <div className="text-sm text-slate-900 dark:text-white font-medium">{selectedLog.userName || 'Système'}</div>
+                      {selectedLog.userEmail && <div className="text-xs text-slate-500 dark:text-slate-400">{selectedLog.userEmail}</div>}
                     </div>
                   </div>
                 </div>
 
-                {/* IP Address */}
                 {selectedLog.ipAddress && (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Adresse IP
-                    </label>
-                    <div className="text-sm text-slate-900 dark:text-white font-mono">
-                      {selectedLog.ipAddress}
-                    </div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Adresse IP</label>
+                    <div className="text-sm text-slate-900 dark:text-white font-mono">{selectedLog.ipAddress}</div>
                   </div>
                 )}
 
-                {/* Détails JSON */}
                 {selectedLog.details && (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Détails de l'opération
-                    </label>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Détails de l'opération</label>
                     <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
                       <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-mono">
                         {(() => {
-                          try {
-                            return JSON.stringify(JSON.parse(selectedLog.details), null, 2);
-                          } catch {
-                            return selectedLog.details;
-                          }
+                          try { return JSON.stringify(JSON.parse(selectedLog.details), null, 2); } 
+                          catch { return selectedLog.details; }
                         })()}
                       </pre>
                     </div>
                   </div>
                 )}
 
-                {/* ID Document */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    ID Document (Appwrite)
-                  </label>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                    {selectedLog.$id}
-                  </div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">ID Document (Appwrite)</label>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">{selectedLog.$id}</div>
                 </div>
               </div>
 
               <div className="flex gap-2 p-5 border-t border-slate-200 dark:border-slate-700 sticky bottom-0 bg-white dark:bg-slate-800">
                 <button
-                  onClick={() => {
-                    setShowDetailsModal(false);
-                    setSelectedLog(null);
-                  }}
+                  onClick={() => { setShowDetailsModal(false); setSelectedLog(null); }}
                   className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
                 >
                   Fermer

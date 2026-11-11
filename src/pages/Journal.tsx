@@ -1,12 +1,10 @@
 // src/pages/Journal.tsx
-
 import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
-import { useRateLimit } from '../hooks/useRateLimit';
 import { databases, DATABASE_ID } from '../appwrite';
 import { Query, ID } from 'appwrite';
 import { toast } from 'sonner';
@@ -23,7 +21,6 @@ import {
   ArrowLeft,
   BookOpenCheck,
   Scale,
-  Printer,
   Filter,
   ChevronRight,
   FileDown,
@@ -117,18 +114,16 @@ export default function Journal() {
 
   const { customTeamId } = useTeam();
 
-  // ✅ 2. Détermination dynamique du référentiel comptable selon le pays
+  // ✅ 2. Détermination 100% dynamique du référentiel comptable selon la config du pays
   const countryConfig = useMemo(
     () => getCountryConfig(country || 'FR') || FALLBACK_COUNTRY,
     [country]
   );
 
+  // Utilise la propriété 'accountingStandard' si elle existe dans ta config, 
+  // sinon génère un label générique basé sur le nom du pays
   const accountingStandardLabel = useMemo(() => {
-    if (countryConfig.code === 'FR') return 'PCG (France)';
-    // Liste des principaux pays membres de l'OHADA
-    const ohadaCountries = ['SN', 'CI', 'CM', 'BF', 'BJ', 'GA', 'ML', 'NE', 'TG', 'CG', 'CD', 'TD', 'GN', 'GW', 'KM'];
-    if (ohadaCountries.includes(countryConfig.code)) return 'SYSCOHADA';
-    return `Plan Comptable ${countryConfig.name}`;
+    return (countryConfig as any).accountingStandard || `Plan Comptable ${countryConfig.name}`;
   }, [countryConfig]);
 
   const [loading, setLoading] = useState(false);
@@ -391,7 +386,7 @@ export default function Journal() {
                     Journal Comptable
                   </h1>
 
-                  {/* ✅ 4. Badge dynamique selon le pays sélectionné */}
+                  {/* ✅ 4. Badge 100% dynamique selon la config du pays */}
                   <Badge tone="blue">
                     {accountingStandardLabel}
                   </Badge>

@@ -50,17 +50,17 @@ const ACCOUNT_CLASSES = [
 export default function BalanceComptable() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // ✅ Récupération du pays en plus des autres paramètres
+  
+  // ✅ Récupération dynamique des paramètres de l'entreprise (y compris le pays)
   const { fm, loading: settingsLoading, companyName, currency, currencyConfig, country } = useCompanySettings();
   const { customTeamId } = useTeam();
 
-  // ✅ Détermination dynamique du référentiel comptable selon le pays
+  // ✅ Détermination 100% dynamique du référentiel comptable selon la config du pays
   const countryConfig = useMemo(() => getCountryConfig(country || 'FR') || FALLBACK_COUNTRY, [country]);
-  const accountingStandardLabel = countryConfig.code === 'FR' 
-    ? 'PCG (France)' 
-    : countryConfig.code === 'SN' || countryConfig.code === 'CI' || countryConfig.code === 'CM' 
-      ? 'SYSCOHADA' 
-      : 'Plan Comptable Local';
+  
+  // Utilise la propriété 'accountingStandard' si elle existe dans ta config, 
+  // sinon génère un label générique basé sur le nom du pays (ex: "Plan Comptable Sénégal")
+  const accountingStandardLabel = (countryConfig as any).accountingStandard || `Plan Comptable ${countryConfig.name}`;
 
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState<TrialBalanceAccount[]>([]);
@@ -111,7 +111,7 @@ export default function BalanceComptable() {
         endDate: new Date(`${endDate}T23:59:59`),
         teamId: customTeamId!,
         format: 'csv',
-      }, accountMapping); // ✅ Le mapping (adapté au pays/équipe) est bien passé ici
+      }, accountMapping);
 
       const trialBalance = generateTrialBalance(entries);
       setBalance(trialBalance);
@@ -286,7 +286,7 @@ export default function BalanceComptable() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <Scale size={18} className="text-blue-600 dark:text-blue-400" />
                   <h1 className="text-xl font-bold text-slate-900 dark:text-white">Balance Comptable</h1>
-                  {/* ✅ Badge dynamique selon le pays sélectionné */}
+                  {/* ✅ Badge 100% dynamique selon la config du pays */}
                   <Badge tone="blue">{accountingStandardLabel}</Badge>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
