@@ -532,7 +532,7 @@ export default function Payments() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={DollarSign}
           iconColor="purple"
@@ -550,7 +550,7 @@ export default function Payments() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* KPIs GLOBAUX avec KPIGrid + StatCell */}
           <KPIGrid columns={4}>
             <StatCell
@@ -924,7 +924,7 @@ export default function Payments() {
               </div>
             </>
           )}
-        </main>
+        </div>
       </div>
     </Sidebar>
   );

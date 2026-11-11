@@ -1344,7 +1344,7 @@ export default function Quotes() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={FileText}
           iconColor="purple"
@@ -1367,7 +1367,7 @@ export default function Quotes() {
         />
 
         {isFrenchEInvoiceRegime && (
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-2 text-sm">
               <Info size={16} className="text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
               <p className="text-blue-800 dark:text-blue-200 text-xs">
@@ -1375,11 +1375,11 @@ export default function Quotes() {
                 Non applicable pour les particuliers (B2C) ou les clients étrangers (export).
               </p>
             </div>
-          </main>
+          </div>
         )}
 
         {!isFrenchEInvoiceRegime && countryConfig.code !== 'XX' && (
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 flex items-start gap-2 text-sm">
               <Info size={16} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
               <p className="text-indigo-800 dark:text-indigo-200 text-xs">
@@ -1390,10 +1390,10 @@ export default function Quotes() {
                 {countryConfig.code !== 'FR' && ' La réforme française d\'e-facturation 2026 ne s\'applique pas à votre entreprise.'}
               </p>
             </div>
-          </main>
+          </div>
         )}
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <ViewTabs
             active={viewMode}
             onChange={setViewMode}
@@ -1670,7 +1670,7 @@ export default function Quotes() {
               </div>
             </>
           )}
-        </main>
+        </div>
 
         <QuoteModal
           isOpen={showModal}

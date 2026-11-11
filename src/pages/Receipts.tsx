@@ -524,7 +524,7 @@ export default function Receipts() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={ReceiptIcon}
           iconColor="purple"
@@ -539,7 +539,7 @@ export default function Receipts() {
           currencySymbol={currencyConfig?.symbol || '€'}
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <KPIGrid columns={4}>
             <StatCell
               value={`+ ${fm(globalInflows)}`}
@@ -807,7 +807,7 @@ export default function Receipts() {
               )}
             </>
           )}
-        </main>
+        </div>
 
         <Modal
           open={!!previewReceipt}

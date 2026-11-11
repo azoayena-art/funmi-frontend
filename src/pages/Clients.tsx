@@ -618,7 +618,7 @@ export default function Clients() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={UserCheck}
           title="Clients"
@@ -657,7 +657,7 @@ export default function Clients() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <KPIGrid columns={4}>
             <StatCell value={totalClients} trend={trendTotal} label="Clients actifs" active={activeStat === 0} onClick={() => setActiveStat(0)} />
             <StatCell value={totalEntreprises} trend={trendEntreprises} label="Entreprises" active={activeStat === 1} onClick={() => setActiveStat(1)} />
@@ -904,7 +904,7 @@ export default function Clients() {
               )}
             </>
           )}
-        </main>
+        </div>
 
         <Modal
           open={showModal}

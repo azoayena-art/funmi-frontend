@@ -257,7 +257,7 @@ export default function ImportExport() {
   if (permLoading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50/50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-full bg-slate-50/50 dark:bg-slate-950 flex items-center justify-center">
           <Loader2 size={32} className="animate-spin text-purple-600" />
         </div>
       </Sidebar>
@@ -276,7 +276,7 @@ export default function ImportExport() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50/50 dark:bg-slate-950">
+      <div className="w-full bg-slate-50/50 dark:bg-slate-950">
         {/* Top bar */}
         <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800">
           <div className="max-w-[1200px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
@@ -303,7 +303,7 @@ export default function ImportExport() {
           </div>
         </div>
 
-        <main className="max-w-[1200px] mx-auto px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-[1200px] mx-auto px-6 lg:px-8 py-6 space-y-6">
 
           {/* Mode : Choix */}
           {mode === 'choose' && (
@@ -691,7 +691,7 @@ export default function ImportExport() {
               </div>
             </Card>
           )}
-        </main>
+        </div>
       </div>
     </Sidebar>
   );

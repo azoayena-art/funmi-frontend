@@ -161,10 +161,15 @@ export function useBackup() {
           backups = await listBackupFiles(directoryHandle);
         }
 
-        // 4. Charger les statistiques des données
+                // 4. Charger les statistiques des données
         let stats: Array<{ collection: string; count: number }> = [];
         if (customTeamId) {
-          stats = await getDataStatistics(customTeamId);
+          try {
+            stats = await getDataStatistics(customTeamId);
+          } catch (e) {
+            console.warn('⚠️ Statistiques indisponibles (collection manquante)');
+            stats = [];
+          }
         }
 
         setState(prev => ({
@@ -484,8 +489,14 @@ export function useBackup() {
         });
 
         // Rafraîchir les statistiques
-        const stats = await getDataStatistics(customTeamId);
-        setState(prev => ({ ...prev, stats, preview: null }));
+                // Rafraîchir les statistiques
+        try {
+          const stats = await getDataStatistics(customTeamId);
+          setState(prev => ({ ...prev, stats, preview: null }));
+        } catch (e) {
+          console.warn('⚠️ Statistiques indisponibles');
+          setState(prev => ({ ...prev, preview: null }));
+        }
       } else {
         toast.error('❌ Erreur lors de la restauration', {
           description: result.errors.slice(0, 3).join(', ')

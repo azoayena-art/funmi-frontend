@@ -22,6 +22,23 @@ import {
   type BackupFileInfo
 } from './fileSystemAccess';
 
+// ✅ Helper sécurisé : ne plante pas si la collection n'existe pas (404)
+const safeListDocuments = async (collectionId: string, teamId: string, limit: number = 1) => {
+  try {
+    return await databases.listDocuments(DATABASE_ID, collectionId, [
+      Query.equal('teamId', teamId),
+      Query.limit(limit)
+    ]);
+  } catch (e: any) {
+    const is404 = e?.code === 404 || String(e?.message || '').includes('404');
+    if (is404) {
+      console.info(`ℹ️ Collection "${collectionId}" absente : ignorée`);
+      return { documents: [], total: 0 };
+    }
+    throw e;
+  }
+};
+
 // ============================================================
 // 📋 INTERFACES
 // ============================================================
@@ -79,7 +96,7 @@ const COLLECTIONS_CONFIG = [
     id: 'invoices', 
     folder: 'billing', 
     label: 'Factures',
-    uniqueFields: ['invoiceNumber'] // ✅ Attributs uniques à gérer
+    uniqueFields: ['invoiceNumber']
   },
   { 
     id: 'quotes', 
@@ -158,7 +175,13 @@ async function fetchAllDocuments(
         console.warn(`⚠️ Limite de 10000 documents atteinte pour ${collectionId}`);
         break;
       }
-    } catch (e) {
+    } catch (e: any) {
+      // ✅ Gestion silencieuse des collections manquantes (404)
+      const is404 = e?.code === 404 || String(e?.message || '').includes('404');
+      if (is404) {
+        console.info(`ℹ️ Collection "${collectionId}" absente lors de l'export : ignorée`);
+        break;
+      }
       console.error(`❌ Erreur fetch ${collectionId}:`, e);
       hasMore = false;
     }
@@ -172,7 +195,7 @@ async function fetchAllDocuments(
  */
 function cleanDocumentForExport(doc: any): any {
   const cleaned: any = {
-    _originalId: doc.$id, // ✅ Sauvegarder l'ID original
+    _originalId: doc.$id,
   };
   
   for (const [key, value] of Object.entries(doc)) {
@@ -399,7 +422,7 @@ function cleanDocumentForImport(doc: any, teamId: string): any {
 }
 
 /**
- * ✅ NOUVEAU : Supprime TOUS les documents d'une collection avec retries
+ * Supprime TOUS les documents d'une collection avec retries
  */
 async function deleteAllDocuments(
   collectionId: string,
@@ -416,7 +439,7 @@ async function deleteAllDocuments(
       let hasMore = true;
       let iterationCount = 0;
       
-      while (hasMore && iterationCount < 50) { // Sécurité anti-boucle infinie
+      while (hasMore && iterationCount < 50) {
         const response = await databases.listDocuments(DATABASE_ID, collectionId, [
           Query.equal('teamId', teamId),
           Query.limit(100)
@@ -474,7 +497,7 @@ async function deleteAllDocuments(
 }
 
 /**
- * ✅ NOUVEAU : Met à jour un document existant au lieu de le créer
+ * Met à jour un document existant au lieu de le créer
  */
 async function updateExistingDocument(
   collectionId: string,
@@ -490,7 +513,7 @@ async function updateExistingDocument(
 }
 
 /**
- * ✅ CORRIGÉ : Restaure une sauvegarde avec gestion robuste des conflits
+ * Restaure une sauvegarde avec gestion robuste des conflits
  */
 export async function restoreBackup(
   file: File | Blob,
@@ -554,7 +577,7 @@ export async function restoreBackup(
           console.log(`✅ ${deleteResult.deleted} documents supprimés de ${config.label}`);
         }
         
-        // ✅ Attendre un peu pour s'assurer de la cohérence
+        // Attendre un peu pour s'assurer de la cohérence
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
@@ -563,7 +586,7 @@ export async function restoreBackup(
         try {
           const cleanedDoc = cleanDocumentForImport(doc, options.teamId);
           
-          // ✅ Utiliser l'ID original du backup
+          // Utiliser l'ID original du backup
           const originalId = doc._originalId || doc.$id || ID.unique();
           
           try {
@@ -645,6 +668,7 @@ export async function restoreBackup(
 
 /**
  * Obtient les statistiques actuelles des données
+ * ✅ CORRIGÉ : Utilise safeListDocuments pour ignorer les collections manquantes
  */
 export async function getDataStatistics(
   teamId: string
@@ -653,16 +677,16 @@ export async function getDataStatistics(
 
   for (const config of COLLECTIONS_CONFIG) {
     try {
-      const response = await databases.listDocuments(DATABASE_ID, config.id, [
-        Query.equal('teamId', teamId),
-        Query.limit(1)
-      ]);
+      // ✅ Utiliser le helper sécurisé au lieu de l'appel direct
+      const response = await safeListDocuments(config.id, teamId, 1);
       
       stats.push({
         collection: config.label,
         count: response.total
       });
-    } catch (e) {
+    } catch (e: any) {
+      // Fallback en cas d'erreur non-404
+      console.warn(`⚠️ Statistiques indisponibles pour ${config.label}:`, e.message);
       stats.push({
         collection: config.label,
         count: 0

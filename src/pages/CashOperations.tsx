@@ -521,7 +521,7 @@ export default function CashOperations() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Wallet}
           iconColor="indigo"
@@ -541,7 +541,7 @@ export default function CashOperations() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           <KPIGrid columns={4}>
             <StatCell label="Total opérations" value={complianceStats.total.toString()} sublabel={`${complianceStats.withJustif} avec justificatif`} trend={0} />
             <StatCell label="Justificatifs validés" value={complianceStats.validated.toString()} sublabel={`Sur ${complianceStats.withJustif} attachés`} trend={complianceStats.validated > 0 ? 1 : 0} />
@@ -643,7 +643,7 @@ export default function CashOperations() {
                 totalItems={filteredOps.length} itemName="opération" />
             )}
           </Card>
-        </main>
+        </div>
 
         <Modal open={showModal} onClose={() => { setShowModal(false); clearOCR(); }} title={modalType === 'in' ? 'Nouvelle entrée' : 'Nouvelle sortie'} icon={modalType === 'in' ? <ArrowDownLeft className="text-emerald-600" size={20} /> : <ArrowUpRight className="text-rose-600" size={20} />} maxWidth="sm:max-w-2xl">
           <div className="space-y-4">

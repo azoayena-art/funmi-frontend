@@ -948,7 +948,7 @@ databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeam
   if (permLoading || settingsLoading || loading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50/50 dark:bg-slate-950">
+        <div className="w-full bg-slate-50/50 dark:bg-slate-950">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-8 space-y-4">
             {[1, 2, 3, 4].map(i => <div key={i} className="h-40 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl animate-pulse" />)}
           </div>
@@ -961,7 +961,7 @@ databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeam
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50/50 dark:bg-slate-950">
+      <div className="w-full bg-slate-50/50 dark:bg-slate-950">
         <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
             <div>
@@ -981,7 +981,7 @@ databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeam
           </div>
         </div>
 
-        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-6">
           
           {/* SECTION 1 : TRÉSORERIE GLOBALE */}
           <section>
@@ -1667,7 +1667,7 @@ databases.listDocuments(DATABASE_ID, 'quotes', [Query.equal('teamId', customTeam
             </div>
 
           </section>
-        </main>
+        </div>
       </div>
     </Sidebar>
   );

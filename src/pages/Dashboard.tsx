@@ -446,7 +446,7 @@ export default function Dashboard() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Activity}
           iconColor="purple"
@@ -484,7 +484,7 @@ export default function Dashboard() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           {/* ========== SECTION TRÉSORERIE ========== */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -870,7 +870,7 @@ export default function Dashboard() {
               )}
             </Card>
           </div>
-        </main>
+        </div>
       </div>
     </Sidebar>
   );

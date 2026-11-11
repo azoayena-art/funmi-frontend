@@ -3,7 +3,6 @@ import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
 import { useRateLimit } from '../hooks/useRateLimit';
@@ -116,8 +115,7 @@ const ITEMS_PER_PAGE = 15;
 // ============================================================
 export default function ExportComptable() {
   const { user } = useAuth();
-  const { hasPermission, loading: permLoading } = usePermissions();
-  const navigate = useNavigate();
+const navigate = useNavigate();
   const { fm, loading: settingsLoading, companyName, currency, currencyConfig } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
 
@@ -177,12 +175,7 @@ export default function ExportComptable() {
   const standardLabel = STANDARD_LABELS[detectedStandard] || STANDARD_LABELS.GENERIC;
   const legalContext = LEGAL_CONTEXT[companyCountry] || (COUNTRY_TO_STANDARD[companyCountry] === 'SYSCOHADA' ? LEGAL_CONTEXT.SYSCOHADA : LEGAL_CONTEXT.DEFAULT);
   const availableFormats = useMemo(() => getExportFormats(companyCountry), [companyCountry]);
-
-  useEffect(() => {
-    if (!permLoading && !hasPermission('reports.export')) navigate('/dashboard');
-  }, [permLoading, hasPermission, navigate]);
-
-  useEffect(() => {
+useEffect(() => {
     if (!customTeamId) return;
     loadCustomAccountMapping(customTeamId).then(({ mapping, customized, customAccounts }) => {
       setAccountMapping(mapping);
@@ -395,10 +388,10 @@ export default function ExportComptable() {
 
   const totalPages = Math.ceil(entries.length / ITEMS_PER_PAGE);
 
-  if (permLoading || settingsLoading) {
+  if (settingsLoading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50/50 dark:bg-slate-950">
+        <div className="w-full bg-slate-50/50 dark:bg-slate-950">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-8 space-y-4">
             <SkeletonCard /><SkeletonCard /><SkeletonCard />
           </div>
@@ -412,7 +405,7 @@ export default function ExportComptable() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50/50 dark:bg-slate-950">
+      <div className="w-full bg-slate-50/50 dark:bg-slate-950">
         {/* ========== TOP BAR ========== */}
         <div className="sticky top-0 z-20 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
@@ -443,7 +436,7 @@ export default function ExportComptable() {
           </div>
         </div>
 
-        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
 
           {/* ========== 🌍 CARTE CONTEXTE PAYS (COMPACTE) ========== */}
           <Card className="!p-4 bg-gradient-to-br from-blue-50/50 via-indigo-50/30 to-transparent dark:from-blue-950/20 dark:via-indigo-950/10 dark:to-transparent border-blue-100 dark:border-blue-900/50">
@@ -919,7 +912,7 @@ export default function ExportComptable() {
               </div>
             </div>
           </Card>
-        </main>
+        </div>
       </div>
     </Sidebar>
   );

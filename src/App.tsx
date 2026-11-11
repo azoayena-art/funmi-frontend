@@ -1,18 +1,15 @@
 // src/App.tsx
 import { lazy, Suspense } from 'react';
-import { Toaster } from "sonner";
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from "sonner";
 import type { ReactNode } from 'react';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
+
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
-import { PaddleProvider } from './context/PaddleContext';
-import BalanceComptable from './pages/BalanceComptable';
-import AuditLog from './pages/AuditLog';
-import SuperAdminRoute from './components/SuperAdminRoute'; // ✅ NOUVEAU
 
 // ============================================================
-// 🔑 reCAPTCHA v3 — Clé publique (Site Key)
+// 🔑 reCAPTCHA v3 — Clé publique
 // ============================================================
 const RECAPTCHA_SITE_KEY =
   import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
@@ -30,7 +27,6 @@ import Dashboard from './pages/Dashboard';
 // ============================================================
 
 // Pages publiques
-const LandingPage = lazy(() => import('./pages/LandingPage'));
 const PublicQuoteView = lazy(() => import('./pages/PublicQuoteView'));
 const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView'));
 const PublicRequest = lazy(() => import('./pages/PublicRequest'));
@@ -38,12 +34,13 @@ const JoinTeam = lazy(() => import('./pages/JoinTeam'));
 const AcceptInvitation = lazy(() => import('./pages/AcceptInvitation'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const ConfirmEmail = lazy(() => import('./pages/ConfirmEmail'));
-
-// 🔐 Pages de récupération de mot de passe (publiques)
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const LegalNotices = lazy(() => import('./pages/LegalNotices'));
+const Pricing = lazy(() => import('./pages/Pricing'));
 
-// Pages métier (utilisateur connecté)
+// Pages métier (CRM, Facturation, Trésorerie)
 const Prospects = lazy(() => import('./pages/Prospects'));
 const Clients = lazy(() => import('./pages/Clients'));
 const ClientDetail = lazy(() => import('./pages/ClientDetail'));
@@ -55,44 +52,28 @@ const ReceivedInvoices = lazy(() => import('./pages/ReceivedInvoices'));
 const Receipts = lazy(() => import('./pages/Receipts'));
 const Payments = lazy(() => import('./pages/Payments'));
 const Reminders = lazy(() => import('./pages/Reminders'));
-
-// Pages Trésorerie
 const Treasury = lazy(() => import('./pages/Treasury'));
 const CashOperations = lazy(() => import('./pages/CashOperations'));
-
-// Pages Stats & Exports
 const Statistics = lazy(() => import('./pages/Statistics'));
+
+// Pages Comptabilité & Admin (Désormais accessibles à tous les connectés)
 const ExportComptable = lazy(() => import('./pages/ExportComptable'));
 const AccountMapping = lazy(() => import('./pages/AccountMapping'));
 const ImportExport = lazy(() => import('./pages/ImportExport'));
-
-// ✅ NOUVELLES PAGES COMPTABILITÉ
 const Journal = lazy(() => import('./pages/Journal'));
 const GrandLivre = lazy(() => import('./pages/GrandLivre'));
-
-// Pages Admin & Configuration
+const BalanceComptable = lazy(() => import('./pages/BalanceComptable'));
+const AuditLog = lazy(() => import('./pages/AuditLog'));
 const TeamSettings = lazy(() => import('./pages/TeamSettings'));
 const CompanySettings = lazy(() => import('./pages/CompanySettings'));
 const BackupUtility = lazy(() => import('./pages/BackupUtility'));
 const Billing = lazy(() => import('./pages/Billing'));
-const Pricing = lazy(() => import('./pages/Pricing'));
 
-// 🛡️ SUPER ADMIN
-const SuperAdmin = lazy(() => import('./pages/SuperAdmin')); // ✅ NOUVEAU
-
-// 📄 Pages légales (publiques)
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
-const LegalNotices = lazy(() => import('./pages/LegalNotices'));
-const RefundPolicy = lazy(() => import('./pages/RefundPolicy'));
-const TermsOfService = lazy(() => import('./pages/TermsOfService'));
-
-// ============================================================
-// 🍪 COMPOSANTS GLOBAUX
-// ============================================================
+// Composants globaux
 const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner'));
 
 // ============================================================
-// 🛡️ GARDE : Route protégée (utilisateur connecté ET vérifié)
+// 🛡️ GARDE : Route protégée (utilisateur connecté uniquement)
 // ============================================================
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -112,7 +93,6 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace />;
   }
 
-  // 🛡️ Bloquer si l'email n'est pas vérifié
   if (user.emailVerification === false) {
     return <Navigate to={`/verify-email?email=${encodeURIComponent(user.email)}`} replace />;
   }
@@ -162,44 +142,24 @@ function AppRoutes() {
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        {/* ===== ROUTE D'ACCUEIL (Landing Page) ===== */}
-        <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} />
-        
-        {/* ===== AUTRES ROUTES PUBLIQUES ===== */}
+        {/* ===== ROUTES PUBLIQUES ===== */}
+        <Route path="/" element={<PublicOnlyRoute><Dashboard /></PublicOnlyRoute>} />
         <Route path="/v/:token" element={<PublicQuoteView />} />
         <Route path="/f/:token" element={<PublicInvoiceView />} />
         <Route path="/demande/:slug" element={<PublicRequest />} />
         <Route path="/join-team" element={<JoinTeam />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/confirm-email" element={<ConfirmEmail />} />
-
         <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
         <Route path="/accept-invitation" element={<AcceptInvitation />} />
-
-        {/* ===== 🔐 RÉCUPÉRATION DE MOT DE PASSE ===== */}
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-
-        {/* ===== 📄 PAGES LÉGALES ===== */}
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
-        <Route path="/refund" element={<RefundPolicy />} />
-        <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/pricing" element={<Pricing />} />
 
-        {/* ===== 🛡️ SUPER ADMIN (URL obscure) ===== */}
-        <Route 
-          path="/tunemetrouveraspas/admin" 
-          element={
-            <ProtectedRoute>
-              <SuperAdminRoute>
-                <SuperAdmin />
-              </SuperAdminRoute>
-            </ProtectedRoute>
-          } 
-        />
-
-        {/* ===== ROUTES PROTÉGÉES (Nécessite connexion + email vérifié) ===== */}
+        {/* ===== ROUTES PROTÉGÉES (ACCESSIBLES À TOUS LES CONNECTÉS) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
         
@@ -209,7 +169,7 @@ function AppRoutes() {
         <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
         <Route path="/catalogue" element={<ProtectedRoute><Catalogue /></ProtectedRoute>} />
         
-        {/* Devis & Factures */}
+        {/* Facturation */}
         <Route path="/quotes" element={<ProtectedRoute><Quotes /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
         <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
@@ -217,26 +177,23 @@ function AppRoutes() {
         <Route path="/reminders" element={<ProtectedRoute><Reminders /></ProtectedRoute>} />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
         
-        {/* Trésorerie */}
+        {/* Trésorerie & Comptabilité (DÉBLOQUÉES) */}
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
         <Route path="/treasury" element={<ProtectedRoute><Treasury /></ProtectedRoute>} />
         <Route path="/cash-operations" element={<ProtectedRoute><CashOperations /></ProtectedRoute>} />
-        <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
-
-        {/* ✅ COMPTABILITÉ — Cycle PCG complet */}
         <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
         <Route path="/grand-livre" element={<ProtectedRoute><GrandLivre /></ProtectedRoute>} />
         <Route path="/balance-comptable" element={<ProtectedRoute><BalanceComptable /></ProtectedRoute>} />
         <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
-
-        {/* Paramètres & Admin */}
+        <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
+        <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
+        
+        {/* Administration & Paramètres */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
-        <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
         <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
         <Route path="/audit-log" element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-        <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
 
         {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -263,27 +220,19 @@ export default function App() {
     >
       <AuthProvider>
         <TeamProvider>
-          <PaddleProvider>
-            <Toaster
-              position="top-right"
-              richColors
-              closeButton
-              theme="system"
-              toastOptions={{
-                style: {
-                  fontSize: '14px',
-                },
-              }}
-            />
-            <BrowserRouter>
-              <AppRoutes />
-              
-              {/* 🍪 BANDEAU COOKIES RGPD */}
-              <Suspense fallback={null}>
-                <CookieConsentBanner />
-              </Suspense>
-            </BrowserRouter>
-          </PaddleProvider>
+          <Toaster
+            position="top-right"
+            richColors
+            closeButton
+            theme="system"
+            toastOptions={{ style: { fontSize: '14px' } }}
+          />
+          <BrowserRouter>
+            <AppRoutes />
+            <Suspense fallback={null}>
+              <CookieConsentBanner />
+            </Suspense>
+          </BrowserRouter>
         </TeamProvider>
       </AuthProvider>
     </GoogleReCaptchaProvider>

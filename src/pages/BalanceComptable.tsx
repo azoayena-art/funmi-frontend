@@ -3,7 +3,6 @@ import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
 import { useRateLimit } from '../hooks/useRateLimit'; // ✅ CORRECTIF 2 : Hook de rate limiting
@@ -48,8 +47,7 @@ const ACCOUNT_CLASSES = [
 
 export default function BalanceComptable() {
   const { user } = useAuth();
-  const { hasPermission, loading: permLoading } = usePermissions();
-  const navigate = useNavigate();
+const navigate = useNavigate();
   const { fm, loading: settingsLoading, companyName, currency, currencyConfig } = useCompanySettings();
   const { customTeamId } = useTeam();
 
@@ -76,12 +74,7 @@ export default function BalanceComptable() {
     maxAttempts: 5,
     windowMs: 60 * 60 * 1000, // 1 heure
   });
-
-  useEffect(() => {
-    if (!permLoading && !hasPermission('reports.export')) navigate('/dashboard');
-  }, [permLoading, hasPermission, navigate]);
-
-  useEffect(() => {
+useEffect(() => {
     if (!customTeamId) return;
     loadCustomAccountMapping(customTeamId)
       .then(({ mapping }) => setAccountMapping(mapping))
@@ -250,10 +243,10 @@ export default function BalanceComptable() {
     });
   }, [balance, searchTerm, showZeroBalances, selectedClass]);
 
-  if (permLoading || settingsLoading) {
+  if (settingsLoading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
           <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
@@ -264,7 +257,7 @@ export default function BalanceComptable() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-950 print:bg-white">
+      <div className="w-full bg-slate-50 dark:bg-slate-950 print:bg-white">
         {/* ========== HEADER ========== */}
         <div className="sticky top-0 z-20 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 print:hidden">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
@@ -313,7 +306,7 @@ export default function BalanceComptable() {
           </div>
         </div>
 
-        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
 
           {/* ========== CONTRÔLES ET PÉRIODE ========== */}
           <Card className="!p-5 print:hidden">
@@ -668,7 +661,7 @@ export default function BalanceComptable() {
               </div>
             </Card>
           )}
-        </main>
+        </div>
 
         {/* Styles d'impression */}
         <style>{`

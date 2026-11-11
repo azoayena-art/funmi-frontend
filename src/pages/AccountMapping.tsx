@@ -1,9 +1,7 @@
 // src/pages/AccountMapping.tsx — Plan Comptable Multi-Pays (CORRIGÉ & OPTIMISÉ)
 import Sidebar from '../components/Sidebar';
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { usePermissions } from '../hooks/usePermissions';
 import { useTeam } from '../context/TeamContext';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { toast } from 'sonner';
@@ -215,8 +213,6 @@ interface CustomSection {
 // ============================================================
 export default function AccountMapping() {
   const { user } = useAuth();
-  const { hasPermission, loading: permLoading } = usePermissions();
-  const navigate = useNavigate();
   const { customTeamId, appwriteTeamId } = useTeam();
   const { companySettings } = useCompanySettings();
 
@@ -246,12 +242,7 @@ export default function AccountMapping() {
   });
 
   useEffect(() => { setSelectedStandard(detectedStandard); }, [detectedStandard]);
-
-  useEffect(() => {
-    if (!permLoading && !hasPermission('settings.edit')) navigate('/dashboard');
-  }, [permLoading, hasPermission, navigate]);
-
-  useEffect(() => {
+useEffect(() => {
     if (!user || !customTeamId) return;
     loadMapping();
   }, [user, customTeamId]);
@@ -526,10 +517,10 @@ export default function AccountMapping() {
     toast.success('Section supprimée (sera appliquée à la sauvegarde)');
   };
 
-  if (permLoading || loading) {
+  if (loading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+        <div className="w-full bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
           <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
@@ -538,7 +529,7 @@ export default function AccountMapping() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         {/* ========== HEADER ========== */}
         <div className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
@@ -585,7 +576,7 @@ export default function AccountMapping() {
           </div>
         </div>
 
-        <main className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-6 space-y-5">
 
           {/* ========== 🌍 CARTE CONTEXTE PAYS ========== */}
           <Card className="!p-4 bg-gradient-to-br from-blue-50/50 via-indigo-50/30 to-transparent dark:from-blue-950/20 dark:via-indigo-950/10 dark:to-transparent border-blue-100 dark:border-blue-900/50">
@@ -883,7 +874,7 @@ export default function AccountMapping() {
               </div>
             </div>
           </Card>
-        </main>
+        </div>
 
         {/* ========== MODAL COMPTE ========== */}
         {showAddModal && (

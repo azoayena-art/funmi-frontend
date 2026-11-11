@@ -1,38 +1,48 @@
 // src/pages/Pricing.tsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePaddle } from '../context/PaddleContext';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
-import { Check, X, Loader2, Sparkles, Shield, Zap } from 'lucide-react';
+import { functions } from '../appwrite'; // Assure-toi que le chemin est correct
+import { DEFAULT_PLANS } from '../data/plansConfig';
+import { Check, X, Loader2, Sparkles, Shield, Zap, Crown, Building2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Récupération des IDs depuis le .env
-const STARTER_PRICE_ID = import.meta.env.VITE_PADDLE_STARTER_PRICE_ID;
-const PRO_PRICE_ID = import.meta.env.VITE_PADDLE_PRO_PRICE_ID;
+const getPlanIcon = (id: string) => {
+  switch (id) {
+    case 'essentiel': return Zap;
+    case 'pro': return Shield;
+    case 'business': return Building2;
+    case 'legende': return Crown;
+    default: return Sparkles;
+  }
+};
+
+const getPlanColor = (id: string) => {
+  switch (id) {
+    case 'essentiel': return 'blue';
+    case 'pro': return 'indigo';
+    case 'business': return 'purple';
+    case 'legende': return 'amber';
+    default: return 'slate';
+  }
+};
 
 export default function Pricing() {
-  const { paddle, isReady } = usePaddle();
   const { user } = useAuth();
   const { customTeamId } = useTeam();
   const navigate = useNavigate();
+  
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [isYearly, setIsYearly] = useState(false);
 
-  // 🔍 DEBUG : Vérifier ce qui est chargé au montage du composant
-  useEffect(() => {
-    console.log('🔍 [DEBUG PRICING] STARTER_PRICE_ID:', STARTER_PRICE_ID);
-    console.log('🔍 [DEBUG PRICING] PRO_PRICE_ID:', PRO_PRICE_ID);
-    console.log('🔍 [DEBUG PRICING] Paddle isReady:', isReady);
-    console.log('🔍 [DEBUG PRICING] Paddle instance:', paddle);
-    console.log('🔍 [DEBUG PRICING] customTeamId:', customTeamId);
-  }, [isReady, paddle, customTeamId]);
-
-  const handleCheckout = async (priceId: string, planName: string) => {
-    console.log('🔍 [DEBUG] handleCheckout appelé avec priceId:', priceId, 'planName:', planName);
-    
-    if (!isReady || !paddle) {
-      console.error('❌ [DEBUG] Paddle n\'est pas prêt. isReady=', isReady, 'paddle=', paddle);
-      toast.error('Paddle n\'est pas encore chargé. Veuillez réessayer dans un instant.');
+  const handleCheckout = async (
+    planId: string,
+    priceId: string | null | undefined,
+    planName: string
+  ) => {
+    if (!priceId) {
+      toast.error('Ce plan n\'est pas disponible au paiement.');
       return;
     }
 
@@ -42,31 +52,44 @@ export default function Pricing() {
       return;
     }
 
-    setLoadingPlan(planName);
-
-    // URL de retour après succès
-    const successUrl = `${window.location.origin}/billing?success=true&plan=${planName}`;
+    if (loadingPlan) return;
+    setLoadingPlan(planId);
 
     try {
-      paddle.Checkout.open({
-        settings: {
-          displayMode: 'overlay',
-          theme: 'light',
-          locale: 'fr',
-          successUrl: successUrl,
-        },
-        items: [{ priceId, quantity: 1 }],
-        customer: {
-          email: user.email,
-        },
-        customData: {
+      console.log('🚀 [PRICING] Demande de lien de checkout au serveur...');
+      
+      // ⚠️ TRÈS IMPORTANT : Remplace cette chaîne par le VRAI ID de ta fonction 'create-checkout'
+      // Tu le trouves dans Appwrite > Functions > create-checkout > Settings (ex: '65a1b2c3...')
+      const CHECKOUT_FUNCTION_ID = 'create-checkout'; 
+
+      const execution = await functions.createExecution(
+        CHECKOUT_FUNCTION_ID,
+        JSON.stringify({
+          priceId: priceId,
           teamId: customTeamId,
           userId: user.$id,
-        },
-      });
-    } catch (error) {
-      console.error('❌ Erreur lors de l\'ouverture du checkout Paddle:', error);
-      toast.error('Erreur lors du lancement du paiement.');
+          userEmail: user.email || ''
+        })
+      );
+
+      console.log('📥 Réponse fonction:', execution.responseStatusCode, execution.responseBody);
+
+      if (execution.responseStatusCode === 200) {
+        const responseData = JSON.parse(execution.responseBody);
+        
+        if (responseData.success && responseData.checkoutUrl) {
+          toast.success('Redirection vers le paiement sécurisé...');
+          window.open(responseData.checkoutUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          throw new Error(responseData.error || 'Erreur inconnue du serveur');
+        }
+      } else {
+        throw new Error(`Erreur serveur: ${execution.responseStatusCode}`);
+      }
+
+    } catch (error: any) {
+      console.error('❌ [PRICING] Erreur:', error);
+      toast.error(error.message || 'Impossible de lancer le paiement. Veuillez réessayer.');
     } finally {
       setLoadingPlan(null);
     }
@@ -76,139 +99,130 @@ export default function Pricing() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header */}
-        <div className="text-center max-w-3xl mx-auto mb-16">
+        <button 
+          type="button"
+          onClick={() => navigate('/billing')}
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors mb-8"
+        >
+          <ArrowLeft size={16} />
+          Retour à mon abonnement
+        </button>
+
+        <div className="text-center max-w-3xl mx-auto mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-semibold mb-4 border border-indigo-100 dark:border-indigo-800">
             <Sparkles size={12} />
             Tarification simple et transparente
           </div>
-          <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-4 tracking-tight">
+          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white mb-4 tracking-tight">
             Choisissez le plan adapté à votre croissance
           </h1>
-          <p className="text-lg text-slate-600 dark:text-slate-400">
-            Démarrez gratuitement avec 14 jours d'essai. Passez à la vitesse supérieure avec Funmi Pro pour la comptabilité complète.
+          <p className="text-lg text-slate-600 dark:text-slate-400 mb-8">
+            Démarrez gratuitement. Passez à la vitesse supérieure avec Funmi.
+          </p>
+
+          <div className="flex items-center justify-center gap-3">
+            <span className={`text-sm font-medium ${!isYearly ? 'text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Mensuel</span>
+            <button
+              type="button"
+              onClick={() => setIsYearly(!isYearly)}
+              className="relative w-14 h-7 bg-slate-200 dark:bg-slate-700 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+            >
+              <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isYearly ? 'translate-x-7' : 'translate-x-0'}`} />
+            </button>
+            <span className={`text-sm font-medium ${isYearly ? 'text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Annuel</span>
+            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full">
+              -2 mois offerts
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-4">
+          {DEFAULT_PLANS.map((plan) => {
+            const Icon = getPlanIcon(plan.id);
+            const color = getPlanColor(plan.id);
+            const price = isYearly && !plan.isLifetime ? plan.yearlyPrice : plan.monthlyPrice;
+            const priceId = isYearly && !plan.isLifetime ? plan.priceIdYearly : plan.priceIdMonthly;
+            const isCurrentLoading = loadingPlan === plan.id;
+
+            return (
+              <div 
+                key={plan.id}
+                className={`relative flex flex-col bg-white dark:bg-slate-900 rounded-2xl border p-6 transition-all duration-300 ${
+                  plan.isPopular 
+                    ? 'border-indigo-500 dark:border-indigo-500 shadow-xl shadow-indigo-500/10 scale-105 z-10' 
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                {plan.isPopular && (
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                    <span className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg flex items-center gap-1 uppercase tracking-wider">
+                      <Sparkles size={10} /> Populaire
+                    </span>
+                  </div>
+                )}
+
+                <div className="mb-6">
+                  <div className={`w-10 h-10 rounded-lg bg-${color}-50 dark:bg-${color}-900/20 flex items-center justify-center mb-4`}>
+                    <Icon size={20} className={`text-${color}-600 dark:text-${color}-400`} />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{plan.name}</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 min-h-[40px]">{plan.description}</p>
+                </div>
+
+                <div className="mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-slate-900 dark:text-white">{price} €</span>
+                    {!plan.isLifetime && <span className="text-sm text-slate-500 dark:text-slate-400">/ {isYearly ? 'an' : 'mois'}</span>}
+                  </div>
+                  {plan.isLifetime && <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-1">Paiement unique à vie</p>}
+                  {!plan.isLifetime && isYearly && <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">Équivalent à {Math.round(price / 12)} € / mois</p>}
+                </div>
+
+                <ul className="space-y-3 mb-8 flex-1">
+                  {plan.features.map((feature, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+                      <Check size={16} className={`text-${color}-500 flex-shrink-0 mt-0.5`} />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                  {plan.limitations.map((limitation, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-400 dark:text-slate-600">
+                      <X size={16} className="flex-shrink-0 mt-0.5" />
+                      <span className="line-through decoration-slate-400/50">{limitation}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  type="button"
+                  onClick={() => handleCheckout(plan.id, priceId, plan.name)}
+                  disabled={isCurrentLoading}
+                  className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    plan.isPopular
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 shadow-lg shadow-indigo-500/25'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {isCurrentLoading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Génération du lien...
+                    </>
+                  ) : (
+                    'Choisir ce plan'
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-12 text-center space-y-2">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Tous les plans incluent un essai gratuit de 14 jours.</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center gap-2">
+            <Shield size={12} /> Paiement 100% sécurisé par Paddle.
           </p>
         </div>
-
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          
-          {/* PLAN STARTER */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-8 flex flex-col hover:border-indigo-300 dark:hover:border-indigo-700 transition-all">
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <Zap size={18} className="text-blue-500" />
-                Funmi Starter
-              </h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Pour les indépendants et TPE qui débutent.</p>
-            </div>
-            <div className="mb-6">
-              <span className="text-4xl font-bold text-slate-900 dark:text-white">14 €</span>
-              <span className="text-slate-500 dark:text-slate-400"> / mois</span>
-              <p className="text-xs text-slate-400 mt-1">+ 14 jours d'essai gratuit</p>
-            </div>
-            
-            <ul className="space-y-3 mb-8 flex-1">
-              {['50 Factures & Devis / mois', '100 Clients & Prospects', 'Relances automatiques basiques', 'Support par email', 'Multi-utilisateur (1 siège)'].map((feature, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
-                  <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                  {feature}
-                </li>
-              ))}
-              {['Export FEC / OHADA', 'Grand Livre & Balance'].map((feature, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-400 dark:text-slate-600 line-through">
-                  <X size={16} className="flex-shrink-0 mt-0.5" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-
-            <button
-              onClick={() => handleCheckout(STARTER_PRICE_ID, 'starter')}
-              disabled={!isReady || loadingPlan !== null}
-              className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {!isReady ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Chargement du paiement...
-                </>
-              ) : loadingPlan === 'starter' ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Redirection...
-                </>
-              ) : (
-                'Commencer l\'essai'
-              )}
-            </button>
-          </div>
-
-          {/* PLAN PRO (Mis en avant) */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border-2 border-indigo-500 dark:border-indigo-500 p-8 flex flex-col relative transform md:-translate-y-4">
-            <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-2">
-              <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
-                <Sparkles size={10} /> Le plus populaire
-              </span>
-            </div>
-            
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <Shield size={18} className="text-indigo-500" />
-                Funmi Pro
-              </h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Pour les PME exigeantes et experts-comptables.</p>
-            </div>
-            <div className="mb-6">
-              <span className="text-4xl font-bold text-slate-900 dark:text-white">39 €</span>
-              <span className="text-slate-500 dark:text-slate-400"> / mois</span>
-              <p className="text-xs text-slate-400 mt-1">+ 14 jours d'essai gratuit</p>
-            </div>
-            
-            <ul className="space-y-3 mb-8 flex-1">
-              {[
-                'Factures & Devis ILLIMITÉS', 
-                'Clients & Prospects ILLIMITÉS', 
-                'Export FEC (France) & SYSCOHADA (OHADA)',
-                'Grand Livre & Balance Comptable',
-                'Relances avancées & Scénarios',
-                'Support prioritaire',
-                'Jusqu\'à 3 sièges utilisateurs'
-              ].map((feature, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
-                  <Check size={16} className="text-indigo-500 flex-shrink-0 mt-0.5" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-
-            <button
-              onClick={() => handleCheckout(PRO_PRICE_ID, 'pro')}
-              disabled={!isReady || loadingPlan !== null}
-              className="w-full py-3 px-4 rounded-lg font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {!isReady ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Chargement du paiement...
-                </>
-              ) : loadingPlan === 'pro' ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Redirection...
-                </>
-              ) : (
-                'Passer à Funmi Pro'
-              )}
-            </button>
-          </div>
-
-        </div>
-
-        {/* Footer info */}
-        <p className="text-center text-xs text-slate-500 dark:text-slate-500 mt-12">
-          Paiement sécurisé par Paddle. Nous gérons automatiquement la TVA européenne et internationale.
-        </p>
       </div>
     </div>
   );

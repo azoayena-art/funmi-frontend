@@ -120,7 +120,7 @@ export default function BackupUtility() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Save}
           iconColor="indigo"
@@ -128,7 +128,7 @@ export default function BackupUtility() {
           description="Gérez vos sauvegardes locales de données"
         />
 
-        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           
           {/* ============================================================ */}
           {/* 📂 SECTION 1 : EMPLACEMENT DU DOSSIER */}
@@ -630,7 +630,7 @@ export default function BackupUtility() {
               </div>
             </div>
           </Card>
-        </main>
+        </div>
 
         {/* ============================================================ */}
         {/* 🔐 MODAL DE CONFIRMATION DE RESTAURATION */}

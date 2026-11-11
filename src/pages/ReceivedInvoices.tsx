@@ -325,7 +325,7 @@ export default function ReceivedInvoices() {
   }, []);
 
   useEffect(() => {
-    if (!permLoading && !hasPermission('invoices.view')) navigate('/dashboard');
+    if (!permLoading && !hasPermission('invoices.suppliers')) navigate('/dashboard');
   }, [permLoading, hasPermission, navigate]);
 
   useEffect(() => {
@@ -1016,7 +1016,7 @@ export default function ReceivedInvoices() {
   // ============================================================
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Receipt}
           iconColor="emerald"
@@ -1039,7 +1039,7 @@ export default function ReceivedInvoices() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {collectionMissing && (
             <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-start gap-3">
               <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
@@ -1564,7 +1564,7 @@ export default function ReceivedInvoices() {
               )}
             </>
           )}
-        </main>
+        </div>
 
         <SupplierInvoiceImportModal
           isOpen={showUploadModal}

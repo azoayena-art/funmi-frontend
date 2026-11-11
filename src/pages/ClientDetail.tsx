@@ -548,7 +548,7 @@ export default function ClientDetail() {
         }
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* KPIs */}
         <KPIGrid columns={4}>
           <StatCell value={fm(totalInvoiced)} label={`Facturé (${vatBaseLabel})`} sublabel={`${revenueInvoices.length} facture(s) active(s)`} />
@@ -878,7 +878,7 @@ export default function ClientDetail() {
             )
           )}
         </div>
-      </main>
+      </div>
 
       <ConfirmDialog
         open={!!clientToArchive}

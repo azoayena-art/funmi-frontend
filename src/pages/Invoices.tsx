@@ -1775,7 +1775,7 @@ export default function Invoices() {
   if (permLoading || settingsLoading) {
     return (
       <Sidebar>
-        <div className="min-h-full bg-slate-50 dark:bg-slate-900 p-6">
+        <div className="w-full bg-slate-50 dark:bg-slate-900 p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="h-10 w-48 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}</div>
@@ -1792,7 +1792,7 @@ export default function Invoices() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Receipt}
           title="Factures"
@@ -1806,17 +1806,17 @@ export default function Invoices() {
           ) : undefined}
         />
         {isFrenchEInvoiceRegime && (
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-2 text-sm">
               <Info size={16} className="text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
               <p className="text-blue-800 dark:text-blue-200 text-xs">
                 <strong>E-facturation B2B (Réforme 2026) :</strong> Obligatoire pour vos clients professionnels français. Non applicable pour les particuliers (B2C) ou les clients étrangers (export).
               </p>
             </div>
-          </main>
+          </div>
         )}
         {!isFrenchEInvoiceRegime && countryConfig.code !== 'XX' && (
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 flex items-start gap-2 text-sm">
               <Info size={16} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
               <p className="text-indigo-800 dark:text-indigo-200 text-xs">
@@ -1825,10 +1825,10 @@ export default function Invoices() {
                 {' La réforme française d\'e-facturation 2026 ne s\'applique pas à votre entreprise.'}
               </p>
             </div>
-          </main>
+          </div>
         )}
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <KPIGrid columns={isSubjectToVAT ? 7 : 6}>
             <StatCell label={`Facturé (${vatBaseLabel})`} value={fm(caFacture)} sublabel={`HT : ${fm(caFacture)} • TVA : ${fm(tvaFacturee)}`} trend={0} />
             <StatCell label="Encaissé (TTC)" value={fm(caEncaisse)} sublabel={`HT : ${fm(caEncaisseHT)} • TVA : ${fm(tvaExigible)}`} trend={0} />
@@ -2023,7 +2023,7 @@ export default function Invoices() {
               </div>
             </>
           )}
-        </main>
+        </div>
 
         <Modal open={showQuoteModal} onClose={() => { setShowQuoteModal(false); setQuoteDetails(null); }} title="Devis d'origine" icon={<FileText className="text-emerald-600" size={20} />}>
           {loadingQuote ? (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Chargement du devis...</div>) : quoteDetails ? (

@@ -509,7 +509,7 @@ export default function Reminders() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Bell}
           iconColor="amber"
@@ -530,7 +530,7 @@ export default function Reminders() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <TypeTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as 'todo' | 'history')} color="purple" />
 
           {activeTab === 'todo' ? (
@@ -683,7 +683,7 @@ export default function Reminders() {
               )}
             </Card>
           )}
-        </main>
+        </div>
 
         {/* MODAL ENVOI RELANCE */}
         <Modal

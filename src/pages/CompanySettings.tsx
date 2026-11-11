@@ -788,7 +788,7 @@ export default function CompanySettings() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Building2}
           iconColor="purple"
@@ -796,7 +796,7 @@ export default function CompanySettings() {
           description="Ces informations pré-rempliront automatiquement vos devis et factures."
         />
 
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           {!canEdit && (
             <Alert tone="warning" icon={Lock} title="Mode lecture seule" className="mb-6">
               Vous n'avez pas les permissions pour modifier ces paramètres.
@@ -2073,7 +2073,7 @@ export default function CompanySettings() {
               </div>
             )}
           </form>
-        </main>
+        </div>
 
         <Modal
           open={showAddTvaModal}

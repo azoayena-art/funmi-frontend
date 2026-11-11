@@ -1,68 +1,114 @@
 // src/hooks/useSubscription.ts
 import { useState, useEffect } from 'react';
-import { databases, DATABASE_ID } from '../appwrite';
-import { Query } from 'appwrite';
+import { functions } from '../appwrite';
 import { useTeam } from '../context/TeamContext';
 
+export type PlanTier = 'free' | 'essentiel' | 'pro' | 'business' | 'legende';
+
 export interface SubscriptionData {
-  planTier: 'free' | 'starter' | 'pro' | 'enterprise';
-  subscriptionStatus: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled';
+  planTier: PlanTier;
+  status: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
   subscriptionRenewsAt: string | null;
   isPro: boolean;
+  isBusiness: boolean;
   isLoading: boolean;
 }
 
+// ⚠️ REMPLACE CECI PAR LE VRAI ID DE TA FONCTION (ex: '65a1b2c3d4e5f6a7b8c9d0e1')
+// Ce n'est PAS le nom de la fonction, mais son identifiant unique de 24 caractères.
+const GET_SUBSCRIPTION_FUNCTION_ID = 'get-subscription'; 
+
 export const useSubscription = (): SubscriptionData => {
-  const { customTeamId } = useTeam();
-  
+  const { customTeamId, loading: teamLoading } = useTeam();
+
   const [data, setData] = useState<SubscriptionData>({
     planTier: 'free',
-    subscriptionStatus: 'none',
+    status: 'none',
     subscriptionRenewsAt: null,
     isPro: false,
+    isBusiness: false,
     isLoading: true,
   });
 
   useEffect(() => {
-    if (!customTeamId) {
-      setData(prev => ({ ...prev, isLoading: false }));
-      return;
-    }
+    let isMounted = true;
 
-    const fetchSubscription = async () => {
+    const fetchSecureSubscription = async () => {
+      console.log('🔍 useSubscription - teamLoading:', teamLoading, 'customTeamId:', customTeamId);
+
+      // Attendre que le TeamContext ait fini de charger ET que customTeamId existe
+      if (teamLoading || !customTeamId) {
+        console.log('⏳ useSubscription - En attente du TeamContext...');
+        if (!teamLoading && isMounted) {
+          setData(prev => ({ ...prev, isLoading: false }));
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setData(prev => ({ ...prev, isLoading: true }));
+      }
+
       try {
-        const response = await databases.listDocuments(
-          DATABASE_ID,
-          'company_settings',
-          [
-            Query.equal('teamId', customTeamId),
-            Query.limit(1)
-          ]
+        // 1. Création explicite de la chaîne JSON pour éviter les bugs de parsing côté serveur
+        const payloadString = JSON.stringify({ teamId: String(customTeamId) });
+        console.log('📤 Payload string exact envoyé à la fonction:', payloadString);
+        
+        // 2. Appel de la fonction (le 2ème argument DOIT être une string)
+        const execution = await functions.createExecution(
+          GET_SUBSCRIPTION_FUNCTION_ID,
+          payloadString 
         );
 
-        if (response.documents.length > 0) {
-          const doc = response.documents[0] as any;
-          const plan = doc.planTier || 'free';
+        if (!isMounted) return;
+
+        console.log('📥 Réponse reçue - Status:', execution.responseStatusCode);
+        console.log('📥 Réponse body:', execution.responseBody);
+
+        if (execution.responseStatusCode === 200) {
+          const responseData = JSON.parse(execution.responseBody);
           
           setData({
-            planTier: plan,
-            subscriptionStatus: doc.subscriptionStatus || 'none',
-            subscriptionRenewsAt: doc.subscriptionRenewsAt || null,
-            isPro: plan === 'pro' || plan === 'enterprise',
+            planTier: responseData.planTier || 'free',
+            status: responseData.status || 'none',
+            subscriptionRenewsAt: responseData.subscriptionRenewsAt || null,
+            isPro: Boolean(responseData.isPro),
+            isBusiness: Boolean(responseData.isBusiness),
             isLoading: false,
           });
         } else {
-          // Fallback si aucun document n'existe encore
-          setData(prev => ({ ...prev, isLoading: false }));
+          console.warn('⚠️ Échec de la vérification (Status:', execution.responseStatusCode, ') - Accès restreint (Fail-Closed)');
+          setData({
+            planTier: 'free',
+            status: 'none',
+            subscriptionRenewsAt: null,
+            isPro: false,
+            isBusiness: false,
+            isLoading: false,
+          });
         }
-      } catch (error) {
-        console.error('Erreur lors du chargement de l\'abonnement:', error);
-        setData(prev => ({ ...prev, isLoading: false }));
+      } catch (err) {
+        console.error('❌ Erreur réseau useSubscription:', err);
+        if (isMounted) {
+          // Fail-Closed en cas d'erreur réseau
+          setData({
+            planTier: 'free',
+            status: 'none',
+            subscriptionRenewsAt: null,
+            isPro: false,
+            isBusiness: false,
+            isLoading: false,
+          });
+        }
       }
     };
 
-    fetchSubscription();
-  }, [customTeamId]);
+    fetchSecureSubscription();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [customTeamId, teamLoading]);
 
   return data;
 };

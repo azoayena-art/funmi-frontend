@@ -1,21 +1,32 @@
-// src/pages/Login.tsx
 import { account } from '../appwrite';
 import { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Mail, Lock, ArrowRight, AlertCircle, Receipt, Users, Loader2, Shield, Clock, AlertTriangle } from 'lucide-react';
+import type { FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  ArrowLeft,
+  AlertCircle,
+  Users,
+  Loader2,
+  Shield,
+  Clock,
+  AlertTriangle,
+  Wallet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { AppwriteException } from 'appwrite';
 import { useLoginRateLimit } from '../hooks/useRateLimit';
 import { useRecaptcha } from '../hooks/useRecaptcha';
 import { validateRecaptchaToken } from '../services/recaptchaService';
+import { BRAND } from '../config/brand';
 
 export default function Login() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
-  // ✅ Rate limiter pour le login
   const {
     tryConsume,
     isBlocked,
@@ -24,10 +35,9 @@ export default function Login() {
     reset,
   } = useLoginRateLimit();
 
-  // 🛡️ Hook reCAPTCHA v3
   const { getToken } = useRecaptcha();
 
-  // ✅ Récupération de TOUS les paramètres d'URL (invitation ou redirect classique)
+  // Paramètres d'URL
   const emailParam = searchParams.get('email') || '';
   const membershipIdParam = searchParams.get('membershipId') || '';
   const secretParam = searchParams.get('secret') || '';
@@ -37,33 +47,29 @@ export default function Login() {
   const fromInvitationParam = searchParams.get('fromInvitation') === 'true';
   const redirectParam = searchParams.get('redirect') || '/dashboard';
 
-  // ✅ Détection du mode invitation
-  const isInvitation = fromInvitationParam || (!!emailParam && !!membershipIdParam);
+  const isInvitation =
+    fromInvitationParam || (!!emailParam && !!membershipIdParam);
 
+  // États
   const [email, setEmail] = useState(emailParam);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [recaptchaDegraded, setRecaptchaDegraded] = useState(false);
 
-  // ✅ Mettre à jour l'email si le paramètre change
   useEffect(() => {
     if (emailParam && !email) {
       setEmail(emailParam);
     }
-  }, [emailParam]);
+  }, [emailParam, email]);
 
-  // ============================================================
-  // ✅ VALIDATION DU FORMAT EMAIL
-  // ============================================================
-  const validateEmail = (email: string): boolean => {
-    const re = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-    return re.test(email) && email.length <= 254;
+  // Validation email
+  const validateEmail = (value: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(value) && value.length <= 254;
   };
 
-  // ============================================================
-  // ✅ WHITELIST DES ROUTES AUTORISÉES (sécurité redirect)
-  // ============================================================
+  // Routes autorisées après connexion
   const ALLOWED_ROUTES = [
     '/dashboard',
     '/prospects',
@@ -83,45 +89,49 @@ export default function Login() {
     '/export-comptable',
   ];
 
-  // ============================================================
-  // ✅ FONCTION DE REDIRECTION INTELLIGENTE
-  // ============================================================
+  // Redirection sécurisée
   const getRedirectUrl = (): string => {
     if (isInvitation) {
       const joinParams = new URLSearchParams();
+
       if (membershipIdParam) joinParams.set('membershipId', membershipIdParam);
       if (secretParam) joinParams.set('secret', secretParam);
       if (emailParam) joinParams.set('email', emailParam);
       if (nameParam) joinParams.set('name', nameParam);
-      if (appwriteTeamIdParam) joinParams.set('appwriteTeamId', appwriteTeamIdParam);
-      if (customTeamIdParam) joinParams.set('customTeamId', customTeamIdParam);
+      if (appwriteTeamIdParam) {
+        joinParams.set('appwriteTeamId', appwriteTeamIdParam);
+      }
+      if (customTeamIdParam) {
+        joinParams.set('customTeamId', customTeamIdParam);
+      }
 
       return `/join-team?${joinParams.toString()}`;
     }
 
-    // ✅ Sécurité : validation stricte de la redirection classique
-    if (!redirectParam || !redirectParam.startsWith('/') || redirectParam.startsWith('//')) {
+    if (
+      !redirectParam ||
+      !redirectParam.startsWith('/') ||
+      redirectParam.startsWith('//')
+    ) {
       return '/dashboard';
     }
 
-    // ✅ Vérifier que la route est dans la whitelist
     const basePath = redirectParam.split('?')[0];
-    const isAllowed = ALLOWED_ROUTES.some(route =>
-      basePath === route || basePath.startsWith(route + '/')
+
+    const isAllowed = ALLOWED_ROUTES.some(
+      route => basePath === route || basePath.startsWith(route + '/')
     );
 
     return isAllowed ? redirectParam : '/dashboard';
   };
 
-  // ============================================================
-  // 📤 SOUMISSION DU FORMULAIRE
-  // ============================================================
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Connexion
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
     setError('');
     setRecaptchaDegraded(false);
 
-    // ✅ Rate limit AVANT le captcha (pour économiser les appels)
     if (isBlocked) {
       toast.error('Compte temporairement bloqué', {
         description: `Trop de tentatives échouées. Réessayez dans ${remainingTimeFormatted}.`,
@@ -130,7 +140,6 @@ export default function Login() {
       return;
     }
 
-    // ✅ Validation du format email
     if (!validateEmail(email)) {
       toast.error('Email invalide', {
         description: 'Veuillez saisir une adresse email valide.',
@@ -138,7 +147,6 @@ export default function Login() {
       return;
     }
 
-    // ✅ Validation mot de passe non vide
     if (!password || password.length < 8) {
       toast.error('Mot de passe requis', {
         description: 'Le mot de passe doit contenir au moins 8 caractères.',
@@ -146,8 +154,8 @@ export default function Login() {
       return;
     }
 
-    // ✅ Consommer une tentative
     const rateCheck = tryConsume();
+
     if (!rateCheck.allowed) {
       toast.error('Trop de tentatives', {
         description: `Veuillez patienter ${rateCheck.remainingTimeFormatted} avant de réessayer.`,
@@ -159,166 +167,209 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 🛡️ ÉTAPE 1 : Générer le token reCAPTCHA v3 (invisible)
+      // Récupération du token reCAPTCHA
       const recaptchaToken = await getToken('login');
+
       if (!recaptchaToken) {
         toast.error('Vérification anti-bot impossible', {
           description: 'Rechargez la page et réessayez.',
         });
-        setLoading(false);
         return;
       }
 
-      // 🛡️ ÉTAPE 2 : Valider côté serveur (Cloud Function Appwrite)
-      // ✅ BYPASS LOCAL : Désactive reCAPTCHA uniquement sur localhost/127.0.0.1 pour éviter les blocages de dev
-      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isDev =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
 
-      let validation;
+      let validation: any;
+
       if (isDev) {
-        console.warn('⚠️ [DEV MODE] reCAPTCHA bypassé pour développement local');
-        validation = { success: true, score: 0.9, action: 'login', degraded: true };
+        console.warn('[DEV MODE] reCAPTCHA bypassed for local development');
+
+        validation = {
+          success: true,
+          score: 0.9,
+          action: 'login',
+          degraded: true,
+        };
       } else {
-        validation = await validateRecaptchaToken(recaptchaToken, 'login', 0.5);
+        validation = await validateRecaptchaToken(
+          recaptchaToken,
+          'login',
+          0.5
+        );
       }
 
-      // ✅ Gestion des réponses
       if (validation.degraded) {
-        console.warn('⚠️ [MODE DÉGRADÉ] reCAPTCHA non validé côté serveur:', validation.error);
+        console.warn(
+          '[DEGRADED MODE] reCAPTCHA server validation failed:',
+          validation.error
+        );
+
         setRecaptchaDegraded(true);
-        toast.warning('⚠️ Vérification anti-bot désactivée', {
-          description: 'Mode développement ou erreur serveur. La connexion est autorisée.',
+
+        toast.warning('Vérification anti-bot désactivée', {
+          description:
+            'Mode développement ou erreur serveur. La connexion est autorisée.',
           duration: 8000,
         });
       } else if (!validation.success) {
-        // ❌ Validation échouée
-        console.warn('🛡️ reCAPTCHA v3 rejeté:', validation);
+        console.warn('reCAPTCHA v3 rejected:', validation);
+
         toast.error('Vérification anti-bot échouée', {
-          description: validation.score !== undefined
-            ? `Score: ${validation.score.toFixed(2)} — comportement suspect.`
-            : validation.error || 'Réessayez.',
+          description:
+            validation.score !== undefined
+              ? `Score : ${validation.score.toFixed(2)} - comportement suspect.`
+              : validation.error || 'Réessayez.',
           duration: 6000,
         });
-        setLoading(false);
+
         return;
       } else {
-        // ✅ Validation réussie
-        console.log(`✅ reCAPTCHA v3 OK (score: ${validation.score?.toFixed(2)})`);
+        console.log(
+          `reCAPTCHA v3 OK (score: ${validation.score?.toFixed(2)})`
+        );
       }
 
-      // 🛡️ ÉTAPE 3 : Login Appwrite
+      // Authentification Appwrite
       await login(email, password);
 
-      // ✅ Reset du compteur en cas de succès
       reset();
 
       const safeRedirect = getRedirectUrl();
-      console.log('✅ Connexion réussie, redirection vers:', safeRedirect);
+
+      console.log('Login successful, redirecting to:', safeRedirect);
 
       toast.success('Connexion réussie', {
         description: isInvitation
           ? 'Vous allez être redirigé vers votre équipe.'
-          : 'Bienvenue sur RelancePro !',
+          : `Bienvenue sur ${BRAND.name} !`,
         duration: 3000,
       });
 
-      // 🚀 RECHARGEMENT COMPLET (Hard Redirect)
-      setTimeout(() => {
+      window.setTimeout(() => {
         window.location.href = safeRedirect;
       }, 500);
 
     } catch (err: unknown) {
-      console.error('🔥 Login error complète:', err);
-      
-      // ✅ DÉTECTION SPÉCIFIQUE DES ERREURS CSP
-      const errorMessage = (err as any)?.message || '';
-      const isCSPError = errorMessage.includes('Content Security Policy') || 
-                         errorMessage.includes('Refused to connect') ||
-                         errorMessage.includes('Failed to fetch');
+      console.error('Login error:', err);
 
+      const errorMessage = (err as any)?.message || '';
+
+      const isCSPError =
+        errorMessage.includes('Content Security Policy') ||
+        errorMessage.includes('Refused to connect') ||
+        errorMessage.includes('Failed to fetch');
+
+      // Vérification d'une éventuelle session créée malgré l'erreur CSP
       if (isCSPError) {
-        console.warn('⚠️ Erreur CSP détectée, vérification de la session...');
-        
-        // 🎯 ASTUCE : Vérifier si la session a été créée malgré l'erreur CSP
+        console.warn('CSP error detected, checking session...');
+
         try {
-          // Attendre un peu pour laisser Appwrite créer la session
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Tenter de récupérer la session actuelle
+          await new Promise(resolve => window.setTimeout(resolve, 500));
+
           const currentSession = await account.get();
-          
+
           if (currentSession && currentSession.$id) {
-            console.log('✅ Session créée malgré l\'erreur CSP !');
+            console.log('Session created despite CSP error');
+
             reset();
-            
+
             const safeRedirect = getRedirectUrl();
+
             toast.success('Connexion réussie !', {
               description: 'Redirection en cours...',
               duration: 2000,
             });
-            
-            setTimeout(() => {
+
+            window.setTimeout(() => {
               window.location.href = safeRedirect;
             }, 500);
+
             return;
           }
-        } catch (sessionCheckError) {
-          console.log('❌ Pas de session active, l\'erreur est réelle');
+        } catch {
+          console.log('No active session, error is real');
         }
       }
 
-      // ✅ Gestion des erreurs Appwrite classiques
       if (err instanceof AppwriteException) {
         switch (err.code) {
           case 401:
             setError('Email ou mot de passe incorrect.');
+
             toast.error('Identifiants invalides', {
               description: `${remainingAttempts} tentative(s) restante(s) avant blocage.`,
               duration: 4000,
             });
             break;
+
           case 429:
-            setError('Trop de tentatives. Veuillez réessayer dans quelques minutes.');
+            setError(
+              'Trop de tentatives. Veuillez réessayer dans quelques minutes.'
+            );
+
             toast.error('Compte temporairement bloqué', {
-              description: 'Trop de tentatives depuis cette adresse IP. Réessayez plus tard.',
+              description:
+                'Trop de tentatives depuis cette adresse IP. Réessayez plus tard.',
               duration: 6000,
             });
             break;
+
           case 400:
             setError('Données invalides. Vérifiez votre email.');
+
             toast.error('Données invalides', {
               description: 'Vérifiez le format de votre adresse email.',
             });
             break;
+
           case 403:
-            setError('Domaine non autorisé. Contactez l\'administrateur.');
+            setError(
+              "Domaine non autorisé. Contactez l'administrateur."
+            );
+
             toast.error('Accès refusé', {
-              description: 'Ce domaine n\'est pas autorisé dans Appwrite. Vérifiez Settings → Platforms.',
+              description:
+                "Ce domaine n'est pas autorisé. Vérifiez Settings -> Platforms.",
               duration: 6000,
             });
             break;
+
           case 503:
-            setError('Service temporairement indisponible. Veuillez réessayer.');
+            setError('Service temporairement indisponible.');
+
             toast.error('Service indisponible', {
-              description: 'Nos serveurs sont en maintenance. Réessayez dans quelques instants.',
+              description:
+                'Nos serveurs sont en maintenance. Réessayez dans quelques instants.',
             });
             break;
+
           default:
             setError(`Erreur de connexion : ${err.message}`);
+
             toast.error('Erreur de connexion', {
               description: err.message || 'Une erreur est survenue.',
             });
         }
       } else if (isCSPError) {
-        // ✅ Message spécifique pour les erreurs CSP
-        setError('Problème de sécurité détecté. Actualisez la page (Ctrl+Shift+R) et réessayez.');
+        setError(
+          'Problème de sécurité détecté. Actualisez la page (Ctrl+Shift+R) et réessayez.'
+        );
+
         toast.error('Erreur de configuration', {
-          description: 'Si le problème persiste après actualisation, contactez le support.',
+          description:
+            'Si le problème persiste après actualisation, contactez le support.',
           duration: 6000,
         });
       } else {
-        setError('Une erreur inattendue est survenue. Veuillez réessayer.');
+        setError(
+          'Une erreur inattendue est survenue. Veuillez réessayer.'
+        );
+
         toast.error('Erreur inattendue', {
-          description: 'Vérifiez votre connexion internet et réessayez.',
+          description:
+            'Vérifiez votre connexion internet et réessayez.',
         });
       }
     } finally {
@@ -326,255 +377,366 @@ export default function Login() {
     }
   };
 
-  // ============================================================
-  // ✅ CONSTRUIRE LE LIEN VERS REGISTER
-  // ============================================================
+  // URL d'inscription, y compris pour les invitations
   const getRegisterUrl = (): string => {
     if (isInvitation) {
       const registerParams = new URLSearchParams();
+
       registerParams.set('email', emailParam);
+
       if (nameParam) registerParams.set('name', nameParam);
-      if (membershipIdParam) registerParams.set('membershipId', membershipIdParam);
+      if (membershipIdParam) {
+        registerParams.set('membershipId', membershipIdParam);
+      }
       if (secretParam) registerParams.set('secret', secretParam);
-      if (appwriteTeamIdParam) registerParams.set('appwriteTeamId', appwriteTeamIdParam);
-      if (customTeamIdParam) registerParams.set('customTeamId', customTeamIdParam);
+      if (appwriteTeamIdParam) {
+        registerParams.set('appwriteTeamId', appwriteTeamIdParam);
+      }
+      if (customTeamIdParam) {
+        registerParams.set('customTeamId', customTeamIdParam);
+      }
+
       registerParams.set('fromInvitation', 'true');
+
       return `/register?${registerParams.toString()}`;
     }
+
     return '/register';
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-900 transition-colors">
-      {/* Partie gauche : Image en arrière-plan avec overlay */}
-      <div className="hidden lg:flex w-1/2 relative overflow-hidden items-center justify-center p-12">
-        <img
-          src="https://images.unsplash.com/photo-1581092160562-40aa08e78837?q=80&w=1000&auto=format&fit=crop"
-          alt="Technicien avec tablette"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-purple-800/85 to-indigo-700/80"></div>
-
-        <div className="relative z-10 text-white max-w-md">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <Receipt size={24} className="text-white" />
-            </div>
-            <h1 className="text-4xl font-bold">RelancePro</h1>
-          </div>
-          <p className="text-purple-100 text-xl leading-relaxed mb-8">
-            Ne laissez plus vos devis et vos factures sans réponse. Automatisez vos relances commerciales et récupérez davantage de paiements.
-          </p>
-          <div className="flex flex-wrap gap-3 text-purple-200 text-sm">
-            <span className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10">✓ Suivi des prospects</span>
-            <span className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10">✓ Relances automatiques</span>
-            <span className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10">✓ Gestion des factures</span>
-          </div>
-        </div>
+    <div className="min-h-screen bg-[#f2f1e9] px-2 py-2 font-sans text-slate-900 sm:px-4 sm:py-4 lg:px-6">
+      {/* Bouton retour vers la landing */}
+      <div className="max-w-[1440px] mx-auto mb-3 flex items-center">
+        <Link
+          to="/"
+          className="group inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-indigo-600 transition-colors"
+        >
+          <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" />
+          Retour à l'accueil
+        </Link>
       </div>
 
-      {/* Partie droite : Formulaire */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8">
-        <div className="w-full max-w-md">
-          {/* Logo mobile */}
-          <div className="lg:hidden flex items-center gap-2 justify-center mb-8">
-            <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center">
-              <Receipt size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-slate-900 dark:text-white">RelancePro</span>
-          </div>
+      <div className="relative mx-auto max-w-[1440px] overflow-hidden rounded-[24px] bg-white shadow-[0_20px_80px_-30px_rgba(15,23,42,0.18)] sm:rounded-[30px]">
+        {/* Bandeau supérieur */}
+        <div className="flex min-h-8 items-center justify-center bg-slate-950 px-4 py-2 text-center text-[10px] font-medium tracking-wide text-white sm:text-xs">
+          {BRAND.tagline}
+        </div>
 
-          <div className="text-center lg:text-left">
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2 justify-center lg:justify-start">
-              {isInvitation ? <Users size={28} className="text-purple-600 dark:text-purple-400" /> : null}
-              {isInvitation ? 'Accepter l\'invitation' : 'Bon retour parmi nous'}
-            </h2>
-            <p className="mt-2 text-slate-500 dark:text-slate-400">
-              {isInvitation
-                ? 'Connectez-vous pour rejoindre votre équipe.'
-                : 'Entrez vos identifiants pour accéder à votre espace.'}
-            </p>
-          </div>
+        <div className="grid min-h-[calc(100vh-6rem)] lg:grid-cols-[1.1fr_1fr]">
+          {/* Partie gauche - Hero editorial (visible sur desktop) */}
+          <div className="relative hidden overflow-hidden bg-[#fafaf6] px-12 py-20 lg:flex lg:flex-col lg:justify-between">
+            <div className="pointer-events-none absolute -left-40 top-10 h-96 w-96 rounded-full bg-emerald-100/50 blur-3xl" />
+            <div className="pointer-events-none absolute -right-40 bottom-10 h-96 w-96 rounded-full bg-indigo-100/50 blur-3xl" />
 
-          {/* ✅ Bannière d'invitation */}
-          {isInvitation && (
-            <div className="mt-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-              <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-semibold">Invitation à rejoindre une équipe</p>
-                <p className="text-xs mt-1">Connectez-vous avec : <strong className="font-mono">{emailParam}</strong></p>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ Bannière de redirection classique */}
-          {!isInvitation && redirectParam !== '/dashboard' && (
-            <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-lg text-xs flex items-start gap-2">
-              <ArrowRight size={14} className="mt-0.5 flex-shrink-0" />
-              <span>Après connexion, vous serez redirigé vers votre destination.</span>
-            </div>
-          )}
-
-          {/* ⚠️ Alerte mode dégradé reCAPTCHA */}
-          {recaptchaDegraded && (
-            <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-              <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-semibold">Mode développement</p>
-                <p className="text-xs mt-1">
-                  La vérification anti-bot serveur n'est pas configurée. La connexion fonctionne sans protection reCAPTCHA.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ Alerte de blocage rate limit */}
-          {isBlocked && (
-            <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-              <Clock size={18} className="mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-semibold">Compte temporairement bloqué</p>
-                <p className="text-xs mt-1">
-                  Trop de tentatives échouées. Réessayez dans <strong>{remainingTimeFormatted}</strong>.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ Erreur inline (pour accessibilité, en plus du toast) */}
-          {error && !isBlocked && (
-            <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
-              <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="mt-6 space-y-6">
-            <div className="space-y-4">
-              {/* Champ Email */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  Adresse email
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
-                    <Mail size={18} />
-                  </div>
-                  <input
-                    id="email"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading || isBlocked}
-                    className={`block w-full pl-10 pr-3 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-slate-900 dark:text-white placeholder-slate-400 disabled:opacity-60 disabled:cursor-not-allowed ${
-                      isInvitation ? 'bg-slate-100 dark:bg-slate-800/50' : ''
-                    }`}
-                    placeholder="nom@entreprise.com"
-                    readOnly={isInvitation}
-                  />
+            {/* Logo */}
+            <div className="relative z-10">
+              <Link to="/" className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                  <Wallet size={19} strokeWidth={2.2} />
                 </div>
-                {isInvitation && (
-                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-1.5 flex items-center gap-1">
-                    🔒 Email verrouillé (invitation)
-                  </p>
+                <span className="text-xl font-bold tracking-tight text-slate-950">
+                  {BRAND.name}
+                </span>
+              </Link>
+            </div>
+
+            {/* Contenu principal */}
+            <div className="relative z-10 max-w-lg">
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600">
+                {isInvitation ? 'Invitation équipe' : 'Connexion sécurisée'}
+              </p>
+              <h1 className="text-5xl font-semibold leading-[1.04] tracking-[-0.055em] text-slate-950">
+                {isInvitation ? (
+                  <>
+                    Rejoignez votre
+                    <br />
+                    <span className="text-indigo-600">équipe.</span>
+                  </>
+                ) : (
+                  <>
+                    Bon retour
+                    <br />
+                    <span className="text-indigo-600">sur {BRAND.name}.</span>
+                  </>
                 )}
-              </div>
+              </h1>
+              <p className="mt-6 text-base leading-8 text-slate-600">
+                Retrouvez vos devis, factures, relances clients et votre suivi de trésorerie depuis votre espace de gestion.
+              </p>
+            </div>
 
-              {/* Champ Mot de passe */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Mot de passe
-                  </label>
-                  <Link
-                    to="/forgot-password"
-                    className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 transition-colors"
-                  >
-                    Mot de passe oublié ?
-                  </Link>
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
-                    <Lock size={18} />
+            {/* Témoignage */}
+            <div className="relative z-10">
+              <div className="rounded-2xl border border-slate-200 bg-white/60 p-5 backdrop-blur-sm">
+                <p className="text-sm leading-7 text-slate-700 italic">
+                  "Depuis que j'utilise {BRAND.name}, mes délais de paiement ont été divisés par deux. Un outil indispensable."
+                </p>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+                    SM
                   </div>
-                  <input
-                    id="password"
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading || isBlocked}
-                    className="block w-full pl-10 pr-3 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-slate-900 dark:text-white placeholder-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                    placeholder="••••••••"
-                    autoFocus={!isInvitation}
-                  />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-900">Sophie Martin</p>
+                    <p className="text-[10px] text-slate-500">Gérante, Martin Rénovation</p>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Bouton de soumission */}
-            <button
-              type="submit"
-              disabled={loading || isBlocked || !email || !password}
-              className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 dark:focus:ring-offset-slate-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={18} className="animate-spin mr-2" />
-                  Vérification et connexion...
-                </>
-              ) : isBlocked ? (
-                <>
-                  <Clock size={18} className="mr-2" />
-                  Réessayez dans {remainingTimeFormatted}
-                </>
-              ) : (
-                <>
-                  {isInvitation ? 'Accepter l\'invitation' : 'Se connecter'}
-                  <ArrowRight size={18} className="ml-2" />
-                </>
-              )}
-            </button>
-
-            {/* ✅ Mention légale Google reCAPTCHA v3 (obligatoire) */}
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center">
-              Ce site est protégé par reCAPTCHA v3.{' '}
-              <a href="https://policies.google.com/privacy" target="_blank" rel="noopener" className="underline">
-                Politique de confidentialité Google
-              </a>
-              {' · '}
-              <a href="https://policies.google.com/terms" target="_blank" rel="noopener" className="underline">
-                Conditions d'utilisation
-              </a>
-            </p>
-
-            {/* ✅ Compteur de tentatives restantes */}
-            {!isBlocked && remainingAttempts < 5 && !loading && (
-              <div className="flex items-center justify-center gap-2 text-xs text-amber-600 dark:text-amber-400">
-                <Shield size={12} />
-                <span>{remainingAttempts} tentative(s) restante(s) avant blocage temporaire</span>
+          {/* Partie droite - Formulaire */}
+          <div className="flex items-center justify-center px-5 py-12 sm:px-8 lg:px-12">
+            <div className="w-full max-w-md">
+              {/* Logo mobile */}
+              <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+                <Link to="/" className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                    <Wallet size={19} strokeWidth={2.2} />
+                  </div>
+                  <span className="text-xl font-bold tracking-tight text-slate-950">
+                    {BRAND.name}
+                  </span>
+                </Link>
               </div>
-            )}
-          </form>
 
-          <p className="mt-8 text-center text-sm text-slate-600 dark:text-slate-400">
-            Pas encore de compte ?{' '}
-            <Link
-              to={getRegisterUrl()}
-              className="font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
-            >
-              Créer un compte gratuitement
-            </Link>
-          </p>
+              {/* Présentation */}
+              <div className="mb-8">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600">
+                  {isInvitation ? 'Invitation équipe' : 'Connexion'}
+                </p>
+                <h2 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+                  {isInvitation ? 'Accepter l\'invitation' : 'Connectez-vous à votre espace'}
+                </h2>
+                <p className="mt-3 text-sm leading-7 text-slate-600">
+                  {isInvitation
+                    ? 'Connectez-vous pour rejoindre votre équipe.'
+                    : `Entrez vos identifiants pour accéder à votre espace ${BRAND.name}.`}
+                </p>
+              </div>
 
-          {/* ✅ Footer sécurité */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 text-center">
-            <p className="text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center gap-1">
-              <Shield size={12} /> Connexion sécurisée • Protection anti-brute force et reCAPTCHA v3 actives
-            </p>
+              {/* Bannière d'invitation */}
+              {isInvitation && (
+                <div className="mb-5 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4">
+                  <div className="flex items-start gap-3">
+                    <Users size={16} className="mt-0.5 shrink-0 text-indigo-600" />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Invitation à rejoindre une équipe</p>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        Connectez-vous avec : <strong className="font-mono">{emailParam}</strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bannière de redirection */}
+              {!isInvitation && redirectParam !== '/dashboard' && (
+                <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[11px] text-slate-600 flex items-center gap-2">
+                    <ArrowRight size={12} />
+                    Après connexion, redirection vers votre destination.
+                  </p>
+                </div>
+              )}
+
+              {/* reCAPTCHA dégradé */}
+              {recaptchaDegraded && (
+                <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Mode développement</p>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        Vérification anti-bot serveur non configurée.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Blocage rate limit */}
+              {isBlocked && (
+                <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50/60 p-4">
+                  <div className="flex items-start gap-3">
+                    <Clock size={16} className="mt-0.5 shrink-0 text-rose-700" />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Compte temporairement bloqué</p>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        Réessayez dans <strong>{remainingTimeFormatted}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Erreur inline */}
+              {error && !isBlocked && (
+                <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50/60 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0 text-rose-700" />
+                    <p className="text-xs text-slate-700">{error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Formulaire */}
+              <form onSubmit={handleSubmit} className="space-y-5">
+                {/* Email */}
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+                  >
+                    Adresse email
+                  </label>
+
+                  <div className="relative">
+                    <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                    <input
+                      id="email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      disabled={loading || isBlocked}
+                      readOnly={isInvitation}
+                      placeholder="nom@entreprise.com"
+                      className={`block w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isInvitation ? 'bg-slate-50' : ''
+                      }`}
+                    />
+                  </div>
+
+                  {isInvitation && (
+                    <p className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-600">
+                      <Lock size={10} /> Email verrouillé pour cette invitation
+                    </p>
+                  )}
+                </div>
+
+                {/* Mot de passe */}
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label
+                      htmlFor="password"
+                      className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+                    >
+                      Mot de passe
+                    </label>
+
+                    <Link
+                      to="/forgot-password"
+                      className="text-[11px] font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
+                    >
+                      Mot de passe oublié ?
+                    </Link>
+                  </div>
+
+                  <div className="relative">
+                    <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                    <input
+                      id="password"
+                      type="password"
+                      required
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      disabled={loading || isBlocked}
+                      placeholder="Votre mot de passe"
+                      autoFocus={!isInvitation}
+                      className="block w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+
+                {/* Bouton de soumission */}
+                <button
+                  type="submit"
+                  disabled={loading || isBlocked || !email || !password}
+                  className="group flex w-full items-center justify-center gap-2 rounded-full bg-slate-950 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Vérification en cours...
+                    </>
+                  ) : isBlocked ? (
+                    <>
+                      <Clock size={16} />
+                      Réessayez dans {remainingTimeFormatted}
+                    </>
+                  ) : (
+                    <>
+                      {isInvitation ? 'Accepter l\'invitation' : 'Se connecter'}
+                      <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+                    </>
+                  )}
+                </button>
+
+                {/* Tentatives restantes */}
+                {!isBlocked && remainingAttempts < 5 && !loading && (
+                  <div className="flex items-center justify-center gap-2 text-[11px] text-amber-700">
+                    <Shield size={12} />
+                    <span>{remainingAttempts} tentative(s) restante(s) avant blocage</span>
+                  </div>
+                )}
+              </form>
+
+              {/* Inscription */}
+              <div className="mt-8 border-t border-slate-100 pt-6 text-center">
+                <p className="text-sm text-slate-600">
+                  Pas encore de compte ?{' '}
+                  <Link
+                    to={getRegisterUrl()}
+                    className="font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
+                  >
+                    Créer un compte
+                  </Link>
+                </p>
+              </div>
+
+              {/* Mention reCAPTCHA */}
+              <p className="mt-6 text-center text-[11px] leading-6 text-slate-400">
+                Ce site est protégé par reCAPTCHA v3.{' '}
+                <a
+                  href="https://policies.google.com/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-slate-600"
+                >
+                  Politique de confidentialité Google
+                </a>
+                {' · '}
+                <a
+                  href="https://policies.google.com/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-slate-600"
+                >
+                  Conditions d'utilisation
+                </a>
+              </p>
+
+              {/* Liens légaux */}
+              <div className="mt-6 flex items-center justify-center gap-4 text-[10px] text-slate-400">
+                <Link to="/terms" className="hover:text-slate-600 transition-colors">
+                  Conditions
+                </Link>
+                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                <Link to="/privacy" className="hover:text-slate-600 transition-colors">
+                  Confidentialité
+                </Link>
+                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                <div className="flex items-center gap-1.5">
+                  <Shield size={10} className="text-emerald-500" />
+                  Connexion sécurisée
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

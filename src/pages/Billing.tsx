@@ -117,7 +117,7 @@ export default function Billing() {
 
   return (
     <Sidebar>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900 p-6 lg:p-10">
+      <div className="w-full bg-slate-50 dark:bg-slate-900 p-6 lg:p-10">
         <div className="max-w-4xl mx-auto space-y-8">
           
           {/* En-tête */}

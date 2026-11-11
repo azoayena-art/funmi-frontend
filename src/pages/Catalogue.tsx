@@ -843,7 +843,7 @@ export default function Catalogue() {
   return (
     <Sidebar>
       <Toaster richColors position="top-right" closeButton toastOptions={{ style: { borderRadius: '12px' } }} />
-      <div className="min-h-full bg-slate-50 dark:bg-slate-900">
+      <div className="w-full bg-slate-50 dark:bg-slate-900">
         <PageHeader
           icon={Package}
           iconColor="purple"
@@ -880,7 +880,7 @@ export default function Catalogue() {
           }
         />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <TypeTabs
             tabs={[
               { key: 'products', label: 'Produits', count: products.filter(p => p.status === (viewMode === 'active' ? 'active' : 'archived')).length },
@@ -1203,7 +1203,7 @@ export default function Catalogue() {
               </>
             )
           )}
-        </main>
+        </div>
 
         {/* MODAL CATÉGORIE */}
         <Modal

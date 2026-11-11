@@ -1,0 +1,142 @@
+
+export default async ({ req, res, log, error }) => {
+  try {
+    // 1. Récupération du payload
+    let payload = req.body;
+
+    if (typeof payload === 'string') {
+      payload = JSON.parse(payload);
+    }
+
+    if (!payload && req.payload) {
+      payload = typeof req.payload === 'string'
+        ? JSON.parse(req.payload)
+        : req.payload;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return res.json({ error: 'Payload invalide' }, 400);
+    }
+
+    const { priceId, teamId, userId, userEmail } = payload;
+
+    log('1. Payload reçu:', {
+      priceId,
+      teamId,
+      userId,
+      emailPresent: !!userEmail
+    });
+
+    // 2. Validation
+    if (!priceId || !teamId || !userId) {
+      return res.json({
+        error: 'Données manquantes (priceId, teamId, userId)'
+      }, 400);
+    }
+
+    // 3. Configuration API
+    const paddleToken = (process.env.PADDLE_API_TOKEN || '').trim();
+
+    const environment = (
+      process.env.PADDLE_ENVIRONMENT || 'sandbox'
+    ).trim().toLowerCase();
+
+    if (!paddleToken) {
+      throw new Error('PADDLE_API_TOKEN manquant');
+    }
+
+    if (!['sandbox', 'production'].includes(environment)) {
+      throw new Error('Environnement Paddle invalide');
+    }
+
+    const baseUrl = environment === 'production'
+      ? 'https://api.paddle.com'
+      : 'https://sandbox-api.paddle.com';
+
+    log('2. Environnement:', environment);
+
+    // 4. Construction du payload
+    // Paddle collecte les coordonnées du client au checkout.
+    const requestBody = {
+      items: [
+        {
+          price_id: String(priceId).trim(),
+          quantity: 1
+        }
+      ],
+
+      custom_data: {
+        teamId: String(teamId).trim(),
+        userId: String(userId).trim()
+      }
+    };
+
+    log('3. Création transaction:', {
+      priceId,
+      teamId,
+      userId
+    });
+
+    // 5. Appel API Paddle
+    const response = await fetch(`${baseUrl}/transactions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${paddleToken}`,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const responseText = await response.text();
+
+    log('4. Réponse complète Paddle:', {
+  status: response.status,
+  body: responseText
+});
+
+    if (!response.ok) {
+      error('❌ Erreur Paddle:', responseText);
+
+      return res.json({
+        error: 'Échec de création de la transaction Paddle',
+        details: responseText
+      }, 502);
+    }
+
+    // 6. Lecture de la transaction
+    const result = JSON.parse(responseText);
+    const transaction = result.data;
+
+    if (!transaction?.id) {
+      throw new Error('Identifiant de transaction absent');
+    }
+
+    const checkoutUrl = transaction.checkout?.url;
+
+    if (!checkoutUrl) {
+      throw new Error(
+        'Transaction créée mais URL checkout absente. Vérifier le Default Payment Link Sandbox.'
+      );
+    }
+
+    log('5. Transaction créée:', transaction.id);
+    log('6. Checkout URL disponible');
+
+    // 7. Retour frontend
+    return res.json({
+      success: true,
+      checkoutUrl,
+      transactionId: transaction.id
+    }, 200);
+
+  } catch (err) {
+    error('❌ Erreur create-checkout:', err.message);
+    error('Stack:', err.stack);
+
+    return res.json({
+      error: 'Erreur interne du serveur',
+      details: err.message
+    }, 500);
+  }
+};
