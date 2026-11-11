@@ -39,6 +39,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const LegalNotices = lazy(() => import('./pages/LegalNotices'));
 const Pricing = lazy(() => import('./pages/Pricing'));
+const PaddleCheckout = lazy(() => import('./pages/PaddleCheckout'));
 
 // Pages métier (CRM, Facturation, Trésorerie)
 const Prospects = lazy(() => import('./pages/Prospects'));
@@ -158,6 +159,7 @@ function AppRoutes() {
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
         <Route path="/pricing" element={<Pricing />} />
+	<Route path="/checkout" element={<PaddleCheckout />} />
 
         {/* ===== ROUTES PROTÉGÉES (ACCESSIBLES À TOUS LES CONNECTÉS) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -194,6 +196,7 @@ function AppRoutes() {
         <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
         <Route path="/audit-log" element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+
 
         {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
