@@ -230,7 +230,15 @@ function AppRoutes() {
         {/* Administration & Paramètres (accessible à tous) */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
-        <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
+         {/* ✅ Sauvegardes : maintenant protégées par ModuleGuard (Niveau Essentiel) */}
+        <Route path="/backup" element={
+          <ProtectedRoute>
+            <ModuleGuard module="backup">
+              <BackupUtility />
+            </ModuleGuard>
+          </ProtectedRoute>
+        } />
+        
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
