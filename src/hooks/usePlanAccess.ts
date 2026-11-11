@@ -9,12 +9,32 @@ import {
 
 export function usePlanAccess() {
   const { planTier, isLoading } = useSubscription();
-
-  // Sécurise le plan (si valeur inconnue, retombe sur free)
-  const plan: PlanTier = (['free', 'essentiel', 'pro', 'business', 'legende'].includes(planTier)
-    ? planTier
-    : 'free') as PlanTier;
-
+  
+  // 🔍 DEBUG : Affiche le plan détecté
+  console.log('🎯 [usePlanAccess] planTier brut:', planTier);
+  console.log('🎯 [usePlanAccess] isLoading:', isLoading);
+  
+  // Mapping strict : seules ces valeurs sont acceptées
+  const planMap: Record<string, PlanTier> = {
+    'free': 'free',
+    'essentiel': 'essentiel',
+    'pro': 'pro',
+    'business': 'business',
+    'legende': 'legende',
+    // Les statuts d'abonnement ne sont PAS des plans
+    'trialing': 'free',
+    'active': 'free',
+    'canceled': 'free',
+    'past_due': 'free',
+    'paused': 'free',
+    'expired': 'free',
+    'none': 'free',
+  };
+  
+  const plan: PlanTier = planMap[String(planTier || '').toLowerCase()] || 'free';
+  
+  console.log('🎯 [usePlanAccess] plan final:', plan);
+  
   const limits = PLAN_LIMITS[plan];
 
   return {

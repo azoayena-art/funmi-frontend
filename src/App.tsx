@@ -1,3 +1,4 @@
+// src/App.tsx
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from "sonner";
@@ -8,25 +9,12 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
 import ModuleGuard from './components/ModuleGuard';
 
-// ============================================================
-// 🔑 reCAPTCHA v3 — Clé publique
-// ============================================================
-const RECAPTCHA_SITE_KEY =
-  import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
-  '6Lev8TQsAAAAAJU9cC3ihFAwD2nIWsm_lUqKDNoJ';
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6Lev8TQsAAAAAJU9cC3ihFAwD2nIWsm_lUqKDNoJ';
 
-// ============================================================
-// 🚀 IMPORTS STATIQUES (critiques pour le démarrage)
-// ============================================================
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 
-// ============================================================
-// ⚡ IMPORTS DYNAMIQUES (lazy loading)
-// ============================================================
-
-// Pages publiques
 const PublicQuoteView = lazy(() => import('./pages/PublicQuoteView'));
 const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView'));
 const PublicRequest = lazy(() => import('./pages/PublicRequest'));
@@ -41,7 +29,6 @@ const LegalNotices = lazy(() => import('./pages/LegalNotices'));
 const Pricing = lazy(() => import('./pages/Pricing'));
 const PaddleCheckout = lazy(() => import('./pages/PaddleCheckout'));
 
-// Pages métier (CRM, Facturation, Trésorerie)
 const Prospects = lazy(() => import('./pages/Prospects'));
 const Clients = lazy(() => import('./pages/Clients'));
 const ClientDetail = lazy(() => import('./pages/ClientDetail'));
@@ -57,7 +44,6 @@ const Treasury = lazy(() => import('./pages/Treasury'));
 const CashOperations = lazy(() => import('./pages/CashOperations'));
 const Statistics = lazy(() => import('./pages/Statistics'));
 
-// Pages Comptabilité & Admin
 const ExportComptable = lazy(() => import('./pages/ExportComptable'));
 const AccountMapping = lazy(() => import('./pages/AccountMapping'));
 const ImportExport = lazy(() => import('./pages/ImportExport'));
@@ -70,15 +56,10 @@ const CompanySettings = lazy(() => import('./pages/CompanySettings'));
 const BackupUtility = lazy(() => import('./pages/BackupUtility'));
 const Billing = lazy(() => import('./pages/Billing'));
 
-// Composants globaux
 const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner'));
 
-// ============================================================
-// 🛡️ GARDE : Route protégée (utilisateur connecté uniquement)
-// ============================================================
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -89,24 +70,15 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
       </div>
     );
   }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
+  if (!user) return <Navigate to="/login" replace />;
   if (user.emailVerification === false) {
     return <Navigate to={`/verify-email?email=${encodeURIComponent(user.email)}`} replace />;
   }
-
   return <>{children}</>;
 }
 
-// ============================================================
-// 🛡️ GARDE : Route publique (déconnecté uniquement)
-// ============================================================
 function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -114,17 +86,10 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
       </div>
     );
   }
-
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
+  if (user) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
-// ============================================================
-// ⏳ LOADING FALLBACK
-// ============================================================
 function PageLoadingFallback() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -136,14 +101,10 @@ function PageLoadingFallback() {
   );
 }
 
-// ============================================================
-// 🗺️ TOUTES LES ROUTES DE L'APPLICATION
-// ============================================================
 function AppRoutes() {
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        {/* ===== ROUTES PUBLIQUES ===== */}
         <Route path="/" element={<PublicOnlyRoute><Dashboard /></PublicOnlyRoute>} />
         <Route path="/v/:token" element={<PublicQuoteView />} />
         <Route path="/f/:token" element={<PublicInvoiceView />} />
@@ -161,7 +122,6 @@ function AppRoutes() {
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/checkout" element={<PaddleCheckout />} />
 
-        {/* ===== ROUTES PROTÉGÉES (ACCESSIBLES À TOUS LES CONNECTÉS) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         
         {/* Niveau Essentiel requis */}
@@ -225,38 +185,18 @@ function AppRoutes() {
         <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
 
-        {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>
   );
 }
 
-// ============================================================
-// 🎯 COMPOSANT PRINCIPAL
-// ============================================================
 export default function App() {
   return (
-    <GoogleReCaptchaProvider
-      reCaptchaKey={RECAPTCHA_SITE_KEY}
-      language="fr"
-      useRecaptchaNet={true}
-      scriptProps={{
-        async: false,
-        defer: false,
-        appendTo: 'head',
-        nonce: undefined,
-      }}
-    >
+    <GoogleReCaptchaProvider reCaptchaKey={RECAPTCHA_SITE_KEY} language="fr" useRecaptchaNet={true} scriptProps={{ async: false, defer: false, appendTo: 'head', nonce: undefined }}>
       <AuthProvider>
         <TeamProvider>
-          <Toaster
-            position="top-right"
-            richColors
-            closeButton
-            theme="system"
-            toastOptions={{ style: { fontSize: '14px' } }}
-          />
+          <Toaster position="top-right" richColors closeButton theme="system" toastOptions={{ style: { fontSize: '14px' } }} />
           <BrowserRouter>
             <AppRoutes />
             <Suspense fallback={null}>
