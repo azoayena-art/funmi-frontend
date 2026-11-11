@@ -232,15 +232,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = async () => {
-    try {
-      await account.deleteSession('current');
-    } catch (error) {
-      console.error('Erreur lors de la déconnexion:', error);
-    } finally {
-      setUser(null);
-    }
-  };
+  // Dans src/context/AuthContext.tsx
+const logout = async () => {
+  try {
+    // Supprime la session actuelle dans Appwrite
+    await account.deleteSession('current');
+    
+    // Met à jour l'état local
+    setUser(null);
+    
+    // ⚠️ NE PAS AJOUTER DE navigate('/login') ICI !
+    // La redirection est gérée uniquement par le composant qui appelle logout() (ici, le Sidebar)
+  } catch (error) {
+    console.error('Erreur déconnexion:', error);
+    setUser(null);
+  }
+};
 
   return (
     <AuthContext.Provider value={{ user, loading, login, register, logout }}>

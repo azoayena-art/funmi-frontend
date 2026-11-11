@@ -11,7 +11,7 @@ import {
   Bell, Wallet, FileCheck, LogOut, ChevronLeft, ChevronRight,
   Moon, Sun, Menu, X, Building2, Shield, BarChart3, FileOutput,
   FileInput, BookOpen, ArrowRightLeft, Save, CreditCard, Scale,
-  BookOpenCheck, BookText, FileDown
+  BookOpenCheck, BookText, FileDown, Loader2 // ✅ AJOUT : Loader2 pour l'état de déconnexion
 } from 'lucide-react';
 import { BRAND } from '../config/brand';
 
@@ -48,6 +48,9 @@ export default function Sidebar({ children }: SidebarProps) {
     return false;
   });
 
+  // ✅ AJOUT : État pour gérer l'animation de déconnexion
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const [pendingRemindersCount, setPendingRemindersCount] = useState(0);
   const [pendingPublicRequestsCount, setPendingPublicRequestsCount] = useState(0);
   const [pendingQuotesActionCount, setPendingQuotesActionCount] = useState(0);
@@ -80,13 +83,24 @@ export default function Sidebar({ children }: SidebarProps) {
     loadCounts();
   }, [user, customTeamId, hasPermission]);
 
+  // ✅ CORRECTION : Déconnexion fluide sans rechargement brutal de la page
   const handleLogout = async () => {
+    if (isLoggingOut) return; // Empêche les doubles clics
+    
+    setIsLoggingOut(true);
     try {
+      // 1. On exécute la déconnexion (suppression de la session Appwrite)
       await logout();
+      
+      // 2. On force la redirection vers la Landing Page ("/")
+      // { replace: true } remplace l'historique pour qu'on ne puisse pas revenir en arrière
+      navigate('/', { replace: true }); 
     } catch (error) {
       console.error('Erreur déconnexion:', error);
+      // En cas d'erreur, on redirige quand même vers l'accueil
+      navigate('/', { replace: true });
     } finally {
-      window.location.href = '/';
+      setIsLoggingOut(false);
     }
   };
 
@@ -95,16 +109,30 @@ export default function Sidebar({ children }: SidebarProps) {
     setMobileOpen(false);
   };
 
-  const safeUser = user as { name?: string; email?: string; profile?: { firstName?: string } } | null;
-  const displayName = safeUser?.profile?.firstName || safeUser?.name || 'Utilisateur';
+    const safeUser = user as { name?: string; email?: string; profile?: { firstName?: string } } | null;
+  
+  // ✅ Fallback intelligent : Prénom > Nom > Début de l'email > "Utilisateur"
+  const getDisplayName = () => {
+    if (safeUser?.profile?.firstName) return safeUser.profile.firstName;
+    if (safeUser?.name) return safeUser.name;
+    if (safeUser?.email) return safeUser.email.split('@')[0]; // Ex: "jean.dupont"
+    return 'Utilisateur';
+  };
+  
+  const displayName = getDisplayName();
   const userEmail = safeUser?.email || '';
-  const initials = displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
+  
+  // Génère les initiales de manière sûre (gère les emails avec des points)
+  const initials = displayName
+    .split(/[.\s]+/) // Sépare par espace ou point
+    .map((n: string) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
   
   const isActive = (path: string) => location.pathname === path;
   const hasAnyPermission = (permissions: string[]): boolean => permissions.some(p => p === 'dashboard' || hasPermission(p));
 
-  // ✅ Les modules de comptabilité sont maintenant des éléments normaux.
-  // Le blocage visuel et le modal "Premium" sont gérés par ModuleGuard dans App.tsx.
   const navSections: NavSection[] = useMemo(() => [
     {
       title: 'Pilotage',
@@ -243,22 +271,43 @@ export default function Sidebar({ children }: SidebarProps) {
       </nav>
 
       <div className="border-t border-slate-200/60 dark:border-slate-700/60 p-3 space-y-2 flex-shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-        <button onClick={() => setDarkMode(!darkMode)} className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:shadow-sm transition-all ${collapsed ? 'justify-center' : ''}`}>
+        <button 
+          onClick={() => setDarkMode(!darkMode)} 
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:shadow-sm transition-all ${collapsed ? 'justify-center' : ''}`}
+        >
           <div className="flex-shrink-0 p-1.5 rounded-lg bg-white dark:bg-slate-800 shadow-sm ring-1 ring-slate-200/60 dark:ring-slate-700/60">
             {darkMode ? <Sun size={16} className="text-amber-500" /> : <Moon size={16} className="text-indigo-600" />}
           </div>
           {!collapsed && <span className="text-sm font-medium">{darkMode ? 'Mode clair' : 'Mode sombre'}</span>}
         </button>
+        
+        {/* ✅ CORRECTION : Gestion de l'affichage pendant la déconnexion */}
         <div className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 ring-1 ring-slate-200/60 dark:ring-slate-700/60 shadow-sm ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-700">{initials}</div>
+          <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-700">
+            {isLoggingOut ? <Loader2 size={14} className="animate-spin" /> : initials}
+          </div>
+          
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{displayName}</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{userEmail}</p>
+              {isLoggingOut ? (
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Déconnexion...</p>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {displayName === 'Utilisateur' && user ? 'Chargement...' : displayName}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{userEmail}</p>
+                </>
+              )}
             </div>
           )}
-          {!collapsed && (
-            <button onClick={handleLogout} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-600 transition-all" title="Déconnexion">
+          
+          {!collapsed && !isLoggingOut && (
+            <button 
+              onClick={handleLogout} 
+              className="flex-shrink-0 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-600 transition-all" 
+              title="Déconnexion"
+            >
               <LogOut size={16} />
             </button>
           )}

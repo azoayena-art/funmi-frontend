@@ -1,4 +1,3 @@
-// src/App.tsx
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from "sonner";
@@ -9,8 +8,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
 import ModuleGuard from './components/ModuleGuard';
 
-const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6Lev8TQsAAAAAJU9cC3ihFAwD2nIWsm_lUqKDNoJ';
-
+// ✅ 1. Import de la Landing Page
+import LandingPage from './pages/LandingPage'; 
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -58,6 +57,8 @@ const Billing = lazy(() => import('./pages/Billing'));
 
 const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner'));
 
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6Lev8TQsAAAAAJU9cC3ihFAwD2nIWsm_lUqKDNoJ';
+
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) {
@@ -86,6 +87,7 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
       </div>
     );
   }
+  // ✅ Si l'utilisateur est connecté, on le redirige vers le dashboard, pas vers la landing
   if (user) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
@@ -105,15 +107,20 @@ function AppRoutes() {
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        <Route path="/" element={<PublicOnlyRoute><Dashboard /></PublicOnlyRoute>} />
+        {/* ✅ 2. La route racine est maintenant la Landing Page (publique, sans protection) */}
+        <Route path="/" element={<LandingPage />} />
+        
         <Route path="/v/:token" element={<PublicQuoteView />} />
         <Route path="/f/:token" element={<PublicInvoiceView />} />
         <Route path="/demande/:slug" element={<PublicRequest />} />
         <Route path="/join-team" element={<JoinTeam />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/confirm-email" element={<ConfirmEmail />} />
+        
+        {/* Routes publiques réservées aux non-connectés */}
         <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
+        
         <Route path="/accept-invitation" element={<AcceptInvitation />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
@@ -122,126 +129,93 @@ function AppRoutes() {
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/checkout" element={<PaddleCheckout />} />
 
+        {/* Routes protégées */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         
-        {/* Niveau Essentiel requis */}
         <Route path="/statistics" element={
           <ProtectedRoute>
-            <ModuleGuard module="statistics">
-              <Statistics />
-            </ModuleGuard>
+            <ModuleGuard module="statistics"><Statistics /></ModuleGuard>
           </ProtectedRoute>
         } />
         
-        {/* CRM (accessible à tous) */}
         <Route path="/prospects" element={<ProtectedRoute><Prospects /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
         <Route path="/catalogue" element={<ProtectedRoute><Catalogue /></ProtectedRoute>} />
         
-        {/* Facturation (accessible à tous sauf factures fournisseurs) */}
         <Route path="/quotes" element={<ProtectedRoute><Quotes /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
         <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
         <Route path="/received-invoices" element={
           <ProtectedRoute>
-            <ModuleGuard module="receivedInvoices">
-              <ReceivedInvoices />
-            </ModuleGuard>
+            <ModuleGuard module="receivedInvoices"><ReceivedInvoices /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
         
-        {/* Niveau PRO requis */}
         <Route path="/reminders" element={
           <ProtectedRoute>
-            <ModuleGuard module="reminders">
-              <Reminders />
-            </ModuleGuard>
+            <ModuleGuard module="reminders"><Reminders /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
         <Route path="/treasury" element={
           <ProtectedRoute>
-            <ModuleGuard module="treasury">
-              <Treasury />
-            </ModuleGuard>
+            <ModuleGuard module="treasury"><Treasury /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/cash-operations" element={
           <ProtectedRoute>
-            <ModuleGuard module="cashOperations">
-              <CashOperations />
-            </ModuleGuard>
+            <ModuleGuard module="cashOperations"><CashOperations /></ModuleGuard>
           </ProtectedRoute>
         } />
         
-        {/* Niveau Business requis (Comptabilité) — SANS cadenas (showLockIcon={false}) */}
         <Route path="/journal" element={
           <ProtectedRoute>
-            <ModuleGuard module="journal" showLockIcon={false}>
-              <Journal />
-            </ModuleGuard>
+            <ModuleGuard module="journal" showLockIcon={false}><Journal /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/grand-livre" element={
           <ProtectedRoute>
-            <ModuleGuard module="grandLivre" showLockIcon={false}>
-              <GrandLivre />
-            </ModuleGuard>
+            <ModuleGuard module="grandLivre" showLockIcon={false}><GrandLivre /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/balance-comptable" element={
           <ProtectedRoute>
-            <ModuleGuard module="balance" showLockIcon={false}>
-              <BalanceComptable />
-            </ModuleGuard>
+            <ModuleGuard module="balance" showLockIcon={false}><BalanceComptable /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/export-comptable" element={
           <ProtectedRoute>
-            <ModuleGuard module="exportComptable" showLockIcon={false}>
-              <ExportComptable />
-            </ModuleGuard>
+            <ModuleGuard module="exportComptable" showLockIcon={false}><ExportComptable /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/account-mapping" element={
           <ProtectedRoute>
-            <ModuleGuard module="accountMapping" showLockIcon={false}>
-              <AccountMapping />
-            </ModuleGuard>
+            <ModuleGuard module="accountMapping" showLockIcon={false}><AccountMapping /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/import-export" element={
           <ProtectedRoute>
-            <ModuleGuard module="importExport" showLockIcon={false}>
-              <ImportExport />
-            </ModuleGuard>
+            <ModuleGuard module="importExport" showLockIcon={false}><ImportExport /></ModuleGuard>
           </ProtectedRoute>
         } />
         <Route path="/audit-log" element={
           <ProtectedRoute>
-            <ModuleGuard module="audit" showLockIcon={false}>
-              <AuditLog />
-            </ModuleGuard>
+            <ModuleGuard module="audit" showLockIcon={false}><AuditLog /></ModuleGuard>
           </ProtectedRoute>
         } />
         
-        {/* Administration & Paramètres (accessible à tous) */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
-         {/* ✅ Sauvegardes : maintenant protégées par ModuleGuard (Niveau Essentiel) */}
         <Route path="/backup" element={
           <ProtectedRoute>
-            <ModuleGuard module="backup">
-              <BackupUtility />
-            </ModuleGuard>
+            <ModuleGuard module="backup"><BackupUtility /></ModuleGuard>
           </ProtectedRoute>
         } />
-        
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
