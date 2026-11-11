@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { databases, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
+import { usePlanAccess } from '../hooks/usePlanAccess';
 import Sidebar from '../components/Sidebar';
 import { toast } from 'sonner';
 import Modal from '../components/ui/Modal';

@@ -1,4 +1,3 @@
-
 // src/pages/Journal.tsx
 
 import Sidebar from '../components/Sidebar';
@@ -41,6 +40,9 @@ import {
   loadCustomAccountMapping,
   getDefaultAccountMapping,
 } from '../services/accountMappingService';
+
+// ✅ IMPORT pour l'adaptation dynamique selon le pays
+import { getCountryConfig, FALLBACK_COUNTRY } from '../config/countries';
 
 const PERIOD_PRESETS = [
   {
@@ -101,17 +103,33 @@ const fmtDate = (ymd: string) =>
 
 export default function Journal() {
   const { user } = useAuth();
-const navigate = useNavigate();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // ✅ 1. Récupération explicite du pays via le hook
   const {
     fm,
     loading: settingsLoading,
     companyName,
     currency,
+    country,
   } = useCompanySettings();
 
   const { customTeamId } = useTeam();
+
+  // ✅ 2. Détermination dynamique du référentiel comptable selon le pays
+  const countryConfig = useMemo(
+    () => getCountryConfig(country || 'FR') || FALLBACK_COUNTRY,
+    [country]
+  );
+
+  const accountingStandardLabel = useMemo(() => {
+    if (countryConfig.code === 'FR') return 'PCG (France)';
+    // Liste des principaux pays membres de l'OHADA
+    const ohadaCountries = ['SN', 'CI', 'CM', 'BF', 'BJ', 'GA', 'ML', 'NE', 'TG', 'CG', 'CD', 'TD', 'GN', 'GW', 'KM'];
+    if (ohadaCountries.includes(countryConfig.code)) return 'SYSCOHADA';
+    return `Plan Comptable ${countryConfig.name}`;
+  }, [countryConfig]);
 
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -133,10 +151,10 @@ const navigate = useNavigate();
 
   const [accountMapping, setAccountMapping] =
     useState<AccountMapping>(getDefaultAccountMapping());
-// ============================================================
-  // CHARGEMENT DU PLAN COMPTABLE PERSONNALISÉ
-  // ============================================================
 
+  // ============================================================
+  // 3. CHARGEMENT DU PLAN COMPTABLE PERSONNALISÉ (ou défaut)
+  // ============================================================
   useEffect(() => {
     if (!customTeamId) return;
 
@@ -148,10 +166,8 @@ const navigate = useNavigate();
   // ============================================================
   // PRÉ-SÉLECTION DEPUIS L'URL
   // ============================================================
-
   useEffect(() => {
     const journalParam = searchParams.get('journal');
-
     if (journalParam) {
       setSelectedJournal(journalParam);
     }
@@ -159,19 +175,13 @@ const navigate = useNavigate();
     const startParam = searchParams.get('start');
     const endParam = searchParams.get('end');
 
-    if (startParam) {
-      setStartDate(startParam);
-    }
-
-    if (endParam) {
-      setEndDate(endParam);
-    }
+    if (startParam) setStartDate(startParam);
+    if (endParam) setEndDate(endParam);
   }, [searchParams]);
 
   // ============================================================
   // GÉNÉRATION DU JOURNAL
   // ============================================================
-
   const handleGenerate = useCallback(async () => {
     if (!user || !customTeamId) {
       toast.error('Session invalide');
@@ -188,7 +198,7 @@ const navigate = useNavigate();
           teamId: customTeamId,
           format: 'csv',
         },
-        accountMapping
+        accountMapping // ✅ Le mapping (adapté au pays/équipe) est bien passé ici
       );
 
       setEntries(rawEntries);
@@ -199,7 +209,7 @@ const navigate = useNavigate();
         });
       } else {
         toast.success('Journal chargé', {
-          description: `${rawEntries.length} écritures trouvées.`,
+          description: `${rawEntries.length} écritures trouvées selon le référentiel ${accountingStandardLabel}.`,
         });
       }
     } catch (error: any) {
@@ -209,18 +219,11 @@ const navigate = useNavigate();
     } finally {
       setLoading(false);
     }
-  }, [
-    user,
-    customTeamId,
-    startDate,
-    endDate,
-    accountMapping,
-  ]);
+  }, [user, customTeamId, startDate, endDate, accountMapping, accountingStandardLabel]);
 
   // ============================================================
   // EXPORT CSV
   // ============================================================
-
   const handleExportCSV = useCallback(() => {
     if (entries.length === 0) return;
 
@@ -274,7 +277,6 @@ const navigate = useNavigate();
   // ============================================================
   // CHANGEMENT DE PÉRIODE
   // ============================================================
-
   const handlePresetChange = useCallback((idx: number) => {
     setSelectedPreset(idx);
 
@@ -288,7 +290,6 @@ const navigate = useNavigate();
   // ============================================================
   // STATISTIQUES
   // ============================================================
-
   const stats = useMemo(() => {
     let totalDebit = 0;
     let totalCredit = 0;
@@ -314,13 +315,9 @@ const navigate = useNavigate();
   // ============================================================
   // FILTRAGE
   // ============================================================
-
   const filteredEntries = useMemo(() => {
     return entries.filter((e) => {
-      if (
-        selectedJournal &&
-        e.journalCode !== selectedJournal
-      ) {
+      if (selectedJournal && e.journalCode !== selectedJournal) {
         return false;
       }
 
@@ -341,7 +338,6 @@ const navigate = useNavigate();
   // ============================================================
   // TOTAUX DU JOURNAL FILTRÉ
   // ============================================================
-
   const filteredTotals = useMemo(() => {
     let debit = 0;
     let credit = 0;
@@ -357,15 +353,11 @@ const navigate = useNavigate();
   // ============================================================
   // CHARGEMENT
   // ============================================================
-
   if (settingsLoading) {
     return (
       <Sidebar>
-        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
-          <Loader2
-            size={32}
-            className="animate-spin text-blue-600"
-          />
+        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center min-h-screen">
+          <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
     );
@@ -374,7 +366,6 @@ const navigate = useNavigate();
   // ============================================================
   // AFFICHAGE
   // ============================================================
-
   return (
     <Sidebar>
       <div className="w-full bg-slate-50 dark:bg-slate-950">
@@ -394,17 +385,15 @@ const navigate = useNavigate();
 
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
-                  <BookText
-                    size={18}
-                    className="text-blue-600 dark:text-blue-400"
-                  />
+                  <BookText size={18} className="text-blue-600 dark:text-blue-400" />
 
                   <h1 className="text-xl font-bold text-slate-900 dark:text-white">
                     Journal Comptable
                   </h1>
 
+                  {/* ✅ 4. Badge dynamique selon le pays sélectionné */}
                   <Badge tone="blue">
-                    PCG / SYSCOHADA
+                    {accountingStandardLabel}
                   </Badge>
                 </div>
 
@@ -420,9 +409,7 @@ const navigate = useNavigate();
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-100 transition-all"
               >
                 <BookOpenCheck size={12} />
-                <span className="hidden sm:inline">
-                  Grand Livre
-                </span>
+                <span className="hidden sm:inline">Grand Livre</span>
               </button>
 
               <button
@@ -430,9 +417,7 @@ const navigate = useNavigate();
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-blue-300 transition-all"
               >
                 <Scale size={12} />
-                <span className="hidden sm:inline">
-                  Balance
-                </span>
+                <span className="hidden sm:inline">Balance</span>
               </button>
 
               <button
@@ -440,9 +425,7 @@ const navigate = useNavigate();
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-blue-300 transition-all"
               >
                 <Settings2 size={12} />
-                <span className="hidden sm:inline">
-                  Plan Comptable
-                </span>
+                <span className="hidden sm:inline">Plan Comptable</span>
               </button>
             </div>
           </div>
@@ -636,19 +619,14 @@ const navigate = useNavigate();
                       onClick={() => setSelectedJournal('')}
                       className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 transition-colors"
                     >
-                      {JOURNALS.find(
-                        (j) => j.code === selectedJournal
-                      )?.label}
+                      {JOURNALS.find((j) => j.code === selectedJournal)?.label}
                       <X size={10} />
                     </button>
                   )}
                 </div>
 
                 <div className="relative w-full sm:w-64">
-                  <Search
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
 
                   <Input
                     type="text"
@@ -694,10 +672,7 @@ const navigate = useNavigate();
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {filteredEntries.length === 0 && (
                       <tr>
-                        <td
-                          colSpan={8}
-                          className="px-4 py-8 text-center text-xs text-slate-400"
-                        >
+                        <td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">
                           Aucune écriture ne correspond aux filtres.
                         </td>
                       </tr>
@@ -765,15 +740,10 @@ const navigate = useNavigate();
 
                   <tfoot className="bg-slate-100 dark:bg-slate-800/50 border-t-2 border-slate-300 dark:border-slate-600">
                     <tr>
-                      <td
-                        colSpan={6}
-                        className="px-4 py-3 text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider"
-                      >
+                      <td colSpan={6} className="px-4 py-3 text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
                         Totaux{' '}
                         {selectedJournal
-                          ? `(${JOURNALS.find(
-                              (j) => j.code === selectedJournal
-                            )?.label})`
+                          ? `(${JOURNALS.find((j) => j.code === selectedJournal)?.label})`
                           : ''}
                       </td>
 
@@ -795,10 +765,7 @@ const navigate = useNavigate();
           {entries.length === 0 && !loading && (
             <Card className="!p-10 text-center">
               <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center mx-auto mb-4">
-                <BookText
-                  size={24}
-                  className="text-blue-600 dark:text-blue-400"
-                />
+                <BookText size={24} className="text-blue-600 dark:text-blue-400" />
               </div>
 
               <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">

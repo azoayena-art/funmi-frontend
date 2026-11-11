@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
+import { usePlanAccess } from '../hooks/usePlanAccess'; // ✅ MODIF 1 : Import ajouté
 import { toast } from 'sonner';
 import {
   PageHeader, Modal, ActionMenu, ActionMenuItem, StatCell, StatusIndicator,
@@ -81,6 +82,7 @@ export default function Prospects() {
   // ✅ Récupération STRICTE du pays de l'entreprise
   const { currency, currencyConfig, country: companyCountry, loading: settingsLoading } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
+  const { limits, isUnlimited } = usePlanAccess(); // ✅ MODIF 2 : Hook ajouté
 
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,7 +203,14 @@ export default function Prospects() {
     }
   };
 
+  // ✅ MODIF 3 : Vérification de la limite du plan avant création
   const handleOpenAdd = () => {
+    if (!isUnlimited(limits.maxProspects) && prospects.length >= limits.maxProspects) {
+      toast.error(`Limite de ${limits.maxProspects} prospects atteinte sur votre plan. Passez au plan supérieur.`);
+      navigate('/pricing');
+      return;
+    }
+    
     setEditingId(null);
     setDuplicateFound(null);
     // ✅ Utilise strictement la factory qui dépend de companyCountry

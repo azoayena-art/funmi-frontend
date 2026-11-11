@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
+import { usePlanAccess } from '../hooks/usePlanAccess'; // ✅ Déjà présent
 import { getFilePreviewUrl } from '../utils/storage';
 import { verifyDocumentAccess, logAuditAction } from '../utils/security';
 import { toast } from 'sonner';
@@ -195,6 +196,7 @@ export default function Quotes() {
   } = useCompanySettings();
   
   const { customTeamId, appwriteTeamId } = useTeam();
+  const { limits, isUnlimited } = usePlanAccess(); // ✅ AJOUT : Hook pour les limites du plan
   const SYM = currencyConfig?.symbol || '€';
 
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -558,6 +560,13 @@ export default function Quotes() {
   };
 
   const handleOpenAdd = async () => {
+    // ✅ AJOUT : Vérification de la limite du plan avant création
+    if (!isUnlimited(limits.maxQuotes) && quotes.length >= limits.maxQuotes) {
+      toast.error(`Limite de ${limits.maxQuotes} devis atteinte sur votre plan. Passez au plan supérieur.`);
+      navigate('/pricing');
+      return;
+    }
+
     await loadCompanySettings();
     setEditingQuote(null);
     setPreselectedClientId(null);

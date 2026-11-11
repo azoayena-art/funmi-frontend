@@ -1,4 +1,3 @@
-// src/App.tsx
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from "sonner";
@@ -7,6 +6,7 @@ import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
+import ModuleGuard from './components/ModuleGuard';
 
 // ============================================================
 // 🔑 reCAPTCHA v3 — Clé publique
@@ -57,7 +57,7 @@ const Treasury = lazy(() => import('./pages/Treasury'));
 const CashOperations = lazy(() => import('./pages/CashOperations'));
 const Statistics = lazy(() => import('./pages/Statistics'));
 
-// Pages Comptabilité & Admin (Désormais accessibles à tous les connectés)
+// Pages Comptabilité & Admin
 const ExportComptable = lazy(() => import('./pages/ExportComptable'));
 const AccountMapping = lazy(() => import('./pages/AccountMapping'));
 const ImportExport = lazy(() => import('./pages/ImportExport'));
@@ -159,44 +159,71 @@ function AppRoutes() {
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal" element={<LegalNotices />} />
         <Route path="/pricing" element={<Pricing />} />
-	<Route path="/checkout" element={<PaddleCheckout />} />
+        <Route path="/checkout" element={<PaddleCheckout />} />
 
         {/* ===== ROUTES PROTÉGÉES (ACCESSIBLES À TOUS LES CONNECTÉS) ===== */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
         
-        {/* CRM */}
+        {/* Niveau Essentiel requis */}
+        <Route path="/statistics" element={
+          <ProtectedRoute><ModuleGuard module="statistics"><Statistics /></ModuleGuard></ProtectedRoute>
+        } />
+        
+        {/* CRM (accessible à tous) */}
         <Route path="/prospects" element={<ProtectedRoute><Prospects /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
         <Route path="/catalogue" element={<ProtectedRoute><Catalogue /></ProtectedRoute>} />
         
-        {/* Facturation */}
+        {/* Facturation (accessible à tous sauf factures fournisseurs) */}
         <Route path="/quotes" element={<ProtectedRoute><Quotes /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
         <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
-        <Route path="/received-invoices" element={<ProtectedRoute><ReceivedInvoices /></ProtectedRoute>} />
-        <Route path="/reminders" element={<ProtectedRoute><Reminders /></ProtectedRoute>} />
+        <Route path="/received-invoices" element={
+          <ProtectedRoute><ModuleGuard module="receivedInvoices"><ReceivedInvoices /></ModuleGuard></ProtectedRoute>
+        } />
         <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
         
-        {/* Trésorerie & Comptabilité (DÉBLOQUÉES) */}
+        {/* Niveau PRO requis */}
+        <Route path="/reminders" element={
+          <ProtectedRoute><ModuleGuard module="reminders"><Reminders /></ModuleGuard></ProtectedRoute>
+        } />
         <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
-        <Route path="/treasury" element={<ProtectedRoute><Treasury /></ProtectedRoute>} />
-        <Route path="/cash-operations" element={<ProtectedRoute><CashOperations /></ProtectedRoute>} />
-        <Route path="/journal" element={<ProtectedRoute><Journal /></ProtectedRoute>} />
-        <Route path="/grand-livre" element={<ProtectedRoute><GrandLivre /></ProtectedRoute>} />
-        <Route path="/balance-comptable" element={<ProtectedRoute><BalanceComptable /></ProtectedRoute>} />
-        <Route path="/export-comptable" element={<ProtectedRoute><ExportComptable /></ProtectedRoute>} />
-        <Route path="/account-mapping" element={<ProtectedRoute><AccountMapping /></ProtectedRoute>} />
-        <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
+        <Route path="/treasury" element={
+          <ProtectedRoute><ModuleGuard module="treasury"><Treasury /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/cash-operations" element={
+          <ProtectedRoute><ModuleGuard module="cashOperations"><CashOperations /></ModuleGuard></ProtectedRoute>
+        } />
         
-        {/* Administration & Paramètres */}
+        {/* Niveau Business requis (Comptabilité) */}
+        <Route path="/journal" element={
+          <ProtectedRoute><ModuleGuard module="journal"><Journal /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/grand-livre" element={
+          <ProtectedRoute><ModuleGuard module="grandLivre"><GrandLivre /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/balance-comptable" element={
+          <ProtectedRoute><ModuleGuard module="balance"><BalanceComptable /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/export-comptable" element={
+          <ProtectedRoute><ModuleGuard module="exportComptable"><ExportComptable /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/account-mapping" element={
+          <ProtectedRoute><ModuleGuard module="accountMapping"><AccountMapping /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/import-export" element={
+          <ProtectedRoute><ModuleGuard module="importExport"><ImportExport /></ModuleGuard></ProtectedRoute>
+        } />
+        <Route path="/audit-log" element={
+          <ProtectedRoute><ModuleGuard module="audit"><AuditLog /></ModuleGuard></ProtectedRoute>
+        } />
+        
+        {/* Administration & Paramètres (accessible à tous) */}
         <Route path="/team-settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute><CompanySettings /></ProtectedRoute>} />
         <Route path="/backup" element={<ProtectedRoute><BackupUtility /></ProtectedRoute>} />
-        <Route path="/audit-log" element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-
 
         {/* ===== REDIRECTION PAR DÉFAUT ===== */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

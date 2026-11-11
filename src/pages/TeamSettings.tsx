@@ -5,6 +5,7 @@ import { databases, teams, DATABASE_ID } from '../appwrite';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useTeam } from '../context/TeamContext';
+import { usePlanAccess } from '../hooks/usePlanAccess'; // ✅ Hook pour les limites du plan
 import { Query, ID, Permission, Role } from 'appwrite';
 import { toast } from 'sonner';
 import Modal from '../components/ui/Modal';
@@ -20,7 +21,7 @@ import {
 } from '../components/ui/SharedUI';
 import { 
   Users, Shield, Plus, Edit3, UserPlus, CheckSquare, Copy, Check, ExternalLink, 
-  Archive, RotateCcw, Eye, Info
+  Archive, RotateCcw, Eye, Info, Lock
 } from 'lucide-react';
 
 // ============================================================
@@ -187,6 +188,7 @@ export default function TeamSettings() {
   const { user } = useAuth();
   const { hasPermission, loading: permLoading } = usePermissions();
   const { customTeamId, appwriteTeamId } = useTeam();
+  const { limits, isUnlimited, planTier } = usePlanAccess(); // ✅ Récupération des limites du plan
   const navigate = useNavigate();
   
   const [roles, setRoles] = useState<RoleType[]>([]);
@@ -610,6 +612,25 @@ export default function TeamSettings() {
       return; 
     }
     
+    // ✅ VÉRIFICATION DE LA LIMITE DE MEMBRES SELON LE PLAN
+    if (!isUnlimited(limits.maxUsers)) {
+      const currentMembersCount = activeMembers.filter(m => m.status === 'active').length;
+      if (currentMembersCount >= limits.maxUsers) {
+        toast.error(
+          `Limite de ${limits.maxUsers} membre${limits.maxUsers > 1 ? 's' : ''} atteinte sur votre plan ${planTier}. ` +
+          `Passez au plan supérieur pour ajouter plus de membres.`,
+          {
+            duration: 8000,
+            action: {
+              label: 'Voir les plans',
+              onClick: () => navigate('/pricing')
+            }
+          }
+        );
+        return;
+      }
+    }
+    
     const normalizedEmail = newMemberEmail.toLowerCase().trim();
     
     if (activeMembers.some(m => m.email.toLowerCase().trim() === normalizedEmail)) { 
@@ -688,6 +709,10 @@ export default function TeamSettings() {
   };
 
   const totalPermissionsCount = ALL_PERMISSIONS.flatMap(c => c.items).length;
+  
+  // ✅ Calcul du nombre de membres actifs
+  const activeMembersCount = activeMembers.filter(m => m.status === 'active').length;
+  const isLimitReached = !isUnlimited(limits.maxUsers) && activeMembersCount >= limits.maxUsers;
 
   if (permLoading || loading) {
     return (
@@ -729,6 +754,29 @@ export default function TeamSettings() {
         </header>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 sm:space-y-8">
+          {/* ✅ ALERTE LIMITE DE MEMBRES */}
+          {isLimitReached && (
+            <Alert tone="warning" icon={Lock}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-amber-800 dark:text-amber-200">
+                    Limite de membres atteinte
+                  </p>
+                  <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                    Votre plan {planTier} autorise {limits.maxUsers} membre{limits.maxUsers > 1 ? 's' : ''}. 
+                    Vous avez atteint cette limite. Passez au plan supérieur pour ajouter plus de membres.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => navigate('/pricing')}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+                >
+                  Voir les plans
+                </button>
+              </div>
+            </Alert>
+          )}
+
           <Card>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
               <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
@@ -831,14 +879,33 @@ export default function TeamSettings() {
 
           <Card>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-              <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
-                <UserPlus size={20} className="text-purple-600 dark:text-purple-400"/>
-                {viewMode === 'active' ? "Membres de l'équipe" : 'Membres Archivés'}
-              </h2>
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
+                  <UserPlus size={20} className="text-purple-600 dark:text-purple-400"/>
+                  {viewMode === 'active' ? "Membres de l'équipe" : 'Membres Archivés'}
+                </h2>
+                {/* ✅ INDICATEUR DE LIMITE */}
+                {!isUnlimited(limits.maxUsers) && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    {activeMembersCount} / {limits.maxUsers} membre{limits.maxUsers > 1 ? 's' : ''} utilisé{limits.maxUsers > 1 ? 's' : ''}
+                    {isLimitReached && (
+                      <span className="text-amber-600 dark:text-amber-400 font-medium ml-1">
+                        (Limite atteinte)
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
               {viewMode === 'active' && hasPermission('team.invite') && (
                 <button 
-                  onClick={() => setShowMemberModal(true)} 
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors active:scale-95"
+                  onClick={() => setShowMemberModal(true)}
+                  disabled={isLimitReached}
+                  className={`w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                    isLimitReached 
+                      ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed' 
+                      : 'bg-purple-600 text-white hover:bg-purple-700'
+                  }`}
+                  title={isLimitReached ? `Limite de ${limits.maxUsers} membres atteinte` : 'Ajouter un membre'}
                 >
                   <Plus size={16} /> Ajouter un membre
                 </button>

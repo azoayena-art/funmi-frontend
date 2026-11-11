@@ -6,10 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
 import { useRateLimit } from '../hooks/useRateLimit';
-import { databases, DATABASE_ID } from '../appwrite'; // ⚠️ PAS de ID ici
-import { Query, ID } from 'appwrite'; // ✅ ID vient d'ici
+import { databases, DATABASE_ID } from '../appwrite';
+import { Query, ID } from 'appwrite';
 import { toast } from 'sonner';
-// ... (le reste du fichier reste inchangé)
 import {
   Card, SectionTitle, Badge, SkeletonCard, Alert,
 } from '../components/ui/SharedUI';
@@ -44,9 +43,9 @@ const COUNTRY_TO_STANDARD: Record<string, string> = {
 };
 
 const STANDARD_LABELS: Record<string, string> = {
-  FR_PCG: 'PCG France', SYSCOHADA: 'SYSCOHADA (OHADA)',
-  MA_PCM: 'PCM Maroc', TN_PCT: 'PCT Tunisie', DZ_SCF: 'SCF Algérie',
-  BE_PCMN: 'PCMN Belgique', CH_PCS: 'PCS Suisse', GENERIC: 'Générique',
+  FR_PCG: 'PCG', SYSCOHADA: 'SYSCOHADA',
+  MA_PCM: 'PCM', TN_PCT: 'PCT', DZ_SCF: 'SCF',
+  BE_PCMN: 'PCMN', CH_PCS: 'PCS', GENERIC: 'Plan Comptable',
 };
 
 const LEGAL_CONTEXT: Record<string, { title: string; description: string; obligationLabel: string }> = {
@@ -115,8 +114,10 @@ const ITEMS_PER_PAGE = 15;
 // ============================================================
 export default function ExportComptable() {
   const { user } = useAuth();
-const navigate = useNavigate();
-  const { fm, loading: settingsLoading, companyName, currency, currencyConfig } = useCompanySettings();
+  const navigate = useNavigate();
+  
+  // ✅ 1. Récupération explicite du pays via le hook useCompanySettings
+  const { fm, loading: settingsLoading, companyName, currency, currencyConfig, country: hookCountry } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
 
   const [loading, setLoading] = useState(false);
@@ -144,7 +145,6 @@ const navigate = useNavigate();
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [exportStats, setExportStats] = useState<ExportStats | null>(null);
 
-  // ✅ CORRECTIF 2 : Rate limiting sur les exports (Max 5 téléchargements par heure)
   const {
     tryConsume: tryConsumeExport,
     isBlocked: isBlockedForExport,
@@ -169,13 +169,22 @@ const navigate = useNavigate();
     })();
   }, [customTeamId]);
 
-  const companyCountry = companySettings?.country || 'FR';
+  // ✅ 2. Détermination dynamique du référentiel comptable selon le pays
+  const companyCountry = hookCountry || companySettings?.country || 'FR';
   const countryConfig: CountryConfig = useMemo(() => getCountryConfig(companyCountry), [companyCountry]);
   const detectedStandard = useMemo(() => COUNTRY_TO_STANDARD[companyCountry] || 'GENERIC', [companyCountry]);
-  const standardLabel = STANDARD_LABELS[detectedStandard] || STANDARD_LABELS.GENERIC;
+  
+  // ✅ 3. Affichage dynamique du badge (ex: "PCG (France)" ou "SYSCOHADA (Sénégal)")
+  const standardLabel = useMemo(() => {
+    const baseLabel = STANDARD_LABELS[detectedStandard] || 'Plan Comptable';
+    return `${baseLabel} (${countryConfig.name})`;
+  }, [detectedStandard, countryConfig.name]);
+
   const legalContext = LEGAL_CONTEXT[companyCountry] || (COUNTRY_TO_STANDARD[companyCountry] === 'SYSCOHADA' ? LEGAL_CONTEXT.SYSCOHADA : LEGAL_CONTEXT.DEFAULT);
   const availableFormats = useMemo(() => getExportFormats(companyCountry), [companyCountry]);
-useEffect(() => {
+
+  // ✅ 4. Chargement du plan comptable personnalisé (ou défaut) en fonction du contexte
+  useEffect(() => {
     if (!customTeamId) return;
     loadCustomAccountMapping(customTeamId).then(({ mapping, customized, customAccounts }) => {
       setAccountMapping(mapping);
@@ -270,7 +279,6 @@ useEffect(() => {
         }, 500);
       }
 
-      // ✅ CORRECTIF 1 : Log d'audit sur la prévisualisation (Consultation)
       try {
         await databases.createDocument(DATABASE_ID, 'audit_logs', ID.unique(), {
           teamId: customTeamId,
@@ -305,7 +313,6 @@ useEffect(() => {
     const dateValidation = validateDates();
     if (!dateValidation.valid) { toast.error('Période invalide', { description: dateValidation.error }); return; }
 
-    // ✅ CORRECTIF 2 : Vérification du rate limit avant l'export
     const rateCheck = tryConsumeExport();
     if (!rateCheck.allowed) {
       toast.error('Trop d\'exports', {
@@ -332,7 +339,6 @@ useEffect(() => {
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-      // ✅ CORRECTIF 1 : Log d'audit sur le téléchargement effectif (Action critique)
       try {
         await databases.createDocument(DATABASE_ID, 'audit_logs', ID.unique(), {
           teamId: customTeamId,
@@ -340,7 +346,7 @@ useEffect(() => {
           action: 'export_comptable_downloaded',
           resourceType: 'report',
           resourceId: '',
-          severity: 'warning', // Sévérité plus élevée pour un téléchargement
+          severity: 'warning',
           details: JSON.stringify({
             period: `${startDate} → ${endDate}`,
             format: selectedFormat,
@@ -418,6 +424,7 @@ useEffect(() => {
                   <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                     Export Comptable
                   </h1>
+                  {/* ✅ Badge dynamique affichant le référentiel et le pays */}
                   <Badge tone="blue">{standardLabel}</Badge>
                   <Badge tone="slate">{currencySymbol} {currencyCode}</Badge>
                 </div>

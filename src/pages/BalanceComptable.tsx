@@ -5,9 +5,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
-import { useRateLimit } from '../hooks/useRateLimit'; // ✅ CORRECTIF 2 : Hook de rate limiting
+import { useRateLimit } from '../hooks/useRateLimit';
 import { databases, DATABASE_ID } from '../appwrite'; 
-import { Query, ID } from 'appwrite'; // ✅ CORRECTIF 1 : ID vient de 'appwrite', pas de '../appwrite'
+import { Query, ID } from 'appwrite';
 import { toast } from 'sonner';
 import { Card, Badge, Input } from '../components/ui/SharedUI';
 import {
@@ -26,6 +26,8 @@ import {
   DEFAULT_ACCOUNT_MAPPING,
 } from '../services/accountingExportService';
 import { loadCustomAccountMapping } from '../services/accountMappingService';
+// ✅ IMPORT pour l'adaptation dynamique selon le pays
+import { getCountryConfig, FALLBACK_COUNTRY } from '../config/countries';
 
 const PERIOD_PRESETS = [
   { label: 'Mois en cours', getDates: () => { const now = new Date(); return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0) }; } },
@@ -47,9 +49,18 @@ const ACCOUNT_CLASSES = [
 
 export default function BalanceComptable() {
   const { user } = useAuth();
-const navigate = useNavigate();
-  const { fm, loading: settingsLoading, companyName, currency, currencyConfig } = useCompanySettings();
+  const navigate = useNavigate();
+  // ✅ Récupération du pays en plus des autres paramètres
+  const { fm, loading: settingsLoading, companyName, currency, currencyConfig, country } = useCompanySettings();
   const { customTeamId } = useTeam();
+
+  // ✅ Détermination dynamique du référentiel comptable selon le pays
+  const countryConfig = useMemo(() => getCountryConfig(country || 'FR') || FALLBACK_COUNTRY, [country]);
+  const accountingStandardLabel = countryConfig.code === 'FR' 
+    ? 'PCG (France)' 
+    : countryConfig.code === 'SN' || countryConfig.code === 'CI' || countryConfig.code === 'CM' 
+      ? 'SYSCOHADA' 
+      : 'Plan Comptable Local';
 
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState<TrialBalanceAccount[]>([]);
@@ -74,7 +85,9 @@ const navigate = useNavigate();
     maxAttempts: 5,
     windowMs: 60 * 60 * 1000, // 1 heure
   });
-useEffect(() => {
+
+  // ✅ Chargement du plan comptable personnalisé de l'équipe
+  useEffect(() => {
     if (!customTeamId) return;
     loadCustomAccountMapping(customTeamId)
       .then(({ mapping }) => setAccountMapping(mapping))
@@ -98,7 +111,7 @@ useEffect(() => {
         endDate: new Date(`${endDate}T23:59:59`),
         teamId: customTeamId!,
         format: 'csv',
-      }, accountMapping);
+      }, accountMapping); // ✅ Le mapping (adapté au pays/équipe) est bien passé ici
 
       const trialBalance = generateTrialBalance(entries);
       setBalance(trialBalance);
@@ -106,7 +119,7 @@ useEffect(() => {
       if (trialBalance.length === 0) {
         toast.info('Aucune donnée', { description: 'Aucune écriture comptable sur cette période.' });
       } else {
-        toast.success('Balance générée', { description: `${trialBalance.length} comptes analysés.` });
+        toast.success('Balance générée', { description: `${trialBalance.length} comptes analysés selon le référentiel ${accountingStandardLabel}.` });
       }
 
       // ✅ CORRECTIF 1 : Log d'audit sur la consultation de la Balance (Traçabilité)
@@ -126,6 +139,7 @@ useEffect(() => {
             accountsAnalyzed: trialBalance.length,
             totalDebit,
             totalCredit,
+            accountingStandard: accountingStandardLabel,
             userAgent: navigator.userAgent.substring(0, 200),
           }),
           createdAt: new Date().toISOString(),
@@ -139,12 +153,11 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
-  }, [isSecureContext, startDate, endDate, customTeamId, accountMapping, user]);
+  }, [isSecureContext, startDate, endDate, customTeamId, accountMapping, user, accountingStandardLabel]);
 
   const handleExportCSV = useCallback(() => {
     if (balance.length === 0) return;
     
-    // ✅ CORRECTIF 2 : Vérification du rate limit avant l'export
     const rateCheck = tryConsumeExport();
     if (!rateCheck.allowed) {
       toast.error('Trop d\'exports', {
@@ -246,7 +259,7 @@ useEffect(() => {
   if (settingsLoading) {
     return (
       <Sidebar>
-        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center min-h-screen">
           <Loader2 size={32} className="animate-spin text-blue-600" />
         </div>
       </Sidebar>
@@ -273,7 +286,8 @@ useEffect(() => {
                 <div className="flex items-center gap-2 mb-0.5">
                   <Scale size={18} className="text-blue-600 dark:text-blue-400" />
                   <h1 className="text-xl font-bold text-slate-900 dark:text-white">Balance Comptable</h1>
-                  <Badge tone="blue">PCG / SYSCOHADA</Badge>
+                  {/* ✅ Badge dynamique selon le pays sélectionné */}
+                  <Badge tone="blue">{accountingStandardLabel}</Badge>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Synthèse des mouvements par compte — {companyName} • {currency}
@@ -473,7 +487,7 @@ useEffect(() => {
             <div className="flex justify-between items-start">
               <div>
                 <h2 className="text-2xl font-bold">{companyName}</h2>
-                <p className="text-sm text-slate-600 mt-1">Balance Comptable Générale</p>
+                <p className="text-sm text-slate-600 mt-1">Balance Comptable Générale ({accountingStandardLabel})</p>
               </div>
               <div className="text-right">
                 <p className="text-xs text-slate-600">Période</p>

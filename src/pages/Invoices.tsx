@@ -1,9 +1,9 @@
-// src/pages/Invoices.tsx
+﻿// src/pages/Invoices.tsx
 import { createTreasuryMovement } from '../utils/treasuryGuard';
 import {
   Search, Download, CheckCircle2, Receipt, DollarSign,
   Archive, RotateCcw, Eye, X, FileText, FileMinus, AlertTriangle, RefreshCw,
-  Banknote, FileCheck2, Link2, Zap, FileCode, Send, Clock, History, Upload, Info,
+  Banknote, FileCheck2, Link2, Zap, FileCode, Send, Clock, History, Upload, Info, Plus, // <-- Ajout de Plus
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCompanySettings } from '../hooks/useCompanySettings';
 import { useTeam } from '../context/TeamContext';
+import { usePlanAccess } from '../hooks/usePlanAccess';
 import { getFilePreviewUrl } from '../utils/storage';
 import { verifyDocumentAccess, logAuditAction } from '../utils/security';
 import Sidebar from '../components/Sidebar';
@@ -301,6 +302,7 @@ export default function Invoices() {
   const navigate = useNavigate();
   const { fm, currency, currencyConfig, loading: settingsLoading } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
+  const { limits, isUnlimited } = usePlanAccess(); // ✅ AJOUT : Hook pour les limites du plan
   const SYM = currencyConfig?.symbol || '€';
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -558,6 +560,23 @@ export default function Invoices() {
     } catch (e) { console.error('Erreur loadInvoices:', e); toast.error('Impossible de charger les factures'); } 
     finally { if (!isBackground) setLoading(false); }
   };
+// 🎯 VÉRIFICATION DES LIMITES MENSUELLES AVANT CRÉATION DE FACTURE
+const handleCreateInvoice = () => {
+  const nowDate = new Date();
+  const firstDayOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
+  const invoicesThisMonth = invoices.filter((inv: any) => new Date(inv.issueDate || inv.$createdAt) >= firstDayOfMonth);
+  
+  if (!isUnlimited(limits.maxInvoicesPerMonth) && invoicesThisMonth.length >= limits.maxInvoicesPerMonth) {
+    toast.error(`Limite de ${limits.maxInvoicesPerMonth} factures par mois atteinte sur votre plan. Passez au plan supérieur.`);
+    navigate('/pricing');
+    return;
+  }
+  
+  // TODO: Remplacez cette ligne par l'ouverture de votre modal de création ou la navigation vers la page de création
+  navigate('/invoices/new'); 
+};
+
+const getDaysOverdue = (dueDate?: string, status?: string) => {
 
   const getDaysOverdue = (dueDate?: string, status?: string) => {
     if (!dueDate || status === 'paid' || status === 'cancelled') return 0;
@@ -1799,11 +1818,22 @@ export default function Invoices() {
           description={<><span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">{filtered.length}</span>{' '}document(s) {viewMode === 'active' ? 'actif(s)' : 'archivé(s)'}</>}
           currency={currency || 'EUR'}
           currencySymbol={currencyConfig?.symbol || '€'}
-          action={failedEvents.length > 0 ? (
-            <button onClick={handleRetryFailedEvents} className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/30 active:scale-95">
-              <RefreshCw size={16} /> Réessayer {failedEvents.length} événement{failedEvents.length > 1 ? 's' : ''}
-            </button>
-          ) : undefined}
+          action={
+  <div className="flex gap-2">
+    {failedEvents.length > 0 && (
+      <button onClick={handleRetryFailedEvents} className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/30 active:scale-95">
+        <RefreshCw size={16} /> Réessayer {failedEvents.length} événement{failedEvents.length > 1 ? 's' : ''}
+      </button>
+    )}
+    <button
+      onClick={handleCreateInvoice}
+      className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg shadow-purple-500/30 active:scale-95"
+    >
+      <Plus size={16} /> Nouvelle facture
+    </button>
+  </div>
+}
+
         />
         {isFrenchEInvoiceRegime && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">

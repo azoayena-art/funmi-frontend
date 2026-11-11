@@ -1,5 +1,12 @@
 import crypto from 'crypto';
 
+// ============================================================
+// 🎯 CONSTANTES DES COLLECTIONS (À ADAPTER SI BESOIN)
+// ============================================================
+const COLLECTION_PLANS = 'plans';
+const COLLECTION_SETTINGS = 'company_settings';
+const COLLECTION_LICENSES = 'licenses';
+
 export default async ({ req, res, log, error }) => {
   log("🚀 PADDLE WEBHOOK - DÉBUT");
 
@@ -13,7 +20,7 @@ export default async ({ req, res, log, error }) => {
   const paddleSecret = process.env.PADDLE_WEBHOOK_SECRET || "";
 
   if (!projectId || !apiKey || !dbId || !paddleSecret) {
-    error("❌ Configuration manquante");
+    error("❌ Configuration manquante (projectId, apiKey, dbId, paddleSecret)");
     return res.json({ success: false, error: "Configuration manquante" }, 500);
   }
 
@@ -41,15 +48,14 @@ export default async ({ req, res, log, error }) => {
     return res.json({ success: false, error: "Format signature invalide" }, 401);
   }
 
-  // Vérifier que le timestamp a moins de 5 minutes (protection contre les attaques par rejeu)
+  // Vérifier que le timestamp a moins de 5 minutes
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - parseInt(timestamp, 10)) > 300) {
     error("❌ Rejet : Signature expirée (plus de 5 min)");
     return res.json({ success: false, error: "Signature expirée" }, 401);
   }
 
-  // Créer le payload à hasher : "timestamp:body"
-  // Note: req.body doit être une chaîne de caractères brute pour le hachage
+  // Créer le payload à hasher
   const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   const payloadToHash = `${timestamp}:${rawBody}`;
 
@@ -59,10 +65,15 @@ export default async ({ req, res, log, error }) => {
     .update(payloadToHash)
     .digest('hex');
 
-  // Comparer les signatures de manière sécurisée (protection contre les attaques par timing)
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
-    error("❌ Rejet : Signature invalide (tentative de falsification ?)");
-    return res.json({ success: false, error: "Signature invalide" }, 403);
+  // Comparer les signatures de manière sécurisée
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      error("❌ Rejet : Signature invalide");
+      return res.json({ success: false, error: "Signature invalide" }, 403);
+    }
+  } catch (err) {
+    error("❌ Erreur comparaison signature:", err.message);
+    return res.json({ success: false, error: "Erreur signature" }, 403);
   }
 
   log("✅ Signature Paddle vérifiée avec succès");
@@ -88,29 +99,72 @@ export default async ({ req, res, log, error }) => {
   try {
     let eventData = req.body;
     if (typeof eventData === "string") {
-      try { eventData = JSON.parse(eventData); } catch { return res.json({ success: false, error: "Invalid JSON" }, 400); }
+      try { eventData = JSON.parse(eventData); } catch { 
+        return res.json({ success: false, error: "Invalid JSON" }, 400); 
+      }
     }
 
+    const eventType = eventData?.event_type || "unknown";
+    log(`📨 Type d'événement reçu : ${eventType}`);
+
+    // ============================================================
+    // 🎯 FILTRAGE DES ÉVÉNEMENTS PERTINENTS
+    // ============================================================
+    // On ne traite que les événements qui impactent l'abonnement
+    const relevantEvents = [
+      'transaction.completed',
+      'transaction.paid',
+      'subscription.created',
+      'subscription.activated',
+      'subscription.updated',
+      'subscription.canceled',
+      'subscription.past_due',
+      'subscription.paused',
+      'subscription.resumed',
+      'subscription.trialing'
+    ];
+
+    if (!relevantEvents.includes(eventType)) {
+      log(`ℹ️ Événement '${eventType}' ignoré (non pertinent pour la mise à jour du plan)`);
+      return res.json({ success: true, message: `Event ${eventType} ignored` }, 200);
+    }
+
+    // ============================================================
+    // 4. EXTRACTION DES DONNÉES
+    // ============================================================
     const data = eventData?.data || eventData;
     const customData = data?.custom_data || eventData?.custom_data || {};
 
     const teamId = String(customData.teamId || customData.team_id || "").trim();
+    
+    // Extraction robuste du priceId (différents formats selon l'événement)
+    let priceId = '';
     const firstItem = data?.items?.[0];
-    const rawPriceId = firstItem?.price?.id || firstItem?.price_id || data?.price_id || null;
-    const priceId = String(rawPriceId || "").trim();
-
-    log(`2. Paddle : type=${eventData?.event_type}, teamId=${teamId}, priceId=${priceId}`);
-
-    if (!teamId || !priceId) {
-      return res.json({ success: true, message: "Missing teamId or priceId" }, 200);
+    if (firstItem?.price?.id) {
+      priceId = String(firstItem.price.id).trim();
+    } else if (firstItem?.price_id) {
+      priceId = String(firstItem.price_id).trim();
+    } else if (data?.price_id) {
+      priceId = String(data.price_id).trim();
     }
 
-    // ... (Le reste de ton code à partir de "4. RECHERCHE PLAN" reste IDENTIQUE et est parfait) ...
+    log(`📦 Données extraites : teamId=${teamId}, priceId=${priceId}`);
+
+    if (!teamId) {
+      log("⚠️ Pas de teamId dans custom_data, webhook ignoré");
+      return res.json({ success: true, message: "No teamId" }, 200);
+    }
+
+    if (!priceId) {
+      log("⚠️ Pas de priceId trouvé, webhook ignoré");
+      return res.json({ success: true, message: "No priceId" }, 200);
+    }
 
     // ============================================================
-    // 4. RECHERCHE PLAN
+    // 5. RECHERCHE DU PLAN DANS LA BASE
     // ============================================================
-    log(`3. Recherche plan dans '${COLLECTION_PLANS}'`);
+    log(`🔍 Recherche du plan pour priceId=${priceId}`);
+    
     const plansParams = new URLSearchParams();
     plansParams.append("queries[]", JSON.stringify({ method: "limit", values: [100] }));
 
@@ -132,13 +186,22 @@ export default async ({ req, res, log, error }) => {
 
     if (!matchedPlan) {
       error(`❌ Plan non trouvé pour priceId=${priceId}`);
-      return res.json({ success: false, step: "find_plan", receivedPriceId: priceId }, 404);
+      return res.json({ 
+        success: false, 
+        step: "find_plan", 
+        receivedPriceId: priceId,
+        availablePlans: plans.map(p => ({ 
+          name: p.name, 
+          monthly: p.paddlePriceIdMonthly, 
+          yearly: p.paddlePriceIdYearly 
+        }))
+      }, 404);
     }
 
-    log(`4. ✅ Plan trouvé : ${matchedPlan.name}`);
+    log(`✅ Plan trouvé : ${matchedPlan.name} (${matchedPlan.$id})`);
 
     // ============================================================
-    // 5. PRÉPARATION PAYLOAD & MAPPING DES STATUTS
+    // 6. CALCUL DES STATUTS ET DATES
     // ============================================================
     const rawRenewsAt = data.current_billing_period?.ends_at || data.next_billed_at || null;
     let subscriptionRenewsAt = null;
@@ -148,13 +211,15 @@ export default async ({ req, res, log, error }) => {
     }
 
     const paddleStatus = String(data.status || "").toLowerCase();
+    log(`📊 Statut Paddle reçu : ${paddleStatus}`);
 
-    // ⚠️ MAPPING CRITIQUE POUR APPWRITE
-    // 1. Pour company_settings, on garde 'trialing' si c'est le cas
-    const settingsStatus = (paddleStatus === "trialing" || paddleStatus === "active") ? "trialing" : paddleStatus;
+    // Mapping pour company_settings
+    const settingsStatus = (paddleStatus === "trialing" || paddleStatus === "active") 
+      ? "active" 
+      : paddleStatus;
 
-    // 2. Pour licenses, on DOIT respecter l'Enum Appwrite : 'active', 'expired', 'suspended'
-    let licenseStatus = "active"; // 'trialing' et 'active' deviennent 'active'
+    // Mapping pour licenses (respect de l'Enum Appwrite)
+    let licenseStatus = "active";
     if (paddleStatus === "canceled" || paddleStatus === "past_due" || paddleStatus === "paused") {
       licenseStatus = "suspended";
     } else if (paddleStatus === "expired") {
@@ -170,9 +235,10 @@ export default async ({ req, res, log, error }) => {
     };
 
     // ============================================================
-    // 6. MISE À JOUR company_settings
+    // 7. MISE À JOUR company_settings
     // ============================================================
-    log(`6. Mise à jour '${COLLECTION_SETTINGS}'`);
+    log(`💾 Mise à jour de '${COLLECTION_SETTINGS}' pour teamId=${teamId}`);
+    
     const settingsParams = new URLSearchParams();
     settingsParams.append("queries[]", JSON.stringify({ method: "equal", attribute: "teamId", values: [teamId] }));
     settingsParams.append("queries[]", JSON.stringify({ method: "limit", values: [10] }));
@@ -185,22 +251,30 @@ export default async ({ req, res, log, error }) => {
       const docId = settingsResult.data.documents[0].$id;
       const updateUrl = apiUrl(`/databases/${encodeURIComponent(dbId)}/collections/${COLLECTION_SETTINGS}/documents/${encodeURIComponent(docId)}`);
       
-      await fetch(updateUrl, {
+      const updateRes = await fetch(updateUrl, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ data: updatePayload })
       });
-      log(`   ✅ company_settings mis à jour`);
+      const updateResult = await readResponse(updateRes);
+      
+      if (updateResult.ok) {
+        log(`✅ company_settings mis à jour (doc: ${docId})`);
+      } else {
+        error(`❌ Erreur update settings: ${JSON.stringify(updateResult.data)}`);
+      }
+    } else {
+      log(`⚠️ Aucun document company_settings trouvé pour teamId=${teamId}`);
     }
 
-       // ============================================================
-    // 7. MISE À JOUR OU CRÉATION licenses (BLINDÉ ANTI-DOUBLON)
     // ============================================================
-    log(`7. Traitement de la collection '${COLLECTION_LICENSES}'`);
+    // 8. MISE À JOU / CRÉATION licenses (ANTI-DOUBLON)
+    // ============================================================
+    log(`💾 Traitement de '${COLLECTION_LICENSES}' pour teamId=${teamId}`);
     
     const licensesParams = new URLSearchParams();
     licensesParams.append("queries[]", JSON.stringify({ method: "equal", attribute: "teamId", values: [teamId] }));
-    licensesParams.append("queries[]", JSON.stringify({ method: "orderDesc", attribute: "$createdAt" })); // Prend le plus récent en cas de doublon
+    licensesParams.append("queries[]", JSON.stringify({ method: "orderDesc", attribute: "$createdAt" }));
     licensesParams.append("queries[]", JSON.stringify({ method: "limit", values: [1] }));
 
     const licensesUrl = apiUrl(`/databases/${encodeURIComponent(dbId)}/collections/${COLLECTION_LICENSES}/documents?${licensesParams.toString()}`);
@@ -215,9 +289,9 @@ export default async ({ req, res, log, error }) => {
       licenseDocId = licensesResult.data.documents[0].$id;
       licenseMethod = "PATCH";
       licenseEndpointPath += `/${encodeURIComponent(licenseDocId)}`;
-      log(`   ⚠️ Licence existante trouvée, mise à jour (PATCH) de : ${licenseDocId}`);
+      log(`📝 Licence existante trouvée, mise à jour (PATCH) de : ${licenseDocId}`);
     } else {
-      log(`   Aucune licence trouvée, tentative de création (POST)`);
+      log(`🆕 Aucune licence trouvée, création (POST)`);
     }
 
     const licensePayload = {
@@ -241,42 +315,41 @@ export default async ({ req, res, log, error }) => {
     });
 
     const licenseResult = await readResponse(licenseResponse);
-    log(`   Réponse Licences (${licenseMethod}) : HTTP ${licenseResult.status}`);
+    log(`📊 Réponse Licences (${licenseMethod}) : HTTP ${licenseResult.status}`);
 
-    // 🛡️ SAUVETAGE EN CAS DE RACE CONDITION (Si le POST échoue car créé entre-temps par un autre webhook Paddle)
+    // 🛡️ SAUVETAGE EN CAS DE RACE CONDITION (409 Conflict)
     if (!licenseResult.ok && licenseMethod === "POST" && licenseResult.status === 409) {
-        log("   ⚠️ Conflit (409) : La licence a été créée entre-temps par un autre événement. Récupération et mise à jour...");
+      log("⚠️ Conflit (409) : Licence créée entre-temps. Récupération et mise à jour...");
+      
+      const retryRes = await fetch(licensesUrl, { method: "GET", headers });
+      const retryResult = await readResponse(retryRes);
+      
+      if (retryResult.ok && retryResult.data.documents?.length > 0) {
+        const newDocId = retryResult.data.documents[0].$id;
+        const patchUrl = apiUrl(`/databases/${encodeURIComponent(dbId)}/collections/${COLLECTION_LICENSES}/documents/${encodeURIComponent(newDocId)}`);
         
-        // On refait une recherche rapide pour trouver l'ID qui vient d'être créé
-        const retryRes = await fetch(licensesUrl, { method: "GET", headers });
-        const retryResult = await readResponse(retryRes);
-        
-        if (retryResult.ok && retryResult.data.documents?.length > 0) {
-            const newDocId = retryResult.data.documents[0].$id;
-            const patchUrl = apiUrl(`/databases/${encodeURIComponent(dbId)}/collections/${COLLECTION_LICENSES}/documents/${encodeURIComponent(newDocId)}`);
-            
-            const patchRes = await fetch(patchUrl, {
-                method: "PATCH",
-                headers,
-                body: JSON.stringify({ data: licensePayload })
-            });
-            const patchResult = await readResponse(patchRes);
-            log(`   ✅ Sauvetage réussi : Mise à jour (PATCH) de ${newDocId} (HTTP ${patchResult.status})`);
-        }
+        const patchRes = await fetch(patchUrl, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ data: licensePayload })
+        });
+        const patchResult = await readResponse(patchRes);
+        log(`✅ Sauvetage réussi : Mise à jour de ${newDocId} (HTTP ${patchResult.status})`);
+      }
     } else if (!licenseResult.ok) {
-        error(`   ❌ ERREUR LICENSES : ${JSON.stringify(licenseResult.data)}`);
-        return res.json({ 
-          success: false, 
-          step: "update_licenses", 
-          status: licenseResult.status,
-          error: licenseResult.data 
-        }, 500);
+      error(`❌ ERREUR LICENSES : ${JSON.stringify(licenseResult.data)}`);
+      return res.json({ 
+        success: false, 
+        step: "update_licenses", 
+        status: licenseResult.status,
+        error: licenseResult.data 
+      }, 500);
     } else {
-        log(`   🎉 LICENCE TRAITÉE AVEC SUCCÈS (ID: ${licenseDocId || licenseResult.data?.$id})`);
+      log(`🎉 LICENCE TRAITÉE AVEC SUCCÈS (ID: ${licenseDocId || licenseResult.data?.$id})`);
     }
 
     // ============================================================
-    // 8. SUCCÈS
+    // 9. SUCCÈS FINAL
     // ============================================================
     log("🎯 WEBHOOK TERMINÉ AVEC SUCCÈS");
     return res.json({
@@ -284,11 +357,13 @@ export default async ({ req, res, log, error }) => {
       teamId,
       plan: matchedPlan.name.toLowerCase(),
       status: licenseStatus,
-      licenseDocId: licenseDocId || licenseResult.data?.$id
+      licenseDocId: licenseDocId || licenseResult.data?.$id,
+      eventType
     }, 200);
 
   } catch (err) {
     error(`❌ ERREUR CRITIQUE : ${err.message}`);
+    error(`Stack: ${err.stack}`);
     return res.json({ success: false, error: err.message }, 500);
   }
 };
