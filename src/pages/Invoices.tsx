@@ -1,9 +1,9 @@
-﻿// src/pages/Invoices.tsx
+// src/pages/Invoices.tsx
 import { createTreasuryMovement } from '../utils/treasuryGuard';
 import {
   Search, Download, CheckCircle2, Receipt, DollarSign,
   Archive, RotateCcw, Eye, X, FileText, FileMinus, AlertTriangle, RefreshCw,
-  Banknote, FileCheck2, Link2, Zap, FileCode, Send, Clock, History, Upload, Info, Plus, // <-- Ajout de Plus
+  Banknote, FileCheck2, Link2, Zap, FileCode, Send, Clock, History, Upload, Info, Plus,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -45,11 +45,9 @@ interface InvoiceItem {
   id: string; reference: string; description: string; quantity: number;
   unit: string; unitPrice: number; tvaRate: number; total: number; discount: number;
 }
-
 interface Payment {
   id: string; amount: number; date: string; method: string; reference?: string; notes?: string;
 }
-
 interface Invoice {
   $id: string; invoiceNumber: string; quoteId?: string; userId: string; teamId?: string;
   clientToken?: string; status: string; issueDate: string; dueDate?: string; paidAt?: string; receivedAt?: string;
@@ -70,7 +68,6 @@ interface Invoice {
   einvoiceFormat?: 'factur-x' | 'ubl' | 'cii';
   transmissionReference?: string;
 }
-
 interface QuoteDetail {
   $id: string; quoteNumber: string; clientName: string; subject?: string; status: string;
   total: number; issueDate?: string; validityDate?: string; items?: string; subtotal?: number;
@@ -84,22 +81,17 @@ const statusLabels: Record<string, string> = {
   draft: 'Brouillon', invoiced: 'Facturé', sent: 'Envoyée', near_due: 'Bientôt échue',
   overdue: 'En retard', paid: 'Payée', partial: 'Partielle', cancelled: 'Archivée / Annulée',
 };
-
 const typeLabels: Record<string, string> = {
   standard: 'Facture', advance: "Facture d'acompte", balance: 'Facture de solde', credit: "Facture d'avoir",
 };
-
 const typeToneMap: Record<string, DotTone> = {
   standard: 'violet', advance: 'sky', balance: 'teal', credit: 'rose',
 };
-
 const paymentMethodsList = ['Virement bancaire', 'Chèque', 'Espèces', 'Carte bancaire', 'Prélèvement SEPA', 'Autre'];
-
 const transmissionStatusLabels: Record<string, string> = {
   draft: 'Brouillon', ready: 'Prête à transmettre', transmitted: 'Transmise',
   accepted: 'Acceptée', rejected: 'Rejetée', disputed: 'Contestée', cancelled: 'Annulée',
 };
-
 const transmissionStatusColors: Record<string, string> = {
   draft: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
   ready: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
@@ -187,7 +179,6 @@ const generateFacturXXml = (inv: Invoice, originalRef?: { number: string; date?:
   const sellerAddr = parseAddressRetroactive(inv.companyAddress, inv.companyPostalCode, inv.companyCity, inv.companyCountry);
   const buyerAddr = parseAddressRetroactive(inv.clientAddress, inv.clientPostalCode, inv.clientCity, inv.clientCountry);
   const sellerSchemeId = getFacturXSchemeId(sellerAddr.country);
-
   const linesXml = items.map(item => {
     const quantity = Number(item.quantity) || 0;
     const unitPrice = Number(item.unitPrice) || 0;
@@ -223,7 +214,6 @@ const generateFacturXXml = (inv: Invoice, originalRef?: { number: string; date?:
 </ram:SpecifiedLineTradeSettlement>
 </ram:IncludedSupplyTradeLineItem>`;
   }).join('\n');
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
 xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
@@ -302,7 +292,7 @@ export default function Invoices() {
   const navigate = useNavigate();
   const { fm, currency, currencyConfig, loading: settingsLoading } = useCompanySettings();
   const { customTeamId, appwriteTeamId } = useTeam();
-  const { limits, isUnlimited } = usePlanAccess(); // ✅ AJOUT : Hook pour les limites du plan
+  const { limits, isUnlimited } = usePlanAccess(); // ✅ Hook pour les limites du plan
   const SYM = currencyConfig?.symbol || '€';
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -323,30 +313,24 @@ export default function Invoices() {
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [quoteDetails, setQuoteDetails] = useState<QuoteDetail | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
-  
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [advanceForm, setAdvanceForm] = useState({ percent: '30', invoiceId: '' });
   const [savingAdvance, setSavingAdvance] = useState(false);
   const [generatingFinal, setGeneratingFinal] = useState(false);
-  
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creditInvoice, setCreditInvoice] = useState<Invoice | null>(null);
   const [creditForm, setCreditForm] = useState<{ type: string; amount: string; reason: string; refundChoice: 'allocate' | 'refund' }>({ type: 'total', amount: '', reason: '', refundChoice: 'allocate' });
   const [savingCredit, setSavingCredit] = useState(false);
-  
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundCredit, setRefundCredit] = useState<Invoice | null>(null);
   const [refundForm, setRefundForm] = useState({ amount: '', date: new Date().toISOString().split('T')[0], method: 'Virement bancaire', reference: '' });
   const [savingRefund, setSavingRefund] = useState(false);
-  
   const [failedEvents, setFailedEvents] = useState<Array<{ type: string; invoiceId: string; data: any }>>([]);
   const [metadataCache, setMetadataCache] = useState<Map<string, any>>(new Map());
-  
   const [transmitting, setTransmitting] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyInvoice, setHistoryInvoice] = useState<Invoice | null>(null);
   const [einvoicePlatform, setEinvoicePlatform] = useState<string>('simulation');
-  
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [invoiceToCorrect, setInvoiceToCorrect] = useState<Invoice | null>(null);
   const [correctionForm, setCorrectionForm] = useState({
@@ -355,8 +339,8 @@ export default function Invoices() {
     items: [] as InvoiceItem[], notes: '', correctionNotes: '',
   });
   const [correcting, setCorrecting] = useState(false);
-
   const [companySettings, setCompanySettings] = useState<any>(null);
+
   useEffect(() => {
     if (!customTeamId) return;
     (async () => {
@@ -450,10 +434,9 @@ export default function Invoices() {
   const getMetadata = (inv: Invoice | null | undefined): any => (inv ? metadataCache.get(inv.$id) : null) || { creditData: {}, archiveData: {}, reconciliationData: {}, metadataVersion: 0 };
   const getCreditData = (inv: Invoice | null | undefined): any => getMetadata(inv).creditData;
   const getArchiveData = (inv: Invoice | null | undefined): any => getMetadata(inv).archiveData;
-  
   const isDocArchived = (inv: Invoice | null | undefined): boolean => { if (!inv) return false; const archive = getArchiveData(inv); return inv.status === 'cancelled' || archive.archived === true; };
   const isLegacyCredit = (inv: Invoice | null | undefined): boolean => { if (!inv) return false; const credit = getCreditData(inv); return inv.type === 'credit' && credit.creditStatus === undefined; };
-  
+
   const getCreditAllocatedAmount = (inv: Invoice | null | undefined): number => {
     if (!inv || inv.type !== 'credit') return 0;
     const credit = getCreditData(inv);
@@ -481,7 +464,7 @@ export default function Invoices() {
   };
 
   const getAllocatedCreditsForInvoice = (invoiceId: string): number => round2(invoices.filter(inv => inv && inv.type === 'credit' && inv.originalInvoiceId === invoiceId && !isDocArchived(inv)).reduce((sum, inv) => sum + getCreditAllocatedAmount(inv), 0));
-  
+
   const getPaidAmount = (invoice: Invoice | null | undefined): number => {
     if (!invoice) return 0;
     let payments: Payment[] = [];
@@ -557,26 +540,9 @@ export default function Invoices() {
       const ids = repaired.map(d => d.$id);
       const meta = await loadMetadata(ids, teamId);
       setMetadataCache(meta);
-    } catch (e) { console.error('Erreur loadInvoices:', e); toast.error('Impossible de charger les factures'); } 
+    } catch (e) { console.error('Erreur loadInvoices:', e); toast.error('Impossible de charger les factures'); }
     finally { if (!isBackground) setLoading(false); }
   };
-// 🎯 VÉRIFICATION DES LIMITES MENSUELLES AVANT CRÉATION DE FACTURE
-const handleCreateInvoice = () => {
-  const nowDate = new Date();
-  const firstDayOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
-  const invoicesThisMonth = invoices.filter((inv: any) => new Date(inv.issueDate || inv.$createdAt) >= firstDayOfMonth);
-  
-  if (!isUnlimited(limits.maxInvoicesPerMonth) && invoicesThisMonth.length >= limits.maxInvoicesPerMonth) {
-    toast.error(`Limite de ${limits.maxInvoicesPerMonth} factures par mois atteinte sur votre plan. Passez au plan supérieur.`);
-    navigate('/pricing');
-    return;
-  }
-  
-  // TODO: Remplacez cette ligne par l'ouverture de votre modal de création ou la navigation vers la page de création
-  navigate('/invoices/new'); 
-};
-
-const getDaysOverdue = (dueDate?: string, status?: string) => {
 
   const getDaysOverdue = (dueDate?: string, status?: string) => {
     if (!dueDate || status === 'paid' || status === 'cancelled') return 0;
@@ -592,27 +558,42 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
   };
 
   // ============================================================
-  // 🔗 NOUVEAU : ENVOYER AU CLIENT
+  // 🎯 VÉRIFICATION DES LIMITES MENSUELLES AVANT CRÉATION DE FACTURE
+  // ============================================================
+  const handleCreateInvoice = () => {
+    const nowDate = new Date();
+    const firstDayOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
+    const invoicesThisMonth = invoices.filter((inv: any) => new Date(inv.issueDate || inv.$createdAt) >= firstDayOfMonth);
+
+    if (!isUnlimited(limits.maxInvoicesPerMonth) && invoicesThisMonth.length >= limits.maxInvoicesPerMonth) {
+      toast.error(`Limite de ${limits.maxInvoicesPerMonth} factures par mois atteinte sur votre plan. Passez au plan supérieur.`);
+      navigate('/pricing');
+      return;
+    }
+
+    // TODO: Remplacez cette ligne par l'ouverture de votre modal de création ou la navigation vers la page de création
+    navigate('/invoices/new');
+  };
+
+  // ============================================================
+  // 🔗 ENVOYER AU CLIENT
   // ============================================================
   const handleSendToClient = async (inv: Invoice) => {
-    try { verifyTeamAccessStrict(inv, currentTeamId, 'Invoices.handleSendToClient'); } 
+    try { verifyTeamAccessStrict(inv, currentTeamId, 'Invoices.handleSendToClient'); }
     catch { toast.error('Accès refusé'); return; }
-
     setTransmitting(true);
     try {
       const token = inv.clientToken || generateSecureToken();
       const publicLink = `${window.location.origin}/f/${token}`;
-
       await databases.updateDocument(
-        DATABASE_ID, 'invoices', inv.$id, 
+        DATABASE_ID, 'invoices', inv.$id,
         {
           clientToken: token,
           status: inv.status === 'draft' ? 'sent' : inv.status,
           transmittedAt: new Date().toISOString(),
-        }, 
+        },
         getTeamPermissions(appwriteTeamId)
       );
-
       await navigator.clipboard.writeText(publicLink);
       toast.success('Lien de consultation copié !', { description: `La facture a été mise à jour et le lien est dans votre presse-papiers.` });
       await loadInvoices(true);
@@ -641,7 +622,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       const doc = await verifyDocumentAccess('quotes', quoteId, currentTeamId!);
       setQuoteDetails(doc as unknown as QuoteDetail);
       if (user) await logAuditAction(user.$id, currentTeamId!, 'read', 'quote', quoteId);
-    } catch (e: any) { console.error('Erreur chargement devis:', e); toast.error(`Impossible de charger le devis : ${e.message}`); setShowQuoteModal(false); } 
+    } catch (e: any) { console.error('Erreur chargement devis:', e); toast.error(`Impossible de charger le devis : ${e.message}`); setShowQuoteModal(false); }
     finally { setLoadingQuote(false); }
   };
 
@@ -937,7 +918,8 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
         await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'cancelled' });
         await saveMetadata(id, { archiveData: { cancelReason: reason.trim(), cancelledAt: new Date().toISOString(), cancelledBy: user.$id } });
       } else {
-        const reason = prompt(`Archivage administratif de ${num} (motif obligatoire) :\nUne facture émise ne peut pas être annulée : utilisez un avoir référencé.`);
+        const reason = prompt(`Archivage administratif de ${num} (motif obligatoire) :
+Une facture émise ne peut pas être annulée : utilisez un avoir référencé.`);
         if (!reason || !reason.trim()) { toast.info('Archivage abandonné : motif requis.'); return; }
         try {
           await databases.createDocument(DATABASE_ID, 'accounting_events', ID.unique(), {
@@ -956,7 +938,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       const doc = await databases.getDocument(DATABASE_ID, 'invoices', id) as unknown as Invoice;
       try { verifyTeamAccessStrict(doc, currentTeamId, 'Invoices.handleUnarchive'); } catch { toast.error('Accès refusé'); return; }
       const meta = getArchiveData(doc);
-      if (meta.archived === true) { await saveMetadata(id, { archiveData: {} }); } 
+      if (meta.archived === true) { await saveMetadata(id, { archiveData: {} }); }
       else if (doc.status === 'cancelled') { await databases.updateDocument(DATABASE_ID, 'invoices', id, { status: 'draft' }); await saveMetadata(id, { archiveData: {} }); }
       loadInvoices();
       setViewMode('active');
@@ -1200,7 +1182,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       const creditTotal = creditForm.type === 'total' ? (creditInvoice.total || 0) : creditAmount;
       const { items: creditItems, subtotal: creditSubtotal, tax: creditTax, breakdown } = buildCreditLines(creditInvoice, creditTotal);
       let allocatedAmount: number; let toRefund: number; let initialCreditStatus: string;
-      if (creditForm.refundChoice === 'refund') { allocatedAmount = 0; toRefund = creditTotal; initialCreditStatus = 'to_refund'; } 
+      if (creditForm.refundChoice === 'refund') { allocatedAmount = 0; toRefund = creditTotal; initialCreditStatus = 'to_refund'; }
       else {
         const remainingBefore = getNetRemaining(creditInvoice);
         allocatedAmount = round2(Math.min(creditTotal, remainingBefore));
@@ -1232,12 +1214,12 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
         einvoicePlatform: creditInvoice.isElectronic ? (creditInvoice.einvoicePlatform || 'simulation') : null,
         einvoiceFormat: creditInvoice.isElectronic ? (creditInvoice.einvoiceFormat || 'factur-x') : null,
       };
-      try { await databases.createDocument(DATABASE_ID, 'invoices', deterministicInvoiceId, creditPayload, getTeamPermissions(appwriteTeamId)); } 
+      try { await databases.createDocument(DATABASE_ID, 'invoices', deterministicInvoiceId, creditPayload, getTeamPermissions(appwriteTeamId)); }
       catch (invoiceError) { console.error('Échec création facture:', invoiceError); throw new Error(`Impossible de créer la facture d'avoir : ${(invoiceError as Error).message}`); }
-      try { await saveMetadata(invoiceIdStr, { creditData: { creditStatus: initialCreditStatus, allocatedAmount, refundedAmount: 0, refundPayments: [], taxBreakdown: breakdown } }); } 
+      try { await saveMetadata(invoiceIdStr, { creditData: { creditStatus: initialCreditStatus, allocatedAmount, refundedAmount: 0, refundPayments: [], taxBreakdown: breakdown } }); }
       catch (metaError) { console.warn('Erreur métadonnées avoir (non bloquant):', metaError); }
       if (creditInvoice.isElectronic) {
-        try { const createdCredit = await databases.getDocument(DATABASE_ID, 'invoices', invoiceIdStr) as unknown as Invoice; await generateAndStoreXml(createdCredit); } 
+        try { const createdCredit = await databases.getDocument(DATABASE_ID, 'invoices', invoiceIdStr) as unknown as Invoice; await generateAndStoreXml(createdCredit); }
         catch (xmlError) { console.warn('XML E-Avoir non généré (non bloquant):', xmlError); }
       }
       setShowCreditModal(false); setCreditInvoice(null); await loadInvoices(true);
@@ -1330,10 +1312,10 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
         setShowRefundModal(false); await loadInvoices(true);
         if (!eventSuccess) toast.warning('Remboursement enregistré mais NON TRACÉ. Utilisez "Réessayer les événements".');
         else toast.success(`Remboursement de ${fm(amount)} enregistré`);
-        try { const updatedCredit = await databases.getDocument(DATABASE_ID, 'invoices', refundCredit.$id) as unknown as Invoice; await generateDebitReceiptPDF(updatedCredit, payment); } 
+        try { const updatedCredit = await databases.getDocument(DATABASE_ID, 'invoices', refundCredit.$id) as unknown as Invoice; await generateDebitReceiptPDF(updatedCredit, payment); }
         catch (receiptError) { console.error('Erreur génération automatique du reçu de décaissement:', receiptError); toast.error('Le remboursement est enregistré mais le reçu DEC n\'a pas pu être généré.'); }
       } finally { await releaseRefundLock(refundCredit.$id); }
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); await releaseRefundLock(refundCredit.$id); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); await releaseRefundLock(refundCredit.$id); }
     finally { setSavingRefund(false); setRefundCredit(null); }
   };
 
@@ -1509,9 +1491,9 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
     setTransmitting(true);
     try {
       const result = await transmitToPPF(inv, currentTeamId, user.$id);
-      if (result.success) { toast.success('Facture transmise !', { description: `Référence : ${result.transmissionReference}`, duration: 6000 }); await loadInvoices(true); } 
+      if (result.success) { toast.success('Facture transmise !', { description: `Référence : ${result.transmissionReference}`, duration: 6000 }); await loadInvoices(true); }
       else { toast.error('Échec de transmission', { description: result.errorMessage || 'Erreur inconnue', duration: 6000 }); }
-    } catch (e: any) { toast.error(`Erreur : ${e.message || 'Erreur lors de la transmission'}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message || 'Erreur lors de la transmission'}`); }
     finally { setTransmitting(false); }
   };
 
@@ -1533,7 +1515,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       } catch (e) { console.warn('Événement non tracé:', e); }
       await loadInvoices(true);
       toast.success(`${isCredit ? 'E-Avoir' : 'Facture'} marqué(e) transmis(e)`, { description: `Référence : ${reference}`, duration: 6000 });
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
     finally { setTransmitting(false); }
   };
 
@@ -1546,7 +1528,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       await databases.updateDocument(DATABASE_ID, 'invoices', inv.$id, { transmissionStatus: 'accepted' }, getTeamPermissions(appwriteTeamId));
       await loadInvoices(true);
       toast.success(`${isCredit ? 'E-Avoir' : 'Facture'} marqué(e) accepté(e)`, { duration: 6000 });
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
     finally { setTransmitting(false); }
   };
 
@@ -1561,7 +1543,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
       toast.warning(`Facture ${inv.invoiceNumber} marquée rejetée`, { description: `Motif : ${reason.trim()}`, duration: 7000 });
       const fresh = await databases.getDocument(DATABASE_ID, 'invoices', inv.$id) as unknown as Invoice;
       handleOpenCorrectionModal(fresh);
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
     finally { setTransmitting(false); }
   };
 
@@ -1575,7 +1557,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
         else toast.warning('Facture rejetée par le client', { duration: 6000 });
         await loadInvoices(true);
       } else { toast.error(`Erreur : ${result.errorMessage}`); }
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
     finally { setTransmitting(false); }
   };
 
@@ -1596,7 +1578,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
 
   const handleAddItem = () => { setCorrectionForm({ ...correctionForm, items: [...correctionForm.items, { id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, reference: '', description: '', quantity: 1, unit: 'unité', unitPrice: 0, tvaRate: 20, total: 0, discount: 0 }] }); };
   const handleRemoveItem = (itemId: string) => { if (correctionForm.items.length === 1) { toast.warning('La facture doit contenir au moins une ligne'); return; } setCorrectionForm({ ...correctionForm, items: correctionForm.items.filter(item => item.id !== itemId) }); };
-  
   const handleUpdateItem = (itemId: string, field: keyof InvoiceItem, value: any) => {
     const numericFields: (keyof InvoiceItem)[] = ['quantity', 'unitPrice', 'tvaRate', 'discount'];
     setCorrectionForm({
@@ -1652,7 +1633,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
         if (transmissionResult.success) toast.success('Facture corrigée et re-transmise !', { description: `Nouvelle référence : ${transmissionResult.transmissionReference}`, duration: 6000 });
         else toast.warning('Facture corrigée mais re-transmission échouée', { description: transmissionResult.errorMessage, duration: 6000 });
       } else { toast.success(`Facture corrigée — prête pour un nouveau dépôt`, { duration: 8000 }); }
-    } catch (e: any) { toast.error(`Erreur : ${e.message}`); } 
+    } catch (e: any) { toast.error(`Erreur : ${e.message}`); }
     finally { setCorrecting(false); }
   };
 
@@ -1690,7 +1671,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
   const originalsWithAdvance = new Set(invoices.filter(i => i && i.type === 'advance' && i.originalInvoiceId && !isDocArchived(i)).map(i => i.originalInvoiceId!));
   const revenueInvoices = revenueInvoicesAll.filter(i => { if (i.type === 'advance' && advancesWithFinal.has(i.$id)) return false; if ((i.type === 'standard' || i.type === 'balance') && originalsWithAdvance.has(i.$id)) return false; return true; });
   const creditInvoices = invoices.filter(i => i && i.type === 'credit' && !isDocArchived(i));
-
   const paidFraction = (i: Invoice | null | undefined): number => { if (!i) return 0; const paid = getEffectivePaidAmount(i); return i.total > 0 ? Math.min(1, paid / i.total) : 0; };
   const caFacture = revenueInvoices.reduce((sum, i) => sum + amountOf(i), 0);
   const tvaFacturee = revenueInvoices.reduce((sum, i) => sum + (i.tax || 0), 0);
@@ -1708,7 +1688,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
   const overdueInvoices = revenueInvoices.filter(i => getDaysOverdue(i.dueDate, i.status) > 0 && getNetRemaining(i) > 0);
   const overdueCount = overdueInvoices.length;
   const overdueAmount = overdueInvoices.reduce((sum, i) => sum + getNetRemaining(i), 0);
-
   const advanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'advance').map(i => i.originalInvoiceId));
   const balanceInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.originalInvoiceId));
   const finalInvoiceIds = new Set(invoices.filter(i => i && i.type === 'standard' && i.originalInvoiceId && invoices.find(a => a && a.$id === i.originalInvoiceId && a.type === 'advance')).map(i => i.$id));
@@ -1738,9 +1717,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
     const hasBalance = balanceInvoiceIds.has(inv.$id);
     const isFinal = finalInvoiceIds.has(inv.$id);
     const isCredit = inv.type === 'credit';
-
     if (viewMode === 'archived') return (<ActionMenuItem onClick={() => handleUnarchive(inv.$id, inv.invoiceNumber)} icon={RotateCcw} label="Désarchiver" />);
-
     return (
       <>
         <ActionMenuItem onClick={() => handleSendToClient(inv)} icon={Send} label="Envoyer au client" />
@@ -1819,21 +1796,20 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
           currency={currency || 'EUR'}
           currencySymbol={currencyConfig?.symbol || '€'}
           action={
-  <div className="flex gap-2">
-    {failedEvents.length > 0 && (
-      <button onClick={handleRetryFailedEvents} className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/30 active:scale-95">
-        <RefreshCw size={16} /> Réessayer {failedEvents.length} événement{failedEvents.length > 1 ? 's' : ''}
-      </button>
-    )}
-    <button
-      onClick={handleCreateInvoice}
-      className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg shadow-purple-500/30 active:scale-95"
-    >
-      <Plus size={16} /> Nouvelle facture
-    </button>
-  </div>
-}
-
+            <div className="flex gap-2">
+              {failedEvents.length > 0 && (
+                <button onClick={handleRetryFailedEvents} className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/30 active:scale-95">
+                  <RefreshCw size={16} /> Réessayer {failedEvents.length} événement{failedEvents.length > 1 ? 's' : ''}
+                </button>
+              )}
+              <button
+                onClick={handleCreateInvoice}
+                className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg shadow-purple-500/30 active:scale-95"
+              >
+                <Plus size={16} /> Nouvelle facture
+              </button>
+            </div>
+          }
         />
         {isFrenchEInvoiceRegime && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
@@ -1857,7 +1833,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </div>
           </div>
         )}
-
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <KPIGrid columns={isSubjectToVAT ? 7 : 6}>
             <StatCell label={`Facturé (${vatBaseLabel})`} value={fm(caFacture)} sublabel={`HT : ${fm(caFacture)} • TVA : ${fm(tvaFacturee)}`} trend={0} />
@@ -1868,14 +1843,11 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             <StatCell label="Reste à encaisser" value={fm(resteAEncaisser)} sublabel="Créances en cours" trend={0} />
             <StatCell label="En retard" value={fm(overdueAmount)} sublabel={`${overdueCount} facture${overdueCount > 1 ? 's' : ''}`} trend={overdueCount > 0 ? -1 : 0} />
           </KPIGrid>
-
           <TypeTabs tabs={typeTabs} activeTab={typeTab} onTabChange={(key) => setTypeTab(key as any)} color="purple" />
-          
           <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
             <button onClick={() => setViewMode('active')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'active' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Actives ({invoices.filter(i => i && !isDocArchived(i)).length})</button>
             <button onClick={() => setViewMode('archived')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'archived' ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Archivées ({invoices.filter(i => i && isDocArchived(i)).length})</button>
           </div>
-
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <div className="relative flex-1">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1897,7 +1869,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
               </>
             )}
           </div>
-
           {loading ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <table className="w-full"><tbody>{[...Array(8)].map((_, i) => <SkeletonRow key={i} />)}</tbody></table>
@@ -2003,7 +1974,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
                 </table>
                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} startItem={startItem} endItem={endItem} totalItems={filtered.length} itemName="facture" />
               </div>
-
               <div className="md:hidden space-y-3">
                 {paginatedInvoices.map(inv => {
                   if (!inv) return null;
@@ -2054,7 +2024,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </>
           )}
         </div>
-
         <Modal open={showQuoteModal} onClose={() => { setShowQuoteModal(false); setQuoteDetails(null); }} title="Devis d'origine" icon={<FileText className="text-emerald-600" size={20} />}>
           {loadingQuote ? (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Chargement du devis...</div>) : quoteDetails ? (
             <div className="space-y-4">
@@ -2074,9 +2043,7 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </div>
           ) : (<div className="text-center py-12 text-slate-500 dark:text-slate-400">Aucune donnée de devis trouvée.</div>)}
         </Modal>
-
         <PaymentModal isOpen={showPaymentModal} onClose={() => { setShowPaymentModal(false); setInvoiceToPay(null); }} invoice={invoiceToPay} type="client" onSuccess={handlePaymentSuccess} />
-
         <Modal open={showAdvanceModal} onClose={() => setShowAdvanceModal(false)} title="Générer une facture d'acompte" icon={<FileText className="text-violet-600" size={20} />}>
           <div className="space-y-4">
             <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Pourcentage d'acompte (%) *</label><input type="number" min="1" max="99" step="0.01" value={advanceForm.percent} onChange={e => setAdvanceForm({ ...advanceForm, percent: e.target.value })} className="w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg p-3 text-sm focus:ring-2 focus:ring-violet-500 outline-none" /><p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">Montant : {(() => { const inv = invoices.find(i => i && i.$id === advanceForm.invoiceId); return inv ? fm(inv.deposit || 0) : fm(0); })()}</p></div>
@@ -2091,7 +2058,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </div>
           </div>
         </Modal>
-
         <Modal open={showCreditModal && !!creditInvoice} onClose={() => setShowCreditModal(false)} title="Créer un avoir" icon={<FileMinus className="text-rose-600" size={20} />}>
           {creditInvoice && (() => {
             const existingCreditsTotal = getTotalCreditsForInvoice(creditInvoice.$id);
@@ -2147,7 +2113,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             );
           })()}
         </Modal>
-
         <Modal open={showRefundModal && !!refundCredit} onClose={() => setShowRefundModal(false)} title="Remboursement d'avoir" icon={<Banknote className="text-rose-600" size={20} />}>
           {refundCredit && (
             <div className="space-y-4">
@@ -2168,7 +2133,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </div>
           )}
         </Modal>
-
         <Modal open={showCorrectionModal && !!invoiceToCorrect} onClose={() => { setShowCorrectionModal(false); setInvoiceToCorrect(null); }} title={`Corriger ${invoiceToCorrect?.invoiceNumber}`} icon={<FileText className="text-amber-600" size={20} />} maxWidth="sm:max-w-5xl">
           {invoiceToCorrect && (
             <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2">
@@ -2237,7 +2201,6 @@ const getDaysOverdue = (dueDate?: string, status?: string) => {
             </div>
           )}
         </Modal>
-
         <TransmissionHistoryModal open={showHistoryModal} onClose={() => { setShowHistoryModal(false); setHistoryInvoice(null); }} invoice={historyInvoice} teamId={currentTeamId} />
       </div>
     </Sidebar>
