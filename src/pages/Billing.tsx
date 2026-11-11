@@ -1,82 +1,47 @@
-// src/pages/Billing.tsx
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { databases, DATABASE_ID } from '../appwrite';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
-import { Query, Models } from 'appwrite';
+import { useSubscription } from '../hooks/useSubscription';
+import { DEFAULT_PLANS } from '../data/plansConfig';
 import { 
   CreditCard, CheckCircle, AlertCircle, Calendar, 
-  ArrowRight, Shield, Loader2, Receipt 
+  ArrowRight, Shield, Loader2, Receipt, Sparkles, Zap
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
-
-interface LicenceDoc extends Models.Document {
-  status: 'active' | 'canceled' | 'paused' | 'expired';
-  startDate: string;
-  expirationDate: string;
-  plan: string; // ID du plan
-  teamId: string;
-}
-
-interface PlanDoc extends Models.Document {
-  name: string;
-  price: number;
-}
+import { toast } from 'sonner';
 
 export default function Billing() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { customTeamId } = useTeam();
+  
+  // Utilise le hook sécurisé qui appelle la fonction Appwrite
+  const { planTier, status, subscriptionRenewsAt, isLoading } = useSubscription();
+  
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
-  const [licence, setLicence] = useState<LicenceDoc | null>(null);
-  const [planDetails, setPlanDetails] = useState<PlanDoc | null>(null);
-  const [loading, setLoading] = useState(true);
-
+  // Détection du paramètre ?success=true après paiement
   useEffect(() => {
-    const fetchBillingData = async () => {
-      if (!customTeamId) {
-        setLoading(false);
-        return;
-      }
+    const successParam = searchParams.get('success');
+    if (successParam === 'true') {
+      setShowSuccessMessage(true);
+      toast.success('🎉 Paiement réussi ! Votre abonnement a été activé.');
+      
+      // Nettoie l'URL après 5 secondes
+      const timer = setTimeout(() => {
+        setShowSuccessMessage(false);
+        navigate('/billing', { replace: true });
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, navigate]);
 
-      try {
-        // 1. Récupérer la licence active de l'équipe (✅ ID corrigé : 'licenses')
-        const licenceRes = await databases.listDocuments<LicenceDoc>(
-          DATABASE_ID,
-          'licenses', 
-          [
-            Query.equal('teamId', customTeamId),
-            Query.equal('status', 'active'),
-            Query.limit(1)
-          ]
-        );
-
-        if (licenceRes.documents.length > 0) {
-          const activeLicence = licenceRes.documents[0];
-          setLicence(activeLicence);
-
-          // 2. Récupérer les détails du plan associé (✅ ID corrigé : 'plans')
-          if (activeLicence.plan) {
-            const planRes = await databases.getDocument<PlanDoc>(
-              DATABASE_ID,
-              'plans',
-              activeLicence.plan
-            );
-            setPlanDetails(planRes);
-          }
-        }
-      } catch (error) {
-        console.error('Erreur lors du chargement des données de facturation:', error);
-        // En cas d'erreur de permission ou autre, on considère qu'il n'y a pas de licence active
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchBillingData();
-  }, [customTeamId]);
-
+  // Récupère les détails du plan depuis la config locale
+  const currentPlan = DEFAULT_PLANS.find(p => p.id === planTier);
+  
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -85,15 +50,27 @@ export default function Billing() {
             <CheckCircle size={14} /> Actif
           </span>
         );
+      case 'trialing':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+            <Sparkles size={14} /> Essai gratuit
+          </span>
+        );
       case 'canceled':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
             <AlertCircle size={14} /> Annulé
           </span>
         );
-      case 'paused':
+      case 'past_due':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            <AlertCircle size={14} /> Paiement en attente
+          </span>
+        );
+      case 'paused':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
             <Calendar size={14} /> En pause
           </span>
         );
@@ -102,7 +79,7 @@ export default function Billing() {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Sidebar>
         <div className="flex items-center justify-center h-[80vh]">
@@ -120,6 +97,24 @@ export default function Billing() {
       <div className="w-full bg-slate-50 dark:bg-slate-900 p-6 lg:p-10">
         <div className="max-w-4xl mx-auto space-y-8">
           
+          {/* Message de succès après paiement */}
+          {showSuccessMessage && (
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-6 flex items-start gap-4 animate-fade-in">
+              <div className="flex-shrink-0 w-12 h-12 bg-emerald-100 dark:bg-emerald-900/40 rounded-full flex items-center justify-center">
+                <CheckCircle className="text-emerald-600 dark:text-emerald-400" size={24} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
+                  Paiement réussi ! 🎉
+                </h3>
+                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
+                  Votre abonnement <strong>{currentPlan?.name || planTier}</strong> est maintenant actif. 
+                  Toutes les fonctionnalités de ce plan sont débloquées.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* En-tête */}
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
@@ -144,23 +139,27 @@ export default function Billing() {
                     </p>
                     <div className="flex items-center gap-3">
                       <h2 className="text-3xl font-bold text-slate-900 dark:text-white">
-                        {planDetails ? planDetails.name : 'Starter (Gratuit)'}
+                        {currentPlan?.name || (planTier === 'free' ? 'Gratuit' : planTier)}
                       </h2>
-                      {licence && getStatusBadge(licence.status)}
+                      {status && getStatusBadge(status)}
                     </div>
                   </div>
 
-                  {planDetails ? (
+                  {currentPlan ? (
                     <div className="flex flex-wrap gap-6 text-sm text-slate-600 dark:text-slate-300">
                       <div className="flex items-center gap-2">
                         <Receipt size={16} className="text-slate-400" />
-                        <span>{planDetails.price}€ / mois</span>
+                        <span>{currentPlan.monthlyPrice}€ / mois</span>
                       </div>
-                      {licence?.expirationDate && (
+                      {subscriptionRenewsAt && (
                         <div className="flex items-center gap-2">
                           <Calendar size={16} className="text-slate-400" />
                           <span>
-                            Prochain renouvellement : {new Date(licence.expirationDate).toLocaleDateString('fr-FR')}
+                            Prochain renouvellement : {new Date(subscriptionRenewsAt).toLocaleDateString('fr-FR', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric'
+                            })}
                           </span>
                         </div>
                       )}
@@ -171,6 +170,23 @@ export default function Billing() {
                       Vous bénéficiez des fonctionnalités de base gratuitement.
                     </p>
                   )}
+
+                  {/* Fonctionnalités incluses */}
+                  {currentPlan && (
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                        Fonctionnalités incluses
+                      </p>
+                      <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {currentPlan.features.slice(0, 4).map((feature, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                            <CheckCircle size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                            <span>{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
@@ -179,15 +195,14 @@ export default function Billing() {
                     onClick={() => navigate('/pricing')}
                     className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95"
                   >
-                    {planDetails ? 'Changer de plan' : 'Passer au Pro'}
+                    {currentPlan ? 'Changer de plan' : 'Passer au Pro'}
                     <ArrowRight size={16} />
                   </button>
                   
-                  {planDetails && (
+                  {currentPlan && planTier !== 'free' && (
                     <button
                       onClick={() => {
-                        // TODO: Intégrer l'URL du Portail Client Paddle ici quand disponible
-                        alert('Le portail de gestion Paddle sera bientôt disponible. Vous pouvez changer de plan via le bouton ci-dessus.');
+                        toast.info('Le portail de gestion sera bientôt disponible.');
                       }}
                       className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-xl transition-all"
                     >
@@ -202,14 +217,40 @@ export default function Billing() {
             <div className="bg-slate-50 dark:bg-slate-800/50 px-6 lg:px-8 py-4 border-t border-slate-200 dark:border-slate-700">
               <p className="text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2">
                 <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                {planDetails 
+                {currentPlan && planTier !== 'free'
                   ? "Votre abonnement sera renouvelé automatiquement à la date indiquée. Vous pouvez l'annuler à tout moment sans frais supplémentaires."
                   : "Aucune carte bancaire n'est requise pour le plan gratuit."}
               </p>
             </div>
           </div>
 
-          {/* Section Historique (Placeholder pour le futur) */}
+          {/* Comparaison rapide avec les autres plans */}
+          {planTier === 'free' && (
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/10 dark:to-indigo-900/10 rounded-2xl border border-purple-200 dark:border-purple-800 p-6 lg:p-8">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 w-12 h-12 bg-purple-100 dark:bg-purple-900/40 rounded-full flex items-center justify-center">
+                  <Zap className="text-purple-600 dark:text-purple-400" size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-purple-900 dark:text-purple-100 mb-2">
+                    Passez à la vitesse supérieure
+                  </h3>
+                  <p className="text-sm text-purple-700 dark:text-purple-300 mb-4">
+                    Débloquez les relances automatiques, la trésorerie en temps réel et bien plus avec le plan Pro.
+                  </p>
+                  <button
+                    onClick={() => navigate('/pricing')}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-all"
+                  >
+                    Voir les plans
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Section Historique */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 lg:p-8">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Historique des factures</h3>
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">
